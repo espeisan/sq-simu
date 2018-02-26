@@ -86,6 +86,6 @@ int main(int argc, char **argv)
   user.freePetscObjs();
   PetscFinalize();
 
-  cout << "\a" << endl;
+  cout << "\a" << endl; cout << "\a" << endl;
   return 0.;
 }

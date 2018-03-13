@@ -162,7 +162,7 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
   bool              contrib_0, contrib_1, contrib_2;
   bool              virtual_mesh;
   bool              is_surface, is_solid, is_cl, is_fsi, is_slv;
-  int               sign_;
+  int               sign_, is_fsiid, is_slvid;
   int               pts_id[15];
 
 
@@ -411,8 +411,10 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
     is_surface = is_in(tag, interface_tags);
     is_solid   = is_in(tag, solid_tags);
     is_cl      = is_in(tag, triple_tags);
-    is_fsi     = is_in(tag, flusoli_tags);
+    is_fsiid   = is_in_id(tag, flusoli_tags);
     is_slv     = is_in(tag, slipvel_tags);
+    is_fsi     = is_in(tag, flusoli_tags);
+    is_slvid   = is_in_id(tag, slipvel_tags);
 
     if ( !(is_surface || is_solid || is_cl || mesh->inBoundary(&*point) || is_fsi || is_slv) )
       continue;
@@ -437,12 +439,12 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);
     }
-    if (is_curvt && (is_fsi || is_slv))
+    if (false /*is_curvt*/ && (is_fsiid+is_slvid))
     {
       point->getCoord(X.data(),dim);
-      Xc << 8.0, 8.0, 0.0;
-      normal = exact_normal_ellipse(X,Xc,0.0,1.20,0.12,dim);
-
+      Xc = XG_0[is_fsiid+is_slvid-1];  //TODO: see what's the correct XG_
+      normal = exact_normal_ellipse(X,Xc,0.0,RV[is_fsiid+is_slvid-1],RV[is_fsiid+is_slvid-1],dim); //theta_ini[is_fsiid+is_slvid-1]
+      cout << "HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE" << endl;
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);
     }
@@ -1431,8 +1433,8 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
         }
         else
         {
-          if (nodsum){                                    //enforces solid motion for the
-            Vm = vectorSolidMesh(nodsum,&*point,nod_vs+nod_id);  //nodsum mesh nodes to calculate mesh velocity //ojo antes solo nod_vs
+          if (nodsum){                                           //enforces solid motion for the nodsum mesh nodes,
+            Vm = vectorSolidMesh(nodsum,&*point,nod_vs+nod_id);  //to calculate mesh velocity //ojo antes solo nod_vs
             tmp(0) = Vm(0); tmp(1) = Vm(1); if (dim == 3) tmp(2) = Vm(2);
           }
           else{
@@ -1514,7 +1516,12 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 
   getNodeDofs(&*point, DH_MESH, VAR_M, dofs.data());
 
-  if (is_bdf3 && time_step > 1){
+  if (is_mr){
+    VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X_0.data());
+    X_1 = XG_1[K-1] + RotM(theta_1[K-1],dim)*RotM(theta_0[K-1],dim).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
+    Vm = (-X_0 + X_1)/dt;
+  }
+  else if (is_bdf3 && time_step > 1){
     VecGetValues(Vec_x_cur, dofs.size(), dofs.data(), X_0.data());
     VecGetValues(Vec_x_0,   dofs.size(), dofs.data(), X_m1.data());
     VecGetValues(Vec_x_aux, dofs.size(), dofs.data(), X_m2.data());
@@ -1552,8 +1559,10 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 PetscErrorCode AppCtx::updateSolidMesh()
 {
   int tag, nod_id, nod_is, nod_vs, nodsum;
-  VectorXi  dofs(dim);
-  Vector    X0(Vector::Zero(3)), Vs(Vector::Zero(3));
+  VectorXi  dofs(dim), dofs_fs(LZ);
+  Vector    X0(Vector::Zero(3)), Vs(Vector::Zero(3)), Zf(Vector::Zero(LZ));
+  vector<bool>   SV(N_Solids,false);  //solid visited history
+  Vector3d  Xg, XG_temp, Us;
 
   point_iterator point = mesh->pointBegin();
   point_iterator point_end = mesh->pointEnd();
@@ -1566,13 +1575,25 @@ PetscErrorCode AppCtx::updateSolidMesh()
     nod_vs = is_in_id(tag,slipvel_tags);
     nodsum = nod_id+nod_is+nod_vs;
     if (nodsum){
+      if (!SV[nodsum-1]){ // extrapolation of mech. system's dofs
+        for (int l = 0; l < LZ; l++){
+          dofs_fs(l) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + l;
+        }
+        VecGetValues(Vec_uzp_0, LZ, dofs_fs.data(), Zf.data());  //cout << dofs_fs.transpose() << endl;
+        Xg = XG_0[nodsum-1];
+        Xg(0) = Xg(0)+(dt/2.0)*Zf(0); Xg(1) = Xg(1)+(dt/2.0)*Zf(1); if (dim == 3){Xg(2) = Xg(2)+(dt/2.0)*Zf(2);}
+        XG_1[nodsum-1] = Xg;                               // if Zf = 0, then XG_1 = XG_0
+        theta_1[nodsum-1] = theta_0[nodsum-1] + (dt/2.0)*Zf(LZ-1);  // if Zf = 0, then theta_1 = theta_0
+        SV[nodsum-1] = true;  //cout << XG_1[nodsum-1].transpose() <<  "   " << theta_1[nodsum-1] << endl;
+      }
+
       getNodeDofs(&*point, DH_MESH, VAR_M, dofs.data());
       VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X0.data());
-      X0 = RotM(theta_1[nodsum-1]-theta_0[nodsum-1],dim)*(X0 - XG_0[nodsum-1]) + XG_1[nodsum-1];// - XG_0[nodsum-1];
+      X0 = XG_1[nodsum-1] + RotM(theta_1[nodsum-1],dim)*RotM(theta_0[nodsum-1],dim).transpose()*(X0 - XG_0[nodsum-1]);// - XG_0[nodsum-1];
       VecSetValues(Vec_x_1, dofs.size(), dofs.data(), X0.data(), INSERT_VALUES);
       if (nod_vs){
         VecGetValues(Vec_slipv_0, dim, dofs.data(), Vs.data());
-        Vs = RotM(theta_1[nod_vs-1]-theta_0[nod_vs-1],dim)*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
+        Vs = RotM(theta_1[nodsum-1],dim)*RotM(theta_0[nodsum-1],dim).transpose()*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
         VecSetValues(Vec_slipv_1, dim, dofs.data(), Vs.data(), INSERT_VALUES);
       }
     }

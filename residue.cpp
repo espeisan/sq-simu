@@ -319,8 +319,8 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
     MatrixXd          v_coefs_c(nodes_per_cell, dim);
     MatrixXd          x_coefs_c_trans(dim, nodes_per_cell);
     MatrixXd          x_coefs_c(nodes_per_cell, dim);
-    MatrixXd          x_coefs_c_new_trans(dim, nodes_per_cell);
-    MatrixXd          x_coefs_c_new(nodes_per_cell, dim);
+    //MatrixXd          x_coefs_c_new_trans(dim, nodes_per_cell);
+    //MatrixXd          x_coefs_c_new(nodes_per_cell, dim);
     MatrixXd          dxqsi_c(nodes_per_cell, dim);
     double            J, weight, JxW, MuE, LambE, ChiE, Jx0;
 
@@ -350,7 +350,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
       /* Pega os valores das variáveis nos graus de liberdade */
       VecGetValues(Vec_v ,  mapV_c.size(), mapV_c.data(), v_coefs_c.data());  //cout << v_coefs_c << endl;//VecView(Vec_v,PETSC_VIEWER_STDOUT_WORLD);
       VecGetValues(Vec_x_0, mapV_c.size(), mapV_c.data(), x_coefs_c.data());  //cout << x_coefs_c << endl;
-      VecGetValues(Vec_x_1, mapV_c.size(), mapV_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl;
+      //VecGetValues(Vec_x_1, mapV_c.size(), mapV_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl;
 
       v_coefs_c_trans = v_coefs_c.transpose();
       x_coefs_c_trans = x_coefs_c.transpose();
@@ -546,7 +546,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     else
     {//imposes a pressure node (the first one in the mesh) at the dirichlet region (or wherever you want)
       point_iterator point = mesh->pointBegin();
-      while (!( mesh->isVertex(&*point) && is_in(point->getTag(),feature_tags/*dirichlet_tags*/) )){/*point->getTag() == 3*/
+      while (!( mesh->isVertex(&*point) && is_in(point->getTag(),/*feature_tags*/dirichlet_tags) )){/*point->getTag() == 3*/
         ++point;
       }
       int x_dofs[3];
@@ -1971,7 +1971,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
   // end LOOP FOR SOLID-ONLY CONTRIBUTION //////////////////////////////////////////////////
 
 
-  // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
+  // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol, NeumBody) //////////////////////////////////////////////////
   //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout))
   {
     int                 tag, sid;
@@ -2010,7 +2010,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     MatrixXd            Prj(n_dofs_u_per_facet,n_dofs_u_per_facet);
     VectorXi            facet_nodes(nodes_per_facet);
 
-    Vector              normal(dim);
+    Vector              normal(dim), traction_(dim), Htau(dim);
     MatrixXd            dxphi_f(n_dofs_u_per_facet/dim, dim);
     Tensor              dxU_f(dim,dim);   // grad u
     Vector              Xqp(dim), Xqpc(3), maxw(3);
@@ -2101,24 +2101,24 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           perE = per_Elect(tag);
         }
 
-        if (is_neumann)
+        if (is_neumann) //////////////////////////////////////////////////
         {
           //Vector no(Xqp);
           //no.normalize();
           //traction_ = utheta*(traction(Xqp,current_time+dt,tag)) + (1.-utheta)*traction(Xqp,current_time,tag);
-          //traction_ = traction(Xqp, normal, current_time + dt*utheta,tag);
+          traction_ = traction(Xqp, normal, current_time + dt*utheta,tag);
           //traction_ = (traction(Xqp,current_time,tag) +4.*traction(Xqp,current_time+dt/2.,tag) + traction(Xqp,current_time+dt,tag))/6.;
 
           for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
           {
             for (int c = 0; c < dim; ++c)
             {
-              //FUloc(i*dim + c) -= JxW_mid * traction_(c) * phi_f[qp][i] ; // força
+              FUloc(i*dim + c) -= JxW_mid * traction_(c) * phi_f[qp][i] ; // força
             }
           }
         }
 
-        if (is_surface)
+        if (is_surface) //////////////////////////////////////////////////
         {
           for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
           {
@@ -2142,8 +2142,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           }//end semi-implicit
         }//end is_surface
 
-
-        if (is_sslv && is_slipvel && false) //for electrophoresis, TODO
+        if (is_sslv && is_slipvel && false) //for electrophoresis, TODO //////////////////////////////////////////////////
         {
           sid = is_in_id(tag, slipvel_tags);
 
@@ -2161,6 +2160,20 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             FSloc.tail(3) = maxw;
           }
         }
+
+/*        if (is_fsi) //for Neumann on the body//////////////////////////////////////////////////
+        {
+          sid = is_in_id(tag, fsi_tags);
+          Htau = force_Htau(Xqp, Vector const& XG, normal, dim, tag, theta);
+          traction_ = traction(Xqp, normal, current_time + dt*utheta,tag);
+          for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
+          {
+            for (int c = 0; c < dim; ++c)
+            {
+              FUloc(i*dim + c) += JxW_mid * Htau(c) * phi_f[qp][i] ; // força
+            }
+          }
+        }*/
 
       }//end Quadrature
 

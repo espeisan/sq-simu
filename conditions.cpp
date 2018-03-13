@@ -42,6 +42,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Tensor RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
 
 double Dif_coeff(int tag);
 double nuB_coeff(int tag);
@@ -1969,11 +1970,11 @@ Vector u_exact(Vector const& X, double t, int tag)
   double y = X(1);
   Vector v(Vector::Zero(X.size()));
   double Um = 10e1/*e-6*/, H = 200;//e-6;
-  if ( tag == 4 || tag == 2 || tag == 1){
+  /*if ( tag == 4 || tag == 2 || tag == 1){
     //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
     v(0) = Um*4*(H-y)*y/(H*H);
     v(1) = 0.0;
-  }
+  }*/
   return v;
 }
 
@@ -1990,11 +1991,11 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
 }
 
 Vector z_exact(Vector const& X, double t, int tag)
-{
+{//for inertialess case, this MUST be zero at t = 0;
   double w2 = 0.0;
   int dim = X.size();
   int LZ = 3*(dim-1);
-  Vector v(Vector::Zero(LZ)); //v << 0, 0, 10;
+  Vector v(Vector::Zero(LZ)); //v << 1, 1, 0;
   //Vector v(Vector::Ones(LZ));
   return v;
 }
@@ -2074,9 +2075,9 @@ Vector solid_veloc(Vector const& X, double t, int tag)
 Tensor feature_proj(Vector const& X, double t, int tag)
 {
   Tensor f(Tensor::Zero(X.size(), X.size()));
-  if (true && tag == 3){
+  if (true && (tag == 4 /*|| tag == 3 || tag == 1*/)){
     f(0,0) = 1;
-    //f(1,1) = 1;
+    f(1,1) = 1;
   }
   return f;
 }
@@ -2232,7 +2233,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
     }
   }
 
-  double psi = 0;
+  double psi = 0.0;
   if (false && dim == 2) //this gives total random swim node
   {
     for (int I = 0; I < 20; I++)
@@ -2258,20 +2259,22 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
   return V;
 }
 
-Vector force_tau(Vector const& X, double t, int tag)//
+Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta)//
 {
   double x = X(0);
   double y = X(1);
+  double psi = 0.0, k = 1.0;
 
   Vector f(Vector::Zero(X.size()));
-//  if (tag == 15)
-//  {
-    f(1) = 0; //-1;//-980.0*1.0;//pho(X,tag);//*1e4;//*1e3;
-//
-//  else
-//  {
-//    f(1) = 0.0;  //-8e-4*1e4;
-//  }
+  if (true && dim == 2)
+  {
+    double B1 = 1.0, B2 = 1.5;
+    psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
+    double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
+    f(0) = -normal(1); f(1) = normal(0);
+    f = k*uthe*f;
+  }
+
   return f;
 }
 

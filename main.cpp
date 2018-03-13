@@ -307,7 +307,8 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   is_bdf_cte_vel     = PETSC_FALSE;
   is_bdf_euler_start = PETSC_FALSE;
   is_bdf_extrap_cte  = PETSC_FALSE;
-  is_basic           = PETSC_TRUE;
+  is_basic           = PETSC_FALSE;
+  is_mr              = PETSC_TRUE;
 
   if ((is_bdf2 && utheta!=1) || (is_bdf3 && utheta!=1))
   {
@@ -515,26 +516,24 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   if (flg_min){
     filemass.assign(minaux);
     int N = N_Solids;
-    double mass = 0.0, rad = 0.0, xg = 0.0, yg = 0.0, zg = 0.0, vol = 0.0;
+    double mass = 0.0, rad = 0.0, vol = 0.0, the = 0.0, xg = 0.0, yg = 0.0, zg = 0.0;
     Vector3d Xg;
     ifstream is;
     is.open(filemass.c_str(),ifstream::in);
     if (!is.good()) {cout << "mass file not found" << endl; throw;}
+    else {cout << "mass file format: mass radius(ellipsoidal case) volume init.angle init.center" << endl;}
     for (; N > 0; N--){
-      is >> mass; is >> rad; is >> vol;
+      is >> mass; is >> rad; is >> vol; is >> the;
       is >> xg; is >> yg; if(dim == 3){is >> zg;}
       Xg << xg, yg, zg;
       MV.push_back(mass); RV.push_back(rad); VV.push_back(vol);
       XG_1.push_back(Xg); XG_0.push_back(Xg); XG_aux.push_back(Xg);
-      theta_1.push_back(0.0); theta_0.push_back(0.0); theta_aux.push_back(0.0); theta_ini.push_back(rand()%6);
+      theta_1.push_back(the); theta_0.push_back(the); theta_aux.push_back(the); theta_ini.push_back(the); //(rand()%6);
     }
     is.close();
     MV.resize(N_Solids); RV.resize(N_Solids); VV.resize(N_Solids);
     XG_1.resize(N_Solids); XG_0.resize(N_Solids); XG_aux.resize(N_Solids);
     theta_1.resize(N_Solids); theta_0.resize(N_Solids); theta_aux.resize(N_Solids); theta_ini.resize(N_Solids);
-    //cout << MV[0] << " " << MV[1] << " " << MV[2] << " " << MV[3] <<  endl;
-    //cout << RV[0] << " " << RV[1] << " " << RV[2] << " " << RV[3] <<  endl;
-    //cout << VV[0] << " " << VV[1] << " " << VV[2] << " " << VV[3] <<  endl;
   }
 
   if (flg_sin){
@@ -1094,9 +1093,9 @@ PetscErrorCode AppCtx::allocPetscObjs()
   //~ PCFactorSetMatSolverPackage(pc_m,MATSOLVERMUMPS);
 //~ #endif
 
-  //ierr = SNESMonitorSet(snes_m, SNESMonitorDefault, 0, 0); CHKERRQ(ierr);
+  ierr = SNESMonitorSet(snes_m, SNESMonitorDefault, 0, 0); CHKERRQ(ierr);
   //ierr = SNESMonitorSet(snes_m,Monitor,0,0);CHKERRQ(ierr);
-  //ierr = SNESSetTolerances(snes_m,1.e-11,1.e-11,1.e-11,10,PETSC_DEFAULT);
+  ierr = SNESSetTolerances(snes_m,1.e-11,1.e-11,1.e-11,10,PETSC_DEFAULT);
   //ierr = SNESSetFromOptions(snes_m); CHKERRQ(ierr);
   //ierr = SNESLineSearchSet(snes_m, SNESLineSearchNo, &user); CHKERRQ(ierr);
 
@@ -1575,6 +1574,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   Vector3d  Xg, XG_temp, Us;
   int       nod_id, nod_is, tag, nod_vs, nodsum;
   int       PI = 1; //Picard Iterations
+  double    p_in;
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
   VecZeroEntries(Vec_v_1);
@@ -1585,19 +1585,18 @@ PetscErrorCode AppCtx::setInitialConditions()
   VecZeroEntries(Vec_uzp_0);
   VecZeroEntries(Vec_uzp_1);
   VecZeroEntries(Vec_uzp_m1);
-  //VecZeroEntries(Vec_duzp); //borrar
+  if (is_mr){
+    VecZeroEntries(Vec_x_cur);
+  }
   if (is_bdf3){
     VecZeroEntries(Vec_x_aux);
     VecZeroEntries(Vec_uzp_m2);
-    //VecZeroEntries(Vec_duzp_0); //borrar
   }
   if (is_slipv){
     VecZeroEntries(Vec_slipv_0);
     VecZeroEntries(Vec_slipv_1);
     VecZeroEntries(Vec_slipv_m1);
     if (is_bdf3){VecZeroEntries(Vec_slipv_m2);}
-    //VecZeroEntries(Vec_uzp_0_ns); //borrar
-    //VecZeroEntries(Vec_uzp_1_ns); //borrar
     if (is_sslv){VecZeroEntries(Vec_slip_rho);}
   }
   if (is_sfip && (is_bdf2 || is_bdf3))
@@ -1619,8 +1618,8 @@ PetscErrorCode AppCtx::setInitialConditions()
     calcSlipVelocity(Vec_x_1, Vec_slipv_0);
     //View(Vec_slipv_0,"matrizes/slv0.m","sl0");
   }
-
-  // velocidade inicial e pressao inicial, guardados em Vec_uzp_0
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // velocidade inicial e pressao inicial, guardados em Vec_uzp_0 //////////////////////////////////////////////////
   point_iterator point = mesh->pointBegin();
   point_iterator point_end = mesh->pointEnd();
   for (; point != point_end; ++point)
@@ -1631,7 +1630,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     if (mesh->isVertex(&*point))
     {
       getNodeDofs(&*point, DH_UNKM, VAR_P, dofs.data());
-      double p_in = p_initial(X, tag);
+      p_in = p_initial(X, tag);
       VecSetValues(Vec_uzp_0,1,dofs.data(),&p_in,INSERT_VALUES);
       //VecSetValues(Vec_uzp_1,1,dofs.data(),&p_in,INSERT_VALUES);
     }
@@ -1647,7 +1646,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //VecSetValues(Vec_uzp_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
       if (nod_vs+nod_id){  //ojo antes solo nod_vs
         getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
-        if(!is_sslv){
+        if(!is_sslv){  //calculate slip velocity at slipvel nodes (and in fsi nodes, which is not a problem, cause this is just a shoot) TODO
           VecGetValues(Vec_normal, dim, dofs_mesh.data(), Nr.data());
           Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs
           VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
@@ -1669,8 +1668,8 @@ PetscErrorCode AppCtx::setInitialConditions()
         //VecSetValues(Vec_uzp_1, LZ, dofs_fs.data(), Zf.data(), INSERT_VALUES);
         Xg = XG_0[nodsum-1];
         Xg(0) = Xg(0)+dt*Zf(0); Xg(1) = Xg(1)+dt*Zf(1); if (dim == 3){Xg(2) = Xg(2)+dt*Zf(2);}
-        XG_1[nodsum-1] = Xg;
-        theta_1[nodsum-1] = theta_0[nodsum-1] + dt*Zf(2);
+        XG_1[nodsum-1] = Xg;                               // if Zf = 0, then XG_1 = XG_0
+        theta_1[nodsum-1] = theta_0[nodsum-1] + dt*Zf(2);  // if Zf = 0, then theta_1 = theta_0
         SV[nodsum-1] = true;  //cout << XG_1[nodsum-1].transpose() <<  "   " << theta_1[nodsum-1] << endl;
       }
     }
@@ -1679,22 +1678,60 @@ PetscErrorCode AppCtx::setInitialConditions()
       VecSetValues(Vec_uzp_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);  //cout << dofs.transpose() << endl;
       //VecSetValues(Vec_uzp_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
     }
-  } // end point loop
+  } // end point loop //////////////////////////////////////////////////
+
   View(Vec_x_0,"matrizes/xv0.m","x0");
-  if (is_sslv){View(Vec_slipv_0,"matrizes/sv0.m","s0");}
+  if (is_sfip){View(Vec_slipv_0,"matrizes/sv0.m","s0");}
   View(Vec_tangent,"matrizes/tv0.m","t0");
   View(Vec_normal,"matrizes/nr0.m","n0");
   if (true) {getFromBSV();}  //to calculate the analitical squirmer velocity
-//  orthogTest(Vec_slipv_0, Vec_normal); cout << "\n\n"; orthogTest(Vec_slipv_1, Vec_normal);
-//  if (is_basic){
-//    if (is_sfip){moveCenterMass(0.0);}
-//    PetscFunctionReturn(0);
-//  }
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
   //Assembly(Vec_uzp_0);  View(Vec_uzp_0,"matrizes/vuzp0.m","vuzp0m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
   //Assembly(Vec_slipv_0);  View(Vec_slipv_0,"matrizes/slip0.m","slipm");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
   VecCopy(Vec_uzp_0,Vec_uzp_1);  //PetscInt size1; //u_unk+z_unk+p_unk //VecGetSize(Vec_up_0,&size1);
   //VecCopy(Vec_slipv_0, Vec_slipv_1);
   //plotFiles();
+
+  for (int i = 0; i < PI; ++i)  // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
+  {
+    // extrapolation and compatibilization of the mesh
+    VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
+    updateSolidMesh(); //extrap of mech. system dofs, and compatibilization
+
+    // solve (Navier-)Stokes problem by NR iterations
+    setUPInitialGuess();  // initial guess saved at Vec_uzp_1
+    // * SOLVE THE SYSTEM *
+    if (solve_the_sys)
+    { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
+      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
+    }
+
+
+
+
+  } // end Picard Iterartions loop //////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   // remember: Vec_normals follows the Vec_x_1
   calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.0, Vec_v_mid, 0.0); //Vec_up_0 = Vec_up_1, vtheta = 1.0, mean b.c. = Vec_up_1 = Vec_v_mid init. guess SNESSolve
   if (is_sslv){View(Vec_slipv_1,"matrizes/sv1.m","s1");}
@@ -4294,10 +4331,10 @@ int main(int argc, char **argv)
 
   cout << endl;
   if (user.N_Solids){
-    cout << "flusoli_tags (body Neumann tags) =  ";
+    cout << "flusoli_tags (body Neumann tags) = ";
     if ((int)user.flusoli_tags.size() > 0){cout << user.flusoli_tags[0] << " - " << user.flusoli_tags[(int)user.flusoli_tags.size()-1] << endl;}
     else {cout << "No tags" << endl;}
-    cout << "slipvel_tags (body Dirichlet tags) =  ";
+    cout << "slipvel_tags (body Dirichlet tags) = ";
     if ((int)user.slipvel_tags.size() > 0){cout << user.slipvel_tags[0] << " - " << user.slipvel_tags[(int)user.slipvel_tags.size()-1] << endl;}
     else {cout << "No tags" << endl;}
     //for (int i = 0; i < (int)user.flusoli_tags.size(); ++i)

@@ -137,6 +137,7 @@ TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Tensor RotM(double theta, int dim);
 //Vector SlipVel(Vector const& X, Vector const& XG, int dim, int tag);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
 
 double Dif_coeff(int tag);
 double nuB_coeff(int tag);
@@ -548,6 +549,7 @@ public:
   PetscBool   is_sfip;
   PetscBool   is_sfim;
   PetscBool   is_curvt;
+  PetscBool   is_mr;
   
   int         converged_times;
   double      dt;
@@ -691,7 +693,7 @@ public:
   int                    N_Solids, LZ;
   std::vector<int>       NN_Solids;
   std::vector<double>    MV, RV, VV;  //mass vector, radius vector, area vector
-  std::vector<Vector3d>  XG_0, XG_1, XG_aux;
+  std::vector<Vector3d>  XG_0, XG_1, XG_aux, XG_ini;
   double                 hme, hmn, hmx;
   std::vector<double>    theta_0, theta_1, theta_aux, theta_ini;
   std::vector<Tensor3>   InTen;

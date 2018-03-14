@@ -40,7 +40,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
-Tensor RotM(double theta, int dim);
+Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
 Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
 
@@ -2186,9 +2186,9 @@ TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI)
   return MI;
 }
 
-Tensor RotM(double theta, int dim)
+Matrix3d RotM(double theta, int dim)
 {
-  Tensor M(Tensor::Zero(3,3));
+  Matrix3d M(Matrix3d::Zero(3,3));
   if (dim == 2){
     M(0,0) = cos(theta); M(0,1) = -sin(theta);
     M(1,0) = sin(theta); M(1,1) =  cos(theta);

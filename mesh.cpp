@@ -1512,7 +1512,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
 Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 {
   VectorXi  dofs(dim);
-  Vector    Vm(Vector::Zero(3)), X_1(3), X_0(3), X_m1(3), X_m2(3), Vs(Vector::Zero(3));;
+  Vector3d  Vm(Vector::Zero(3)), X_1(3), X_0(3), X_m1(3), X_m2(3), Vs(Vector::Zero(3));
 
   getNodeDofs(&*point, DH_MESH, VAR_M, dofs.data());
 
@@ -1549,7 +1549,7 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 
   if (vs && !is_sslv){
     VecGetValues(Vec_slipv_0, dim, dofs.data(), Vs.data());
-    Vs = RotM(theta_1[vs-1]-theta_0[vs-1],dim)*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
+    Vs = RotM(theta_1[vs-1],dim)*RotM(theta_0[vs-1],dim).transpose()*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
     VecSetValues(Vec_slipv_1, dim, dofs.data(), Vs.data(), INSERT_VALUES);
   }
 
@@ -1560,7 +1560,8 @@ PetscErrorCode AppCtx::updateSolidMesh()
 {
   int tag, nod_id, nod_is, nod_vs, nodsum;
   VectorXi  dofs(dim), dofs_fs(LZ);
-  Vector    X0(Vector::Zero(3)), Vs(Vector::Zero(3)), Zf(Vector::Zero(LZ));
+  Vector3d  X0(Vector3d::Zero(3)), Vs(Vector3d::Zero(3));
+  Vector    Zf(Vector::Zero(LZ));
   vector<bool>   SV(N_Solids,false);  //solid visited history
   Vector3d  Xg, XG_temp, Us;
 

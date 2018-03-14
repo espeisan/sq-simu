@@ -134,7 +134,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
-Tensor RotM(double theta, int dim);
+Matrix3d RotM(double theta, int dim);
 //Vector SlipVel(Vector const& X, Vector const& XG, int dim, int tag);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
 Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);

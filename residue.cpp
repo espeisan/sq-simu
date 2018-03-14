@@ -296,7 +296,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
   double utheta = AppCtx::utheta;  //cout << "mesh" << endl;
 
   // NOTE: solve elasticity problem in the mesh at time step n
-  // NOTE: The mesh used is the Vec_x_0
+  // NOTE: The mesh used is the Vec_x_0 or Vec_x_1, look for MESH CHOISE
   // WARNING: this function assumes that the boundary conditions was already applied
 
   Mat *JJ = &Mat_Jac_m;
@@ -349,7 +349,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
       //dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);  //cout << mapU_c.transpose() << endl;
       /* Pega os valores das variáveis nos graus de liberdade */
       VecGetValues(Vec_v ,  mapV_c.size(), mapV_c.data(), v_coefs_c.data());  //cout << v_coefs_c << endl;//VecView(Vec_v,PETSC_VIEWER_STDOUT_WORLD);
-      VecGetValues(Vec_x_0, mapV_c.size(), mapV_c.data(), x_coefs_c.data());  //cout << x_coefs_c << endl;
+      VecGetValues(Vec_x_1, mapV_c.size(), mapV_c.data(), x_coefs_c.data());  //cout << x_coefs_c << endl;// MESH CHOISE
       //VecGetValues(Vec_x_1, mapV_c.size(), mapV_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl;
 
       v_coefs_c_trans = v_coefs_c.transpose();
@@ -443,7 +443,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
       // Projection - to force non-penetrarion bc
       mesh->getCellNodesId(&*cell, cell_nodes.data());
-      getProjectorBC(Prj, nodes_per_cell, cell_nodes.data(), Vec_x_0, current_time, *this /*AppCtx*/);
+      getProjectorBC(Prj, nodes_per_cell, cell_nodes.data(), Vec_x_1, current_time, *this /*AppCtx*/); // MESH CHOISE
       Floc = Prj*Floc;  //cout << Floc.transpose() << endl;
       Aloc = Prj*Aloc*Prj;  //zeros at dirichlet nodes (lines and columns)
 
@@ -505,7 +505,6 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
   PetscFunctionReturn(0);
 }
 
-
 PetscErrorCode AppCtx::formJacobian_mesh(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**Mat_Jac*/, Mat* /*prejac*/, MatStructure * /*flag*/)
 {
   // jacobian matrix is done in the formFunction_mesh
@@ -519,6 +518,8 @@ PetscErrorCode AppCtx::formJacobian_mesh(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**
 PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun_fs)
 {
   double utheta = AppCtx::utheta;
+
+  if (is_mr){utheta = 1.0;}
 
   VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);
   VecSetOption(Vec_uzp_k, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);
@@ -2261,7 +2262,6 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
 } // END formFunction
 
-
 PetscErrorCode AppCtx::formJacobian_fs(SNES snes_fs,Vec Vec_uzp_k, Mat* /*Mat_Jac*/, Mat* /*prejac*/, MatStructure * /*flag*/)
 {
   PetscBool          found = PETSC_FALSE;
@@ -2581,7 +2581,6 @@ PetscErrorCode AppCtx::formFunction_sqrm(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
   //cout << "Mesh calculation:" << endl;
   PetscFunctionReturn(0);
 }
-
 
 PetscErrorCode AppCtx::formJacobian_sqrm(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**Mat_Jac*/, Mat* /*prejac*/, MatStructure * /*flag*/)
 {

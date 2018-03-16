@@ -2075,7 +2075,7 @@ Vector solid_veloc(Vector const& X, double t, int tag)
 Tensor feature_proj(Vector const& X, double t, int tag)
 {
   Tensor f(Tensor::Zero(X.size(), X.size()));
-  if (true && (tag == 4 /*|| tag == 3 || tag == 1*/)){
+  if (false && (tag == 4 /*|| tag == 3 || tag == 1*/)){
     f(0,0) = 1;
     f(1,1) = 1;
   }
@@ -2249,7 +2249,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
 
   if (true && dim == 2)
   {
-    double B1 = 1.0, B2 = 1.5;
+    double B1 = 1.5, B2 = 1.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
     V(0) = -normal(1); V(1) = normal(0);

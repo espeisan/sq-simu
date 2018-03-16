@@ -1454,8 +1454,9 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
   //sprintf(buf1,"matrizes/vmid1_%d.m",time_step); sprintf(buf2,"vmidm1_%d",time_step); View(Vec_v_mid, buf1, buf2);
   if (!force_mesh_velocity)
   {
-    cout << "\nMesh solver" << endl;
+    cout << "-----Mesh solver-----" << endl;
     ierr = SNESSolve(snes_m, PETSC_NULL, Vec_v_mid);  CHKERRQ(ierr);
+    cout << "---------------------" << endl;
   }
   //View(Vec_v_mid,"matrizes/vmid2.m","vmidm2");
   //sprintf(buf1,"matrizes/vmid2_%d.m",time_step); sprintf(buf2,"vmidm2_%d",time_step); View(Vec_v_mid, buf1, buf2);
@@ -2115,7 +2116,7 @@ PetscErrorCode AppCtx::meshAdapt_l()
     for (int v = 0; v < L; ++v)
     {
       if (is_slipv){
-        if ((is_mr_ab || is_basic) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
+        if ((is_mr_ab || is_basic || is_mr) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
           continue;
         else if (is_bdf2 && (v == 5 || v == 6 || v == 10))
           continue;
@@ -2711,7 +2712,6 @@ void AppCtx::smoothsMesh_s(Vec &Vec_normal_, Vec &Vec_x_)
   getVecNormals(&Vec_x_, Vec_normal_);
 }
 
-
 PetscErrorCode AppCtx::meshAdapt_s()
 {
   PetscErrorCode      ierr;
@@ -2912,7 +2912,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     for (int v = 0; v < L; ++v)
     {
       if (is_slipv){
-        if ((is_mr_ab || is_basic) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
+        if ((is_mr_ab || is_basic || is_mr) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
           continue;
         else if (is_bdf2 && (v == 5 || v == 6 || v == 10))
           continue;
@@ -3147,7 +3147,8 @@ PetscErrorCode AppCtx::meshAdapt_s()
   ierr = SNESGetKSP(snes_m,&ksp_m);                                                      CHKERRQ(ierr);
   ierr = KSPGetPC(ksp_m,&pc_m);                                                          CHKERRQ(ierr);
   ierr = KSPSetOperators(ksp_m,Mat_Jac_m,Mat_Jac_m,SAME_NONZERO_PATTERN);                CHKERRQ(ierr);
-  ierr = KSPSetType(ksp_m,KSPPREONLY);                                                   CHKERRQ(ierr);
+  ierr = KSPSetType(ksp_m,KSPGMRES);                                                     CHKERRQ(ierr); //gmres iterative method for mesh
+  //ierr = KSPSetType(ksp_m,KSPPREONLY);                                                   CHKERRQ(ierr);
   ierr = PCSetType(pc_m,PCLU);                                                           CHKERRQ(ierr);
   ierr = SNESSetFromOptions(snes_m); CHKERRQ(ierr);
   if(false && !nonlinear_elasticity)
@@ -3249,6 +3250,36 @@ PetscErrorCode AppCtx::meshAdapt_s()
 
   printf("\nMesh adapted.\n\n");
 
+  PetscFunctionReturn(0);
+}
+
+PetscErrorCode AppCtx::meshFlipping_s()
+{
+  // MESH FLIPPING
+  if(time_step%1 == 0)
+  {
+    if (dim==2)
+    {
+      Facet *f;
+      Cell* ca, *cb;
+      // Delaunay
+      for (int i = 0; i < n_facets_total; ++i)
+      {
+        f = mesh->getFacetPtr(i);
+        if (f->isDisabled())
+          continue;
+        if (!MeshToolsTri::inCircle2d(f, &*mesh))
+        {
+          ca = mesh->getCellPtr(f->getIncidCell());
+          cb = mesh->getCellPtr(ca->getIncidCell(f->getPosition()));
+
+          if (cb)
+            if (ca->getTag() == cb->getTag())
+              MeshToolsTri::flipEdge(f, &*mesh, true);
+        }
+      }
+    } // end dim==2
+  } // end ts%1
   PetscFunctionReturn(0);
 }
 

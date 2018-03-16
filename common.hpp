@@ -488,6 +488,7 @@ public:
   PetscErrorCode plotFiles();
   Vector vectorSolidMesh(int const K, Point const* point, int const vs);
   void getFromBSV();
+  PetscErrorCode saveDOFSinfo();
   Vector u_exacta(Vector const& X, double t, int tag);
   //void printContactAngle(bool _print);
 
@@ -756,6 +757,10 @@ public:
   //time adaptation
   Vec                 Vec_uzp_time_aux, Vec_x_time_aux;
 
+  //mech. dofs printing information
+  ofstream            filg, filv;
+  char                gravc[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN];
+
   // For Luzia's methods
   double h_star, Q_star, beta_l, L_min, L_max, L_range, L_low, L_sup;
   double quality_m(Mesh *mesh);
@@ -769,6 +774,7 @@ public:
 
 
   PetscErrorCode meshAdapt_s();
+  PetscErrorCode meshFlipping_s();
   void smoothsMesh_s(Vec &Vec_normal_, Vec &Vec_x_);
   PetscErrorCode calcSlipVelocity(Vec const& Vec_x_1, Vec& Vec_slipv);
   PetscErrorCode getMeshSizes();

@@ -4,7 +4,7 @@
 #define CONTRACT2(i,j,     size_i, size_j)                 for (int i = 0; i < size_i; ++i) for (int j = 0; j < size_j; ++j)
 #define CONTRACT3(i,j,k,   size_i, size_j, size_k)         for (int i = 0; i < size_i; ++i) for (int j = 0; j < size_j; ++j) for (int k = 0; k < size_k; ++k)
 #define CONTRACT4(i,j,k,l, size_i, size_j, size_k, size_l) for (int i = 0; i < size_i; ++i) for (int j = 0; j < size_j; ++j) for (int k = 0; k < size_k; ++k) for (int l = 0; l < size_l; ++l)
- 
+
 
 
 int epsilon(int i, int j, int k)  // permutation function
@@ -213,7 +213,9 @@ void getProjectorBC(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
         P.block(i*dim,i*dim,dim,dim)  = feature_proj(X,t,tag);
       }
       else
+      {
         P.block(i*dim,i*dim,dim,dim) = Z;
+      }
     }
     else
     if (is_in(tag,solid_tags) )
@@ -2020,6 +2022,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     double              J_mid = 0,JxW_mid;
     double              weight = 0, perE = 0;
 
+    Vector3d            Xg, XIg;
+    Vector              XIp(dim);
+
+
     facet_iterator facet = mesh->facetBegin();
     facet_iterator facet_end = mesh->facetEnd();  // the next if controls the for that follows
 
@@ -2117,7 +2123,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
               FUloc(i*dim + c) -= JxW_mid * traction_(c) * phi_f[qp][i] ; // força
             }
           }
-        }
+        }//end is_neumann //////////////////////////////////////////////////
 
         if (is_surface) //////////////////////////////////////////////////
         {
@@ -2141,7 +2147,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
                 for (int c = 0; c < dim; ++c)
                   Aloc_f(i*dim + c, j*dim + c) += utheta*JxW_mid* (unsteady*dt) *gama(Xqp,current_time,tag)*dxphi_f.row(i).dot(dxphi_f.row(j));
           }//end semi-implicit
-        }//end is_surface
+        }//end is_surface //////////////////////////////////////////////////
 
         if (is_sslv && is_slipvel && false) //for electrophoresis, TODO //////////////////////////////////////////////////
         {
@@ -2162,19 +2168,33 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           }
         }
 
-/*        if (is_fsi) //for Neumann on the body//////////////////////////////////////////////////
+        if (is_fsi && true) //for Neumann on the body//////////////////////////////////////////////////
         {
-          sid = is_in_id(tag, fsi_tags);
-          Htau = force_Htau(Xqp, Vector const& XG, normal, dim, tag, theta);
-          traction_ = traction(Xqp, normal, current_time + dt*utheta,tag);
+          sid = is_in_id(tag, flusoli_tags);
+          Xg = XG_mid[sid-1];
+          Htau = force_Htau(Xqp, Xg, normal, dim, tag, theta_1[sid-1]);
           for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
           {
             for (int c = 0; c < dim; ++c)
             {
-              FUloc(i*dim + c) += JxW_mid * Htau(c) * phi_f[qp][i] ; // força
+              FUloc(i*dim + c) += JxW_mid * Htau(c) * phi_f[qp][i]; // força
             }
           }
-        }*/
+
+          for (int I = 0; I < n_dofs_u_per_facet/dim; I++){
+            int K = sid;
+            if (K != 0){
+              XIp   = x_coefs_f_mid_trans.col(I); //ref point Xp, old, mid, or new
+              XIg   = XG_mid[K-1];                //mass center, mid, _0, "new"
+              ConfI = dxU * Uconv_qp;             //conv * grad U
+              for (int C = 0; C < LZ; C++){
+                RotfI = SolidVel(XIp,XIg,IdZ.col(C),dim); //fixed evaluation point Xp, old, mid or new
+                FZloc(I*LZ + C) += JxW_mid*Htau.dot(RotfI)*phi_c[qp][I];
+              }
+            }
+          }
+
+        }//end Neumann on the body//////////////////////////////////////////////////
 
       }//end Quadrature
 

@@ -1708,13 +1708,13 @@ PetscErrorCode AppCtx::setInitialConditions()
   }
   saveDOFSinfo();
 
-  // extrapolation and compatibilization of the mesh
-  VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
-  if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization
-
   for (int pic = 0; pic < PI; pic++) // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
   {
     printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
+
+    // extrapolation and compatibilization of the mesh
+    VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
+    if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
 
     // solve (Navier-)Stokes problem by NR iterations
     setUPInitialGuess();  // initial guess saved at Vec_uzp_1
@@ -1722,24 +1722,23 @@ PetscErrorCode AppCtx::setInitialConditions()
     if (solve_the_sys)
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
+      if (is_sfip){updateSolidVel();}
     }
-  }
-    if (is_sfip){updateSolidVel();}
+
+    if ((pic+1) < PI){
+      //VecCopy(Vec_x_1, Vec_x_0);
+      //XG_0 = XG_1; theta_0 = theta_1;
+      VecCopy(Vec_uzp_1, Vec_uzp_0);
+      //VecCopy(Vec_slipv_1, Vec_slipv_0);
+      //copyVec2Mesh(Vec_x_0);
+      //saveDOFSinfo();
+      //if (family_files){plotFiles();}
+    }
     // update mesh and mech. dofs
     moveCenterMass(0.0);
     calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.0, Vec_v_mid, 0.0);
     VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
-
-/*    if ((pic+1) < PI){
-      VecCopy(Vec_x_1, Vec_x_0);
-      XG_0 = XG_1; theta_0 = theta_1;
-      VecCopy(Vec_uzp_1, Vec_uzp_0);
-      VecCopy(Vec_slipv_1, Vec_slipv_0);
-      copyVec2Mesh(Vec_x_0);
-      saveDOFSinfo();
-      if (family_files){plotFiles();}
-    }*/
-  //} // end Picard Iterartions loop //////////////////////////////////////////////////
+  }// end Picard Iterartions loop //////////////////////////////////////////////////
   copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
 
   cout << "--------------------------------------------------" << endl;
@@ -1884,7 +1883,11 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
   double Qmax = 0;
   double steady_error = 1;
+
+  //////////////////////////////////////////////////
   setInitialConditions();  //called only here
+  //////////////////////////////////////////////////
+
   int its;
 
   current_time += dt;
@@ -2001,55 +2004,6 @@ PetscErrorCode AppCtx::solveTimeProblem()
       break;
     }
 
-    //bool const full_implicit = false; //bool const try2 = false; // extrapolate geometry Vec_x_1 <- 2*Vec_x_1 - Vec_x_0
-
-/*    // Printing mech. dofs information //////////////////////////////////////////////////
-    if (fprint_hgv && is_sfip){
-      if ((time_step%print_step)==0 || time_step == (maxts-1)){
-        getSolidVolume();
-        for (int S = 0; S < LZ*N_Solids; S++){
-          mapvs[S] = n_unknowns_u + n_unknowns_p + S;
-        }
-        VecGetValues(Vec_uzp_0,mapvs.size(),mapvs.data(),v_coeffs_s.data());
-        filg.open(gravc,iostream::app);
-        filg.precision(15);
-        filg.setf(iostream::fixed, iostream::floatfield);
-        filv.open(velc,iostream::app);
-        filv.precision(15);
-        filv.setf(iostream::fixed, iostream::floatfield);
-        filg << current_time << " ";
-        filv << current_time << " ";
-        for (int S = 0; S < (N_Solids-1); S++){
-          Xgg = XG_0[S];
-          filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << VV[S] << " " << theta_0[S] << " ";
-          filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1) << " " << v_coeffs_s(LZ*S+2) << " ";
-        }
-        Xgg = XG_0[N_Solids-1];
-        filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << VV[N_Solids-1] << " " << theta_0[N_Solids-1] << endl;
-        filv << v_coeffs_s(LZ*(N_Solids-1)) << " " << v_coeffs_s(LZ*(N_Solids-1)+1) << " "
-             << v_coeffs_s(LZ*(N_Solids-1)+2);
-        if (dim == 3){
-          filv << " " << v_coeffs_s(LZ*(N_Solids-1)+3) << " " << v_coeffs_s(LZ*(N_Solids-1)+4) << " "
-              << v_coeffs_s(LZ*(N_Solids-1)+5);
-        }
-        filv << endl;
-        filg.close();  //TT++;
-        filv.close();
-      }
-    } // end Printing mech. dofs information //////////////////////////////////////////////////*/
-    if (is_basic && !unsteady && time_step > 0 && maxts == 2){
-      plotFiles();
-      cout << "\n==========================================\n";
-      cout << "stop reason:\n";
-      cout << "maximum number of iterations reached. \n";
-      break;
-    }
-    //char buf1[18], buf2[10];
-    //sprintf(buf1,"matrizes/sol%d.m",time_step); sprintf(buf2,"solm%d",time_step);
-    //View(Vec_uzp_0, buf1, buf2);
-    //sprintf(buf1,"matrizes/mal%d.m",time_step); sprintf(buf2,"malm%d",time_step);
-    //View(Vec_x_0, buf1, buf2);  //TT++;
-
     // Preparing data at time n
     VecCopy(Vec_x_1, Vec_x_0);
     XG_0 = XG_1;
@@ -2062,6 +2016,15 @@ PetscErrorCode AppCtx::solveTimeProblem()
       plotFiles();
     }
     saveDOFSinfo();
+
+    if ((is_basic || is_mr) && !unsteady && time_step > 0 && maxts == 2){
+      plotFiles();
+      cout << "\n==========================================\n";
+      cout << "stop reason:\n";
+      cout << "maximum number of iterations reached. \n";
+      break;
+    }
+
     VecCopy(Vec_slipv_1, Vec_slipv_0);
 
     for (int pic = 0; pic < PI; pic++) // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
@@ -2091,340 +2054,18 @@ PetscErrorCode AppCtx::solveTimeProblem()
              << "--------------------------------------------------" << endl;
       }
 
+      if ((pic+1) < PI){
+        VecCopy(Vec_uzp_1, Vec_uzp_0);
+      }
+
       // update mesh and mech. dofs
       moveCenterMass(0.0);
       calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.0, Vec_v_mid, 0.0);
       VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
     }
 
-
-/*    if (is_bdf2)
-    {
-      if (plot_exact_sol)
-        computeError(Vec_x_0, Vec_uzp_0,current_time);
-
-      VecCopy(Vec_uzp_0,Vec_uzp_m1);
-      if (is_bdf2_ab)
-        VecCopy(Vec_v_1,Vec_v_mid);
-
-      if (is_slipv) VecCopy(Vec_slipv_0,Vec_slipv_m1);
-    }
-    else if (is_bdf3)
-    {
-      if (plot_exact_sol)
-        computeError(Vec_x_0, Vec_uzp_0,current_time);
-      ////-----
-      VecCopy(Vec_uzp_m1,Vec_uzp_m2);
-      VecCopy(Vec_uzp_0,Vec_uzp_m1);
-      if (is_slipv){
-        VecCopy(Vec_slipv_m1,Vec_slipv_m2);
-        VecCopy(Vec_slipv_0,Vec_slipv_m1);
-      }
-      ///-----
-      //VecCopy(Vec_duzp, Vec_duzp_0);
-      //VecCopy(Vec_uzp_1, Vec_duzp);
-      //VecAXPY(Vec_duzp,-1.0,Vec_uzp_0); // Vec_dup -= Vec_up_0
-      //VecScale(Vec_duzp, 1./dt);
-      ///-----
-    }
-    else
-    if (is_mr_ab) //for MR-AB, modifies P from Vec_uzp_0
-    {
-      if (time_step == 0)
-      {
-        pressureTimeCorrection(Vec_uzp_0, Vec_uzp_1, 0., 1); // press(n) = press(n+1/2) - press(n-1/2)
-        if (plot_exact_sol && maxts <= 1)
-          computeError(Vec_x_0, Vec_uzp_0,current_time);
-      }
-      else
-      {
-        pressureTimeCorrection(Vec_uzp_0, Vec_uzp_1, .5, .5); // press(n) = press(n+1/2) - press(n-1/2)
-        if (plot_exact_sol)
-          computeError(Vec_x_0, Vec_uzp_0,current_time);//computeError(Vec_x_0, Vec_up_0,current_time);
-      }
-    }
-
-    bool must_print = false;
-    if (is_bdf2)
-    {
-      if (((time_step-1)%print_step)==0 || time_step == (maxts-1))
-        must_print = true;
-    }
-    else
-    if (is_bdf3)
-    {
-      if (((time_step-2)%print_step)==0 || time_step == (maxts-1))
-        must_print = true;
-    }
-    else
-      if ((time_step%print_step)==0 || time_step == (maxts-1))
-        must_print = true;
-
-    if (must_print)  // print files
-    {
-      if (family_files)
-      {
-        plotFiles();
-        ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
-        cout << "# snes iterations: " << its << endl
-             << "--------------------------------------------------" << endl;
-      }
-    }*/
-
-    //printContactAngle(fprint_ca);
-    //////if (plot_exact_sol) eh melhor depois da atualização
-    //////  computeError(Vec_x_1, Vec_up_1,current_time+dt);
     current_time += dt;
     time_step += 1;
-
-
-    // update //////////////////////////////////////////////////
-    if (false && ale)
-    {
-      // MESH ADAPTATION (it has topological changes) (2d only) it destroys Vec_normal and Vec_v_mid
-      if (mesh_adapt)
-        meshAdapt_s(); //meshAdapt()_l;
-
-      copyVec2Mesh(Vec_x_1);
-
-      // MESH FLIPPING
-      if (mesh_adapt)
-      {
-        if(time_step%1 == 0)
-        {
-          if (dim==2)
-          {
-            Facet *f;
-            Cell* ca, *cb;
-            // Delaunay
-            for (int i = 0; i < n_facets_total; ++i)
-            {
-              f = mesh->getFacetPtr(i);
-              if (f->isDisabled())
-                continue;
-              if (!MeshToolsTri::inCircle2d(f, &*mesh))
-              {
-                ca = mesh->getCellPtr(f->getIncidCell());
-                cb = mesh->getCellPtr(ca->getIncidCell(f->getPosition()));
-
-                if (cb)
-                  if (ca->getTag() == cb->getTag())
-                    MeshToolsTri::flipEdge(f, &*mesh, true);
-              }
-            }
-          } // end dim==2
-        } // end ts%1
-      }
-      // END MESH ADAPTATION //////////////////////////////////////////////////
-
-      // TIME ADAPTATION //////////////////////////////////////////////////
-      //timeAdapt();
-      // END TIME ADAPTATION //////////////////////////////////////////////////
-
-      // COPYING: n-1->n-2, n->n-1 //////////////////////////////////////////////////
-      if (is_bdf2)
-      {
-        VecCopy(Vec_uzp_0,Vec_uzp_m1);
-        if (is_bdf2_ab){VecCopy(Vec_v_1,Vec_v_mid);}
-        if (is_slipv){VecCopy(Vec_slipv_0,Vec_slipv_m1);}
-      }
-      else if (is_bdf3)
-      {
-        VecCopy(Vec_uzp_m1,Vec_uzp_m2);
-        VecCopy(Vec_uzp_0,Vec_uzp_m1);
-        if (is_slipv){
-          VecCopy(Vec_slipv_m1,Vec_slipv_m2);
-          VecCopy(Vec_slipv_0,Vec_slipv_m1);
-        }
-        /*///-----
-        VecCopy(Vec_duzp, Vec_duzp_0);
-        VecCopy(Vec_uzp_1, Vec_duzp);
-        VecAXPY(Vec_duzp,-1.0,Vec_uzp_0); // Vec_dup -= Vec_up_0
-        VecScale(Vec_duzp, 1./dt);
-        /*///-----
-      }
-
-      // GEOMETRY EXTRAPOLATION //////////////////////////////////////////////////
-      if (is_bdf2)
-      {
-        if (is_bdf2_bdfe)
-        {
-          // extrapolation \tilde{X}^{n+1}=2X^{n}-X^{n-1}
-          VecScale(Vec_x_1, 2.0);
-          VecAXPY(Vec_x_1,-1.0,Vec_x_0);
-          copyMesh2Vec(Vec_x_cur);
-          // calc V^{n+1} and update with D_{2}X^{n+1} = dt*V^{n+1}
-          if (is_sfip){
-            moveCenterMass(2.0);
-            if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-          }
-          calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 2.0, Vec_v_1, current_time);
-          VecCopy(Vec_v_1, Vec_x_1);
-          VecScale(Vec_x_1, 2./3.*dt);
-          VecAXPY(Vec_x_1,-1./3.,Vec_x_0);
-          copyMesh2Vec(Vec_x_0);
-          VecAXPY(Vec_x_1,4./3.,Vec_x_0);
-          if (is_sfip && false){
-            moveCenterMass(2.0);
-            if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-            updateSolidMesh();
-          }
-          VecCopy(Vec_v_1,Vec_v_mid);
-        }
-        else if (is_bdf2_ab)
-        {
-          // extrapolated geometry
-          //VecScale(Vec_x_1, 2.0);
-          //VecAXPY(Vec_x_1,-1.0,Vec_x_0);  // \bar{X}^(n+1/2)=2.0*X^(n)-1.0X^(n-1)
-          VecScale(Vec_x_1, 1.5);
-          VecAXPY(Vec_x_1,-0.5,Vec_x_0);  // \bar{X}^(n+1/2)=1.5*X^(n)-0.5X^(n-1)
-          copyMesh2Vec(Vec_x_0);          //copy current mesh to Vec_x_0
-          if (is_sfip){
-            moveCenterMass(1.5);
-            if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-          }
-          calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.5, Vec_v_1, current_time); // Adams-Bashforth
-          VecWAXPY(Vec_x_1, dt, Vec_v_1, Vec_x_0); // Vec_x_1 = Vec_v_1*dt + Vec_x_0
-          if (is_sfip && false){
-            moveCenterMass(1.5);
-            if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-            updateSolidMesh();
-          }
-          // velocity at integer step
-          //VecScale(Vec_v_1, 1.5);
-          //VecAXPY(Vec_v_1,-.5,Vec_v_mid);
-          VecScale(Vec_v_1, 2.0);
-          VecAXPY(Vec_v_1,-1.0,Vec_v_mid);
-
-        }
-      }
-      else if (is_bdf3)
-      {
-        // extrapolation of Vec_x_1, \bar{X^{n+1}} = 3X^{n}-3X^{n-1}+\bar{X^{n-2}}
-        VecScale(Vec_x_1, 3.0);
-        VecAXPY(Vec_x_1,-3.0,Vec_x_0);
-        VecAXPY(Vec_x_1, 1.0,Vec_x_aux);
-        copyMesh2Vec(Vec_x_cur);
-        // copyMesh2Vec(Vec_x_0); // we need Vec_x_0 later, don't touch it
-        // estraga Vec_up_0, usado porque não se precisa mais
-        ////-----
-        VecScale(Vec_uzp_0,-3.0);
-        VecAXPY(Vec_uzp_0,3.0,Vec_uzp_1);
-        VecAXPY(Vec_uzp_0,1.0,Vec_uzp_m2);
-        /*///-----
-        VecCopy(Vec_duzp, Vec_uzp_0);
-        VecScale(Vec_uzp_0, 2.0);
-        VecAXPY(Vec_uzp_0,-1.0,Vec_duzp_0);
-        VecScale(Vec_uzp_0, dt);
-        VecAXPY(Vec_uzp_0, 1.0,Vec_uzp_1); // Vec_up_0 tem agora a extrapolacao do futuro Vec_up_1
-        /*///-----
-
-        // calc V^{n+1} and update with D_{3}X^{n+1} = dt*V^{n+1}
-        if (is_sfip){
-          moveCenterMass(0.0);
-          if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-        }
-        calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 0.0, Vec_v_1, current_time);  //comentado?
-        VecCopy(Vec_v_1, Vec_x_1);
-        VecScale(Vec_x_1, 6./11.*dt);
-        VecAXPY(Vec_x_1, 2./11.,Vec_x_aux);
-        VecCopy(Vec_x_0, Vec_x_aux);
-        VecAXPY(Vec_x_1,-9./11.,Vec_x_0);
-        copyMesh2Vec(Vec_x_0);
-        VecAXPY(Vec_x_1,18./11.,Vec_x_0);
-        if (is_sfip && false){
-          moveCenterMass(0.0);
-          if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-          updateSolidMesh();
-        }// update center of mass D_{3}XG^{n+1} = dt*V^{n+1}
-        // VecCopy(Vec_uzp_1, Vec_uzp_0) is done after the end if ale
-        VecCopy(Vec_v_1,Vec_v_mid);
-      }
-      else if (is_mr_ab) //for MR-AB
-      {
-        // extrapolated geometry
-        VecScale(Vec_x_1, 2.0);         // look inside residue why this extrap is used
-        VecAXPY(Vec_x_1,-1.0,Vec_x_0);  // \bar{X}^(n+1/2)=2.0*X^(n)-1.0X^(n-1)
-        //VecScale(Vec_x_1, 1.5);
-        //VecAXPY(Vec_x_1,-0.5,Vec_x_0);  // \bar{X}^(n+1/2)=1.5*X^(n)-0.5X^(n-1)
-        copyMesh2Vec(Vec_x_0);          //copy current mesh to Vec_x_0
-        //velNoSlip(Vec_uzp_0,Vec_slipv_0,Vec_uzp_0_ns);velNoSlip(Vec_uzp_1,Vec_slipv_1,Vec_uzp_1_ns);
-        // extrapolate center of mass
-        if (is_sfip){
-          moveCenterMass(1.5);
-          if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-        }
-        calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.5, Vec_v_mid, current_time); // Adams-Bashforth
-        VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0); // Vec_x_1 = Vec_v_mid*dt + Vec_x_0
-        if (is_sfip && false){
-          moveCenterMass(1.5);
-          if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-          updateSolidMesh();
-        }
-      }
-      else //for basic
-      {
-        //VecCopy(Vec_x_0,Vec_x_1);
-        copyMesh2Vec(Vec_x_0);          //copy current mesh to Vec_x_0
-        if (is_sfip){
-          moveCenterMass(1.0);
-          if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
-        }
-        calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.0, Vec_v_mid, current_time); // Adams-Bashforth
-        VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0); // Vec_x_1 = Vec_v_mid*dt + Vec_x_0
-      }
-      if (is_sslv){
-        calcSlipVelocity(Vec_x_1, Vec_slipv_1);
-      }
-
-/*
-      if ( !full_implicit && !is_bdf3 )
-      {
-        {
-          calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.5, Vec_v_mid, current_time); // Adams-Bashforth
-        }
-        // move the mesh
-        if (!try2 && !is_bdf_bdf_extrap && !is_bdf_ab){
-          VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0); // Vec_x_1 = Vec_v_mid*dt + Vec_x_0
-          moveCenterMass(1.5);
-        }
-      }//end !full_implicit && !is_bdf3
-*/
-      //compute normal for the next time step, at n+1/2
-      {
-        Vec Vec_x_mid;
-        int xsize;
-        double *xarray;
-        VecGetSize(Vec_x_0, &xsize);
-        VecGetArray(Vec_res_fs, &xarray); //VecGetArray(Vec_res, &xarray);
-        //prototipo no petsc-dev: VecCreateSeqWithArray(MPI_Comm comm,PetscInt bs,PetscInt n,const PetscScalar array[],Vec *V)
-        //VecCreateSeqWithArray(MPI_COMM_SELF, xsize, xarray, &Vec_x_mid);
-        VecCreateSeqWithArray(MPI_COMM_SELF, 1,xsize, xarray, &Vec_x_mid);
-        Assembly(Vec_x_mid);
-
-        VecCopy(Vec_x_0, Vec_x_mid);
-        VecAXPY(Vec_x_mid,1.,Vec_x_1);
-        VecScale(Vec_x_mid, 0.5);
-        getVecNormals(&Vec_x_mid, Vec_normal);
-
-        VecDestroy(&Vec_x_mid);
-        VecRestoreArray(Vec_res_fs, &xarray); //VecRestoreArray(Vec_res, &xarray);
-      }
-
-      VecCopy(Vec_uzp_1, Vec_uzp_0); //VecCopy(Vec_up_1, Vec_up_0);
-
-    }//end if ale
-/*    else // if it's not ALE
-    {
-      //getFromBSV();
-      //cout << Vsol.transpose() << "   " << Wsol.transpose() <<  endl;
-      VecCopy(Vec_uzp_1, Vec_uzp_0); //VecCopy(Vec_up_1, Vec_up_0);
-      if (is_sfip){
-        if (is_slipv){VecCopy(Vec_slipv_1,Vec_slipv_0);}
-        if (is_sslv){calcSlipVelocity(Vec_x_1, Vec_slipv_1);}
-      }
-    }*/
-
 
     // compute steady error
     VecNorm(Vec_uzp_1, NORM_1, &Qmax); //VecNorm(Vec_up_1, NORM_1, &Qmax);
@@ -2784,7 +2425,6 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
 
 
 }
-
 
 void AppCtx::pressureTimeCorrection(Vec &Vec_up_0, Vec &Vec_up_1, double a, double b) // p(n+1) = a*p(n+.5) + b* p(n)
 {
@@ -3988,7 +3628,6 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
 
  PetscFunctionReturn(0);
 }
-
 
 void AppCtx::freePetscObjs()
 {

@@ -64,9 +64,9 @@ typedef Matrix<MatrixXd, Dynamic,1>  VecOfMat;
 // space
 typedef Matrix<double, Dynamic,1,0,6,1>              Vector;  //6 is _MaxRows in the dynamic option
 typedef Matrix<double, Dynamic,Dynamic,RowMajor,3,3> Tensor;
-typedef Matrix<double, 3, 3> Tensor3;
+typedef Matrix<double, 3, 3>                         Tensor3;
 typedef Matrix<double, Dynamic,Dynamic,RowMajor,6,6> TensorZ;
-typedef Matrix<int, Dynamic,Dynamic,RowMajor,6,6> TensorXi;
+typedef Matrix<int, Dynamic,Dynamic,RowMajor,6,6>    TensorXi;
 
 template<class Vec, class T>
 bool is_in(T value, Vec const& v)
@@ -296,6 +296,19 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
     R = Z.head(3) + cross(Z.tail(3),X-Xg);
   }
   return R;
+}
+
+inline TensorZ SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ){
+  TensorZ H = TensorZ::Zero(dim,LZ);
+  if (dim == 2){
+    H(0,0) = 1.0; H(1,1) = 1.0;
+    H(0,2) = -(X(1)-Xg(1));
+    H(1,2) =  (X(0)-Xg(0));
+  }
+  else if(dim == 3){
+    //H = Z.head(3) + cross(Z.tail(3),X-Xg);
+  }
+  return H;
 }
 
 inline bool lessVector(Vector2d const& a, Vector2d const& b){

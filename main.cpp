@@ -2963,7 +2963,7 @@ PetscErrorCode AppCtx::updateSolidVel()
       VecGetValues(Vec_x_1, mapM_r.size(), mapM_r.data(), X.data()); //point->getCoord(X.data(),dim);
       VecGetValues(Vec_uzp_1, LZ, dofs_fs.data(), Zf.data());
       Uf = SolidVel(X, XG_1[nodsum-1], Zf, dim);
-      if (nod_vs+nod_id){  //ojo antes solo nod_vs
+      if (nod_vs){  //ojo antes solo nod_vs   //+nod_id
         getNodeDofs(&*point, DH_MESH, VAR_M, dofs.data());
         VecGetValues(Vec_slipv_1, dim, dofs.data(), Vs.data());
         Uf = Uf + Vs;  //cout << tag << "  " << X(0)-3 << " " << X(1)-3<< "  " << Uf.transpose() << endl;

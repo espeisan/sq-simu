@@ -103,11 +103,14 @@ void getProjectorMatrix(MatrixBase<Derived> & P, int n_nodes, int const* nodes, 
   std::vector<int> const& dirichlet_tags  = app.dirichlet_tags;
   //std::vector<int> const& neumann_tags    = app.neumann_tags  ;
   //std::vector<int> const& interface_tags  = app.interface_tags;
-  std::vector<int> const& solid_tags      = app.solid_tags    ;
-  std::vector<int> const& triple_tags     = app.triple_tags   ;
+  std::vector<int> const& solid_tags      = app.solid_tags;
+  std::vector<int> const& triple_tags     = app.triple_tags;
   //std::vector<int> const& periodic_tags   = app.periodic_tags ;
-  std::vector<int> const& feature_tags    = app.feature_tags  ;
-  //Vec const& Vec_normal = app.Vec_normal;
+  std::vector<int> const& feature_tags    = app.feature_tags;
+  std::vector<int> const& flusoli_tags    = app.flusoli_tags;
+  std::vector<int> const& solidonly_tags  = app.solidonly_tags;
+  std::vector<int> const& slipvel_tags    = app.slipvel_tags;
+  Vec const& Vec_normal = app.Vec_normal;
 
   P.setIdentity();
 
@@ -127,36 +130,33 @@ void getProjectorMatrix(MatrixBase<Derived> & P, int n_nodes, int const* nodes, 
   {
     point = mesh->getNodePtr(nodes[i]);
     tag = point->getTag();
-    //m = point->getPosition() - mesh->numVerticesPerCell();
-    //cell = mesh->getCellPtr(point->getIncidCell());
 
     if (is_in(tag,feature_tags))
     {
       app.getNodeDofs(&*point, DH_MESH, VAR_M, dofs);
       VecGetValues(Vec_x_, dim, dofs, X.data());
       P.block(i*dim,i*dim,dim,dim)  = feature_proj(X,t,tag);
-      continue;
     }
-    else
-    if (is_in(tag,solid_tags) || is_in(tag, triple_tags))
+    else if (is_in(tag,solid_tags) || is_in(tag, triple_tags))
     {
       app.getNodeDofs(&*point, DH_MESH, VAR_M, dofs);
       VecGetValues(Vec_x_, dim, dofs, X.data());
-
       normal = solid_normal(X,t,tag);
-
       P.block(i*dim,i*dim,dim,dim)  = I - normal*normal.transpose();
       //P.block(i*dim,i*dim,dim,dim) = Z;
-
     }
-    else
-    if (is_in(tag,dirichlet_tags))
+    else if (is_in(tag,dirichlet_tags))
     {
       P.block(i*dim,i*dim,dim,dim) = Z;
     }
-
-
+    else if (is_in(tag,flusoli_tags) /*|| is_in(tag,slipvel_tags)*/)
+    {
+      app.getNodeDofs(&*point, DH_MESH, VAR_M, dofs);
+      VecGetValues(Vec_normal, dim, dofs, normal.data());
+      P.block(i*dim,i*dim,dim,dim) = I - normal*normal.transpose();
+    }
   } // end nodes
+
 } // end getProjectorMatrix
 
 // ====================================================================================================
@@ -174,11 +174,10 @@ void getProjectorBC(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
   std::vector<int> const& triple_tags     = app.triple_tags   ;
   std::vector<int> const& periodic_tags   = app.periodic_tags ;
   std::vector<int> const& feature_tags    = app.feature_tags  ;
-  Vec const& Vec_normal = app.Vec_normal;
   std::vector<int> const& flusoli_tags    = app.flusoli_tags;
   std::vector<int> const& solidonly_tags  = app.solidonly_tags;
   std::vector<int> const& slipvel_tags    = app.slipvel_tags;
-
+  Vec const& Vec_normal = app.Vec_normal;
 
   P.setIdentity();
 
@@ -194,15 +193,12 @@ void getProjectorBC(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
   Z.setZero();
 
   bool boundary_smoothing = app.boundary_smoothing;
-  //bool boundary_smoothing = false;
 
   // NODES
   for (int i = 0; i < n_nodes; ++i)
   {
     point = mesh->getNodePtr(nodes[i]);
     tag = point->getTag();
-    //m = point->getPosition() - mesh->numVerticesPerCell();
-    //cell = mesh->getCellPtr(point->getIncidCell());
 
     if (is_in(tag,feature_tags))
     {
@@ -217,8 +213,7 @@ void getProjectorBC(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
         P.block(i*dim,i*dim,dim,dim) = Z;
       }
     }
-    else
-    if (is_in(tag,solid_tags) )
+    else if (is_in(tag,solid_tags) )
     {
       if (boundary_smoothing)
       {
@@ -232,8 +227,7 @@ void getProjectorBC(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
         P.block(i*dim,i*dim,dim,dim) = Z;
       }
     }
-    else
-    if (is_in(tag,interface_tags))
+    else if (is_in(tag,interface_tags))
     {
       if (false && boundary_smoothing)
       {
@@ -246,16 +240,14 @@ void getProjectorBC(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
         P.block(i*dim,i*dim,dim,dim) = Z;
       }
     }
-    else
-    if (is_in(tag,triple_tags) || is_in(tag,dirichlet_tags) || is_in(tag,neumann_tags) || is_in(tag,periodic_tags)
-                               || is_in(tag,feature_tags)   || is_in(tag,flusoli_tags) || is_in(tag,solidonly_tags)
-                               || is_in(tag,slipvel_tags))
+    else if (is_in(tag,triple_tags) || is_in(tag,dirichlet_tags) || is_in(tag,neumann_tags) || is_in(tag,periodic_tags)
+                                    || is_in(tag,feature_tags)   || is_in(tag,flusoli_tags) || is_in(tag,solidonly_tags)
+                                    || is_in(tag,slipvel_tags))
     {
       P.block(i*dim,i*dim,dim,dim) = Z;
     }
-
   } // end nodes
-}
+}// end getProjectorBC
 
 // ====================================================================================================
 // to apply boundary conditions on squirmer problem.
@@ -523,18 +515,18 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
   if (is_mr){utheta = 1.0;}
 
-  VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);
-  VecSetOption(Vec_uzp_k, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);
+  VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
+  VecSetOption(Vec_uzp_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
   std::vector<Vector3d> XG_mid = midGP(XG_1, XG_0, utheta, N_Solids);
 
-  int null_space_press_dof=-1;
+  int null_space_press_dof = -1;
 
   int iter;//, nodidd;
   SNESGetIterationNumber(snes_fs,&iter);  //cout << iter <<endl; //if starting newton iteration = niter, then iter = niter-1.
 
   if (!iter)
   {
-    converged_times=0;  //just for convergence test, it can be ignored
+    converged_times = 0;  //just for convergence test, it can be ignored
   }
 
   if (force_pressure && (iter<2))
@@ -549,7 +541,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     else
     {//imposes a pressure node (the first one in the mesh) at the dirichlet region (or wherever you want)
       point_iterator point = mesh->pointBegin();
-      while (!( mesh->isVertex(&*point) && is_in(point->getTag(),/*feature_tags*/dirichlet_tags) )){/*point->getTag() == 3*/
+      while (!( mesh->isVertex(&*point) && is_in(point->getTag(),feature_tags/*dirichlet_tags*/) )){/*point->getTag() == 3*/
         ++point;
       }
       int x_dofs[3];
@@ -736,6 +728,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     VectorXi            mapP_r(n_dofs_p_per_corner);
     VectorXi            mapZ_c(nodes_per_cell*LZ);
     VectorXi            mapZ_f(nodes_per_facet*LZ);
+    VectorXi            mapZ_s(LZ);
     // mesh velocity
     VectorXi            mapM_c(dim*nodes_per_cell);
     //VectorXi            mapM_f(dim*nodes_per_facet);
@@ -787,14 +780,61 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       tag = cell->getTag();
 
       if(is_in(tag,solidonly_tags)){//considers the cells completely inside the solid
+        FUloc.setZero();
         Aloc.setIdentity();
         Eloc.setIdentity();
+        Z1loc.setZero();
+
+        u_coefs_c_new = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
+        z_coefs_c_new = MatrixXd::Zero(n_dofs_z_per_cell/LZ,LZ);
+        mapZ_c = -VectorXi::Ones(nodes_per_cell*LZ);
+        mapU_t = -VectorXi::Ones(n_dofs_u_per_cell);
+
+        dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);
         dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);
         dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);
+        VecGetValues(Vec_x_1,     mapM_c.size(), mapM_c.data(), x_coefs_c_new.data());
+        VecGetValues(Vec_uzp_k,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());
+//#if(false)
+        x_coefs_c_new_trans = x_coefs_c_new.transpose();
+
+        for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
+        {
+          tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
+          nod_is = is_in_id(tag_c,solidonly_tags);
+          if (nod_is){
+            for (int C = 0; C < LZ; C++){
+              mapZ_c(i*LZ + C) = n_unknowns_u + n_unknowns_p + LZ*(nod_is-1) + C;
+            }
+            for (int l = 0; l < dim; l++){
+              mapU_t(i*dim + l) = mapU_c(i*dim + l);
+            }
+            VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());  //cout << z_coefs_c_new << endl << endl;
+            z_coefs_c_new_trans = z_coefs_c_new.transpose();
+            XIp    = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
+            XIg    = XG_mid[nod_is-1];                //mass center, mid, _0, "new"
+            RotfI  = SolidVel(XIp, XIg, z_coefs_c_mid_trans.col(i), dim);
+            for (int c = 0; c < dim; ++c)
+            {
+              FUloc(i*dim + c) = u_coefs_c_new(i,c) - RotfI(c);
+            }
+
+            for (int c = 0; c < dim; ++c)
+            {
+              for (int D = 0; D < LZ; D++){
+                RotfI  = SolidVel(XIp, XIg, IdZ.col(D), dim);
+                Z1loc(i*dim+c,i*LZ+D) = -RotfI(c);
+              }
+            }
+          }//end if nod_is
+        }//end for cell nodes
+//#endif
         #ifdef FEP_HAS_OPENMP
           FEP_PRAGMA_OMP(critical)
         #endif
         {
+            VecSetValues(Vec_fun_fs, mapU_t.size(), mapU_t.data(), FUloc.data(), INSERT_VALUES);
+            MatSetValues(*JJ, mapU_t.size(), mapU_t.data(), mapZ_c.size(), mapZ_c.data(), Z1loc.data(), INSERT_VALUES);
             MatSetValues(*JJ, mapU_c.size(), mapU_c.data(), mapU_c.size(), mapU_c.data(), Aloc.data(), INSERT_VALUES);
             MatSetValues(*JJ, mapP_c.size(), mapP_c.data(), mapP_c.size(), mapP_c.data(), Eloc.data(), INSERT_VALUES);
         }
@@ -954,12 +994,14 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
       visc = muu(tag);
       rho  = pho(Xqp,tag);
-      Aloc.setZero();
-      Gloc.setZero();
-      Dloc.setZero();
+
       FUloc.setZero();
       FZloc.setZero();
       FPloc.setZero();
+
+      Aloc.setZero();
+      Gloc.setZero();
+      Dloc.setZero();
       Eloc.setZero();
       Z1loc.setZero(); Z2loc.setZero(); Z3loc.setZero(); Z4loc.setZero(); Z5loc.setZero();
 
@@ -1574,7 +1616,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     double     ddt_factor, dJK;
     bool       deltaDi, deltaLK, deltaLJ;
     Vector3d   eJK;
-    double     zet = 1.0e-2, ep = 1.0e-0, epw = 1e-5; //ep/10.0;
+    double     zet = 1.0e-0, ep = 5.0e-1, epw = 1e-5; //ep/10.0;
     double     gap, R, visc;
 
     if (is_bdf2 && time_step > 0)
@@ -1606,7 +1648,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
 
       //Rep force Wang
-#if (false)
+#if (true)
       hme = zet;
       for (int L = 0; L < N_Solids; L++){
         if (L != K){
@@ -1957,7 +1999,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dZdt = 11./6.*dZdt - 7./6.*z_coefs_old/dt + 3./2.*z_coefs_om1/dt - 1./3.*z_coefs_om2/dt;
       }
       MI = MI_tensor(MV[K],RV[K],dim,InTen[K]);
-      FZsloc = (MI*dZdt - MV[K]*Grav - Fpp - Fpw) * unsteady;
+      FZsloc = (MI*dZdt - MV[K]*Grav) * unsteady - Fpp - Fpw;
       Z3sloc = ddt_factor*MI/dt * unsteady;
 //#ifdef FEP_HAS_OPENMP
 //      FEP_PRAGMA_OMP(critical)
@@ -2300,12 +2342,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             is_in(tag,triple_tags)    ||
             is_in(tag,dirichlet_tags) ||
             is_in(tag,neumann_tags)   ||
-            is_in(tag,periodic_tags)     )  )
+            is_in(tag,periodic_tags)  || is_in(tag,flusoli_tags)   )  )
         continue;
       //dof_handler[DH_UNKS].getVariable(VAR_U).getVertexAssociatedDofs(u_dofs, &*point);
       getNodeDofs(&*point, DH_UNKM, VAR_U, u_dofs);
 
-      nodeid = mesh->getPointId(&*point);
+      nodeid = mesh->getPointId(&*point);  //cout << tag << "   " <<  nodeid << endl;
       getProjectorMatrix(A, 1, &nodeid, Vec_x_1, current_time+dt, *this);
       A = I - A;
       MatSetValues(*JJ, dim, u_dofs, dim, u_dofs, A.data(), ADD_VALUES);
@@ -2318,19 +2360,20 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     MatSetValues(*JJ, 1, &null_space_press_dof, 1, &null_space_press_dof, &p, ADD_VALUES);
   }
 
-  if(print_to_matlab)
+  Assembly(Vec_fun_fs);
+  Assembly(*JJ);
+
+  if(true /*print_to_matlab*/)
   {
     static bool ja_foi=false;
     if (!ja_foi)
     {
-      View(Vec_fun_fs, "rhs.m","res");
-      View(*JJ,"jacob.m","Jac");
+      View(Vec_fun_fs, "matrizes/rhs.m","Res");
+      View(*JJ,"matrizes/jacob.m","Jac");
     }
     ja_foi = true;
 
   }
-  Assembly(Vec_fun_fs);
-  Assembly(*JJ);
   //View(Vec_fun_fs, "matrizes/rhs.m","res"); View(*JJ,"matrizes/jacob.m","Jac");
   //MatZeroEntries(*JJ); SNESGetJacobian(snes_fs, JJ, NULL, NULL, NULL); Assembly(*JJ);
   //double val; VecNorm(Vec_fun_fs,NORM_2,&val); cout << "norma residuo " << val <<endl;

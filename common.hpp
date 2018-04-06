@@ -503,6 +503,7 @@ public:
   void getFromBSV();
   PetscErrorCode saveDOFSinfo();
   Vector u_exacta(Vector const& X, double t, int tag);
+  void computeForces(Vec const& Vec_x, Vec &Vec_up);
   //void printContactAngle(bool _print);
 
   void computeError(Vec const& Vec_x, Vec &Vec_up_1, double tt);

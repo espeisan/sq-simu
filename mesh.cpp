@@ -2788,7 +2788,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
         //Splitting (after Collapsing)
         if (is_splitting)//&& (time_step%2==0))
         {
-          if (false /*is_in(tag_e, dirichlet_tags)*/){
+          if (false && is_in(tag_e, dirichlet_tags)){
             //if (false && (quality_f(Xa, Xb) > 1.2)){
               mesh_was_changed = true;
               int pt_id = MeshToolsTri::insertVertexOnEdge(edge->getIncidCell(), edge->getPosition(), 0.5, &*mesh);

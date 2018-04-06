@@ -404,14 +404,6 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   else
     feature_tags.clear();
 
-  flusoli_tags.resize(1e8);  //cout << flusol_tags.max_size() << endl;
-  nmax = flusoli_tags.size();
-  PetscOptionsGetIntArray(PETSC_NULL, "-fsi_tags", flusoli_tags.data(), &nmax, &flg_tags);
-  if (flg_tags)
-	flusoli_tags.resize(nmax);
-  else
-	flusoli_tags.clear();
-
   fluidonly_tags.resize(16);  //cout << flusol_tags.max_size() << endl;
   nmax = fluidonly_tags.size();
   PetscOptionsGetIntArray(PETSC_NULL, "-fonly_tags", fluidonly_tags.data(), &nmax, &flg_tags);
@@ -424,19 +416,27 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   nmax = solidonly_tags.size();
   PetscOptionsGetIntArray(PETSC_NULL, "-sonly_tags", solidonly_tags.data(), &nmax, &flg_tags);
   if (flg_tags)
-    {solidonly_tags.resize(nmax); is_sfip = PETSC_TRUE;}
+    {solidonly_tags.resize(nmax); is_sfip = PETSC_TRUE; is_slipv = PETSC_TRUE;}
   else
-    {solidonly_tags.clear(); is_sfip = PETSC_FALSE;}
+    {solidonly_tags.clear(); is_sfip = PETSC_FALSE; is_slipv = PETSC_FALSE;}
   N_Solids = solidonly_tags.size();
   LZ = dim*(dim+1)/2 + n_modes; //3*(dim-1);
+
+  flusoli_tags.resize(1e8);  //cout << flusol_tags.max_size() << endl;
+  nmax = flusoli_tags.size();
+  PetscOptionsGetIntArray(PETSC_NULL, "-fsi_tags", flusoli_tags.data(), &nmax, &flg_tags);
+  if (flg_tags)
+    flusoli_tags.resize(nmax);
+  else
+    flusoli_tags.clear();
 
   slipvel_tags.resize(1e8);
   nmax = slipvel_tags.size();
   PetscOptionsGetIntArray(PETSC_NULL, "-slipv_tags", slipvel_tags.data(), &nmax, &flg_tags);
   if (flg_tags)
-    {slipvel_tags.resize(nmax); is_slipv = PETSC_TRUE;}
+    {slipvel_tags.resize(nmax); /*is_slipv = PETSC_TRUE;*/}
   else
-    {slipvel_tags.clear(); is_slipv = PETSC_FALSE;}
+    {slipvel_tags.clear(); /*is_slipv = PETSC_FALSE;*/}
 
   PetscOptionsEnd();   //Finish PetscOptions*
 
@@ -2074,7 +2074,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     //steady_error = VecNorm(Vec_res, NORM_1)/(Qmax==0.?1.:Qmax);
     VecNorm(Vec_res_fs, NORM_1, &steady_error); //VecNorm(Vec_res, NORM_1, &steady_error);
     steady_error /= (Qmax==0.?1.:Qmax);
-
+    computeForces(Vec_x_0, Vec_uzp_0);
 
     if(time_step >= maxts) {
       cout << "\n==========================================\n";
@@ -2426,6 +2426,79 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
 
 }
 
+void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
+{
+  int                 tag;
+  VectorXi            mapU_f(n_dofs_u_per_facet);
+  VectorXi            mapP_f(n_dofs_p_per_facet);
+  VectorXi            mapM_f(dim*nodes_per_facet);
+  MatrixXd            u_coefs_f(n_dofs_u_per_facet/dim, dim);
+  VectorXd            p_coefs_f(n_dofs_p_per_facet);
+  MatrixXd            x_coefs_f(nodes_per_facet, dim);
+  MatrixXd            u_coefs_f_trans(dim,n_dofs_u_per_facet/dim);
+  MatrixXd            x_coefs_f_trans(dim, nodes_per_facet);
+  MatrixXd            dxphi_f(n_dofs_u_per_facet/dim, dim);
+  Tensor              F_f(dim,dim-1), invF_f(dim-1,dim), fff(dim-1,dim-1), dxU_f(dim,dim);
+  Vector              Xqp(dim), Uqp(dim), normal(dim), Traction_(Vector::Zero(dim));
+  double              J, JxW, weight;
+  //Tensor              I(Tensor::Identity(dim,dim));
+
+
+  facet_iterator facet = mesh->facetBegin();
+  facet_iterator facet_end = mesh->facetEnd();
+  for (; facet != facet_end; ++facet)
+  {
+    tag = facet->getTag();
+
+    if (!(is_in(tag, flusoli_tags) || is_in(tag, slipvel_tags)))
+      continue;
+
+    dof_handler[DH_UNKM].getVariable(VAR_U).getFacetDofs(mapU_f.data(), &*facet);
+    dof_handler[DH_MESH].getVariable(VAR_M).getFacetDofs(mapM_f.data(), &*facet);
+    dof_handler[DH_UNKM].getVariable(VAR_P).getFacetDofs(mapP_f.data(), &*facet);
+
+    VecGetValues(Vec_up, mapU_f.size(), mapU_f.data(), u_coefs_f.data());
+    VecGetValues(Vec_up, mapP_f.size(), mapP_f.data(), p_coefs_f.data());
+    VecGetValues(Vec_x,  mapM_f.size(), mapM_f.data(), x_coefs_f.data());
+
+    u_coefs_f_trans = u_coefs_f.transpose();
+    x_coefs_f_trans = x_coefs_f.transpose();
+
+    for (int qp = 0; qp < n_qpts_facet; ++qp)
+    {
+      F_f  = x_coefs_f_trans * dLqsi_f[qp];
+      fff  = F_f.transpose()*F_f;
+      J    = sqrt(fff.determinant());
+
+      if (dim==2)
+      {
+        normal(0) = +F_f(1,0);
+        normal(1) = -F_f(0,0);
+        normal.normalize();
+      }
+      else
+      {
+        normal = cross(F_f.col(0), F_f.col(1));
+        normal.normalize();
+      }
+
+      Xqp  = x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+      Uqp  = u_coefs_f_trans * phi_f[qp];
+
+      weight = quadr_facet->weight(qp);
+
+      JxW = J*weight;
+
+      dxphi_f = dLphi_f[qp] * invF_f;
+      dxU_f   = u_coefs_f_trans * dxphi_f; // n+utheta
+
+      Traction_ += JxW * (-p_coefs_f.dot(psi_f[qp])*normal +  muu(tag)*(dxU_f + dxU_f.transpose())*normal);
+    }
+  }
+
+  cout << "\n Traction force: " << Traction_ << endl;
+}
+
 void AppCtx::pressureTimeCorrection(Vec &Vec_up_0, Vec &Vec_up_1, double a, double b) // p(n+1) = a*p(n+.5) + b* p(n)
 {
   Vector    Uf(dim);
@@ -2637,9 +2710,9 @@ void AppCtx::getSolidCentroid()
 //  VectorXi            cell_nodes_tmp(nodes_per_cell);
   Tensor              F_c_curv(dim,dim);
   int                 tag_pt0, tag_pt1, tag_pt2, bcell;
-  double const*       Xqpb;  //coordonates at the master element \hat{X}
+  double const*       Xqpb;  //coordinates at the master element \hat{X}
   Vector              Phi(dim), DPhi(dim), Dphi(dim), X0(dim), X2(dim), T0(dim), T2(dim), Xc(3), Vdat(3);
-  bool                curvf;
+  bool                curvf = false;
   TensorXi            PerM3(TensorXi::Zero(3,3));  //Permutation matrix
   PerM3(0,1) = 1; PerM3(1,2) = 1; PerM3(2,0) = 1;
 
@@ -2654,18 +2727,20 @@ void AppCtx::getSolidCentroid()
     if (nod_id){
       mesh->getCellNodesId(&*cell, cell_nodes.data());
 
-      //find good orientation for nodes in case of curved border element
-      tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
-      tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
-      tag_pt2 = mesh->getNodePtr(cell_nodes(2))->getTag();
-      bcell = is_in(tag_pt0,solidonly_tags)
-             +is_in(tag_pt1,solidonly_tags)
-             +is_in(tag_pt2,solidonly_tags);  //test if the cell is acceptable (one curved side)
-      curvf = bcell==1 && is_curvt;
-      if (curvf){
-        while (!is_in(tag_pt1, solidonly_tags)){
-          cell_nodes = PerM3*cell_nodes;
-          tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+      if(is_curvt){
+        //find good orientation for nodes in case of curved border element
+        tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
+        tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+        tag_pt2 = mesh->getNodePtr(cell_nodes(2))->getTag();
+        bcell = is_in(tag_pt0,solidonly_tags)
+               +is_in(tag_pt1,solidonly_tags)
+               +is_in(tag_pt2,solidonly_tags);  //test if the cell is acceptable (one curved side)
+        curvf = bcell==1;// && is_curvt;
+        if (curvf){
+          while (!is_in(tag_pt1, solidonly_tags)){
+            cell_nodes = PerM3*cell_nodes;
+            tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+          }
         }
       }
 
@@ -2683,16 +2758,18 @@ void AppCtx::getSolidCentroid()
 
       for (int qp = 0; qp < n_qpts_err; ++qp)
       {
+        F_c = Tensor::Zero(dim,dim);
         if (curvf){
           Xqpb = quadr_err->point(qp);  //cout << Xqpb[0] << "   " << Xqpb[1] << endl;
           Phi = curved_Phi(Xqpb[1],X0,X2,Xc,Vdat,dim); //curved_Phi(Xqpb[1],X0,X2,-T0,-T2,dim);
           DPhi = Dcurved_Phi(Xqpb[1],X0,X2,Xc,Vdat,dim);
           F_c_curv.col(0) = -Phi;
           F_c_curv.col(1) = -Phi + (1.0-Xqpb[0]-Xqpb[1])*DPhi;
+          F_c = F_c_curv;
         }
 
-        F_c    = x_coefs_c_trans * dLqsi_err[qp] + curvf*F_c_curv;
-        Jx     = F_c.determinant();
+        F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
+        Jx      = F_c.determinant();
         Xqp     = x_coefs_c_trans * qsi_err[qp];
         Xqp3(0) = Xqp(0); Xqp3(1) = Xqp(1); if (dim == 3) Xqp3(2) = Xqp(2);
         XG_0[nod_id-1] += Xqp3 * Jx * quadr_err->weight(qp)/VV[nod_id-1]; //cout << XG_0[nod_id-1] << endl;
@@ -3128,7 +3205,7 @@ void AppCtx::getSolidInertiaTensor()
   int                 tag_pt0, tag_pt1, tag_pt2, bcell;
   double const*       Xqpb;  //coordonates at the master element \hat{X}
   Vector              Phi(dim), DPhi(dim), Dphi(dim), X0(dim), X2(dim), T0(dim), T2(dim), Xc(3), Vdat(3);
-  bool                curvf;
+  bool                curvf = false;
   TensorXi            PerM3(TensorXi::Zero(3,3));  //Permutation matrix
   PerM3(0,1) = 1; PerM3(1,2) = 1; PerM3(2,0) = 1;
 
@@ -3143,26 +3220,28 @@ void AppCtx::getSolidInertiaTensor()
     if (nod_id){
       mesh->getCellNodesId(&*cell, cell_nodes.data());
 
-      //find good orientation for nodes in case of curved border element
-      tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
-      tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
-      tag_pt2 = mesh->getNodePtr(cell_nodes(2))->getTag();
-      bcell = is_in(tag_pt0,solidonly_tags)
-             +is_in(tag_pt1,solidonly_tags)
-             +is_in(tag_pt2,solidonly_tags);  //test if the cell is acceptable (one curved side)
-      curvf = bcell==1 && is_curvt;
-      if (curvf){
-        while (!is_in(tag_pt1, solidonly_tags)){
-          //cell_nodes_tmp = cell_nodes;
-          //cell_nodes(0) = cell_nodes_tmp(1);
-          //cell_nodes(1) = cell_nodes_tmp(2);
-          //cell_nodes(2) = cell_nodes_tmp(0);
-          // TODO if P2/P1
-          //cell_nodes(3) = cell_nodes_tmp(4);
-          //cell_nodes(4) = cell_nodes_tmp(5);
-          //cell_nodes(5) = cell_nodes_tmp(3);
-          cell_nodes = PerM3*cell_nodes;
-          tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+      if(is_curvt){
+        //find good orientation for nodes in case of curved border element
+        tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
+        tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+        tag_pt2 = mesh->getNodePtr(cell_nodes(2))->getTag();
+        bcell = is_in(tag_pt0,solidonly_tags)
+               +is_in(tag_pt1,solidonly_tags)
+               +is_in(tag_pt2,solidonly_tags);  //test if the cell is acceptable (one curved side)
+        curvf = bcell==1 && is_curvt;
+        if (curvf){
+          while (!is_in(tag_pt1, solidonly_tags)){
+            //cell_nodes_tmp = cell_nodes;
+            //cell_nodes(0) = cell_nodes_tmp(1);
+            //cell_nodes(1) = cell_nodes_tmp(2);
+            //cell_nodes(2) = cell_nodes_tmp(0);
+            // TODO if P2/P1
+            //cell_nodes(3) = cell_nodes_tmp(4);
+            //cell_nodes(4) = cell_nodes_tmp(5);
+            //cell_nodes(5) = cell_nodes_tmp(3);
+            cell_nodes = PerM3*cell_nodes;
+            tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+          }
         }
       }
 
@@ -3181,15 +3260,17 @@ void AppCtx::getSolidInertiaTensor()
 
       for (int qp = 0; qp < n_qpts_err; ++qp)
       {
+        F_c = Tensor::Zero(dim,dim);
         if (curvf){
           Xqpb = quadr_err->point(qp);  //cout << Xqpb[0] << "   " << Xqpb[1] << endl;
           Phi = curved_Phi(Xqpb[1],X0,X2,Xc,Vdat,dim); //curved_Phi(Xqpb[1],X0,X2,-T0,-T2,dim);
           DPhi = Dcurved_Phi(Xqpb[1],X0,X2,Xc,Vdat,dim);
           F_c_curv.col(0) = -Phi;
           F_c_curv.col(1) = -Phi + (1.0-Xqpb[0]-Xqpb[1])*DPhi;
+          F_c = F_c_curv;
         }
 
-        F_c     = x_coefs_c_trans * dLqsi_err[qp] + curvf*F_c_curv;
+        F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
         Jx      = F_c.determinant();
         Xqp     = x_coefs_c_trans * qsi_err[qp];
         Xqp3(0) = Xqp(0); Xqp3(1) = Xqp(1); if (dim == 3) Xqp3(2) = Xqp(2);
@@ -3561,7 +3642,6 @@ else if(true){// discretization of surface gradient over the edges
 }
 
 PetscErrorCode AppCtx::timeAdapt(){
-  PetscErrorCode      ierr(0);
 
   VecCopy(Vec_uzp_0,Vec_uzp_m1);  //t^{n-2} is now at the position of the old t^{n-1}
                                   //Vec_uzp_m1 is now t^{n-1} because the half time adaptation
@@ -3788,6 +3868,7 @@ double GetDataSlipVel::get_data_r(int nodeid) const
 
 #undef __FUNCT__
 #define __FUNCT__ "main"
+
 int main(int argc, char **argv)
 {
 
@@ -3887,6 +3968,7 @@ int main(int argc, char **argv)
 #if (false)
 #undef __FUNCT__
 #define __FUNCT__ "FormJacobian"
+
 PetscErrorCode FormJacobian(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
@@ -3895,6 +3977,7 @@ PetscErrorCode FormJacobian(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, Ma
 }
 #undef __FUNCT__
 #define __FUNCT__ "FormFunction"
+
 PetscErrorCode FormFunction(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
@@ -3905,6 +3988,7 @@ PetscErrorCode FormFunction(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr)
 /* ------------------------------------------------------------------- */
 #undef __FUNCT__
 #define __FUNCT__ "CheckSnesConvergence"
+
 PetscErrorCode CheckSnesConvergence(SNES snes, PetscInt it,PetscReal xnorm, PetscReal pnorm, PetscReal fnorm, SNESConvergedReason *reason, void *ctx)
 {
   AppCtx *user    = static_cast<AppCtx*>(ctx);
@@ -3914,6 +3998,7 @@ PetscErrorCode CheckSnesConvergence(SNES snes, PetscInt it,PetscReal xnorm, Pets
 /* ------------------------------------------------------------------- */
 #undef __FUNCT__
 #define __FUNCT__ "FormJacobian_mesh"
+
 PetscErrorCode FormJacobian_mesh(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
@@ -3922,6 +4007,7 @@ PetscErrorCode FormJacobian_mesh(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *preja
 }
 #undef __FUNCT__
 #define __FUNCT__ "FormFunction_mesh"
+
 PetscErrorCode FormFunction_mesh(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
@@ -3931,6 +4017,7 @@ PetscErrorCode FormFunction_mesh(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr
 /* ------------------------------------------------------------------- */
 #undef __FUNCT__
 #define __FUNCT__ "FormJacobian_fs"
+
 PetscErrorCode FormJacobian_fs(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
@@ -3939,6 +4026,7 @@ PetscErrorCode FormJacobian_fs(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac,
 }
 #undef __FUNCT__
 #define __FUNCT__ "FormFunction_fs"
+
 PetscErrorCode FormFunction_fs(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
@@ -3948,6 +4036,7 @@ PetscErrorCode FormFunction_fs(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr)
 /* ------------------------------------------------------------------- */
 #undef __FUNCT__
 #define __FUNCT__ "FormJacobian_sqrm"
+
 PetscErrorCode FormJacobian_sqrm(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
@@ -3956,6 +4045,7 @@ PetscErrorCode FormJacobian_sqrm(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *preja
 }
 #undef __FUNCT__
 #define __FUNCT__ "FormFunction_mesh"
+
 PetscErrorCode FormFunction_sqrm(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr)
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);

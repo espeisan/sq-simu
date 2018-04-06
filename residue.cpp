@@ -795,7 +795,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);
         VecGetValues(Vec_x_1,     mapM_c.size(), mapM_c.data(), x_coefs_c_new.data());
         VecGetValues(Vec_uzp_k,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());
-//#if(true)
+//#if(false)
         x_coefs_c_new_trans = x_coefs_c_new.transpose();
 
         for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)

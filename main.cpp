@@ -1722,7 +1722,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     if (solve_the_sys)
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
-      if (is_sfip){updateSolidVel();}
+      //if (is_sfip){updateSolidVel();}
     }
 
     if ((pic+1) < PI){
@@ -2048,7 +2048,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       // * SOLVE THE SYSTEM *
       if (solve_the_sys){
         ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
-        if (is_sfip){updateSolidVel();}
+        //if (is_sfip){updateSolidVel();}
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         cout << "# snes iterations: " << its << endl
              << "--------------------------------------------------" << endl;

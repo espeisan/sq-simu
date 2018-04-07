@@ -1970,7 +1970,7 @@ Vector u_exact(Vector const& X, double t, int tag)
   double y = X(1);
   Vector v(Vector::Zero(X.size()));
   double Um = 1/*e-6*/, H = 3;//e-6;
-  if ( tag == 4 || tag == 2 || tag == 1){
+  if ( false && (tag == 4 || tag == 2 || tag == 1) ){
     //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
     v(0) = Um*4*(H-y)*y/(H*H);
     v(1) = 0.0;
@@ -2250,9 +2250,9 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
     }
   }
 
-  if (false && dim == 2)
+  if (true && dim == 2)
   {
-    double B1 = 1.0, B2 = 1.5;
+    double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
     V(0) = -normal(1); V(1) = normal(0);

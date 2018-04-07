@@ -108,8 +108,8 @@ void getProjectorMatrix(MatrixBase<Derived> & P, int n_nodes, int const* nodes, 
   //std::vector<int> const& periodic_tags   = app.periodic_tags ;
   std::vector<int> const& feature_tags    = app.feature_tags;
   std::vector<int> const& flusoli_tags    = app.flusoli_tags;
-  std::vector<int> const& solidonly_tags  = app.solidonly_tags;
-  std::vector<int> const& slipvel_tags    = app.slipvel_tags;
+  //std::vector<int> const& solidonly_tags  = app.solidonly_tags;
+  //std::vector<int> const& slipvel_tags    = app.slipvel_tags;
   Vec const& Vec_normal = app.Vec_normal;
 
   P.setIdentity();
@@ -541,7 +541,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     else
     {//imposes a pressure node (the first one in the mesh) at the dirichlet region (or wherever you want)
       point_iterator point = mesh->pointBegin();
-      while (!( mesh->isVertex(&*point) && is_in(point->getTag(),feature_tags/*dirichlet_tags*/) )){/*point->getTag() == 3*/
+      while (!( mesh->isVertex(&*point) && is_in(point->getTag(),dirichlet_tags) )){/*point->getTag() == 3*/
         ++point;
       }
       int x_dofs[3];
@@ -580,7 +580,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     VectorXd          FZloc(nodes_per_cell*LZ);
 
     /* local data */
-    int                 tag, tag_c, nod_id, nod_is, nod_vs, nodsum;
+    int                 tag, tag_c, nod_id, nod_is, nod_sv, nodsum;
     MatrixXd            u_coefs_c_mid_trans(dim, n_dofs_u_per_cell/dim);  // n+utheta  // trans = transpost
     MatrixXd            u_coefs_c_old(n_dofs_u_per_cell/dim, dim);        // n
     MatrixXd            u_coefs_c_old_trans(dim,n_dofs_u_per_cell/dim);   // n
@@ -740,13 +740,13 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     TensorZ const       IdZ(Tensor::Identity(LZ,LZ));  //TODO es Tensor::Indentity o TensorZ::Identity?
     VectorXi            mapU_t(n_dofs_u_per_cell);
 
-    std::vector<bool>   SV(N_Solids,false);       //solid visited history
-    std::vector<int>    SV_c(nodes_per_cell,0);   //maximum nodes in solid visited saving the solid tag
-    bool                SFI = false;              //solid-fluid interaction
+    //std::vector<bool>   SV(N_Solids,false);       //slip velocity node history (Dirichlet BC)
+    std::vector<int>    SV_c(nodes_per_cell,0);   //maximum nodes in slip visited saving the solid tag
+    bool                SVI = false;              //slip velocity interaction, Dirichlet node detected
 
-    std::vector<bool>   VS(N_Solids,false);       //slip visited history
-    std::vector<int>    VS_c(nodes_per_cell,0);   //maximum nodes in slip visited saving the solid tag
-    bool                VSF = false;              //slip velocity node detected
+    //std::vector<bool>   VS(N_Solids,false);       //visited solid node history (Neumann BC)
+    std::vector<int>    VS_c(nodes_per_cell,0);   //maximum nodes in visited solid saving the solid tag
+    bool                VSF = false;              //visited solid-fluid, Neumann node detected
 
     Vector   RotfI(dim), RotfJ(dim), ConfI(dim), ConfJ(dim);
     Vector3d XIg, XJg;
@@ -778,7 +778,23 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     {
 
       tag = cell->getTag();
-
+#if(false)
+      if(is_in(tag,solidonly_tags)){
+        Aloc.setIdentity();
+        Eloc.setIdentity();
+        dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);
+        dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);
+        #ifdef FEP_HAS_OPENMP
+          FEP_PRAGMA_OMP(critical)
+        #endif
+        {
+            MatSetValues(*JJ, mapU_c.size(), mapU_c.data(), mapU_c.size(), mapU_c.data(), Aloc.data(), INSERT_VALUES);
+            MatSetValues(*JJ, mapP_c.size(), mapP_c.data(), mapP_c.size(), mapP_c.data(), Eloc.data(), INSERT_VALUES);
+        }
+        continue;
+      }
+#endif
+#if(true)
       if(is_in(tag,solidonly_tags)){//considers the cells completely inside the solid
         FUloc.setZero();
         Aloc.setIdentity();
@@ -787,6 +803,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         u_coefs_c_new = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
         z_coefs_c_new = MatrixXd::Zero(n_dofs_z_per_cell/LZ,LZ);
+        vs_coefs_c_new = MatrixXd::Zero(n_dofs_u_per_cell/dim, dim);
         mapZ_c = -VectorXi::Ones(nodes_per_cell*LZ);
         mapU_t = -VectorXi::Ones(n_dofs_u_per_cell);
 
@@ -795,28 +812,34 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);
         VecGetValues(Vec_x_1,     mapM_c.size(), mapM_c.data(), x_coefs_c_new.data());
         VecGetValues(Vec_uzp_k,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());
-//#if(false)
+
         x_coefs_c_new_trans = x_coefs_c_new.transpose();
 
         for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
         {
           tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
           nod_is = is_in_id(tag_c,solidonly_tags);
-          if (nod_is){
+          nod_sv = is_in_id(tag_c,slipvel_tags);
+          nodsum = nod_is+nod_sv;
+          if (nodsum){
             for (int C = 0; C < LZ; C++){
-              mapZ_c(i*LZ + C) = n_unknowns_u + n_unknowns_p + LZ*(nod_is-1) + C;
+              mapZ_c(i*LZ + C) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + C;
             }
             for (int l = 0; l < dim; l++){
               mapU_t(i*dim + l) = mapU_c(i*dim + l);
             }
-            VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());  //cout << z_coefs_c_new << endl << endl;
+            VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data()); //cout << z_coefs_c_new << endl << endl;
             z_coefs_c_new_trans = z_coefs_c_new.transpose();
             XIp    = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
-            XIg    = XG_mid[nod_is-1];                //mass center, mid, _0, "new"
-            RotfI  = SolidVel(XIp, XIg, z_coefs_c_mid_trans.col(i), dim);
+            XIg    = XG_mid[nodsum-1];                //mass center, mid, _0, "new"
+            RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);
+            if (nod_sv){
+              VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); //cout << vs_coefs_c_new << endl << endl;
+            }
+
             for (int c = 0; c < dim; ++c)
             {
-              FUloc(i*dim + c) = u_coefs_c_new(i,c) - RotfI(c);
+              FUloc(i*dim + c) = u_coefs_c_new(i,c) - RotfI(c) - vs_coefs_c_new(i,c);
             }
 
             for (int c = 0; c < dim; ++c)
@@ -828,19 +851,19 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             }
           }//end if nod_is
         }//end for cell nodes
-//#endif
+
         #ifdef FEP_HAS_OPENMP
           FEP_PRAGMA_OMP(critical)
         #endif
         {
-            VecSetValues(Vec_fun_fs, mapU_t.size(), mapU_t.data(), FUloc.data(), INSERT_VALUES);
-            MatSetValues(*JJ, mapU_t.size(), mapU_t.data(), mapZ_c.size(), mapZ_c.data(), Z1loc.data(), INSERT_VALUES);
+            VecSetValues(Vec_fun_fs, mapU_t.size(), mapU_t.data(), FUloc.data(), INSERT_VALUES);  //cout << FUloc.transpose() << "   " << mapU_t.transpose() << endl;
+            MatSetValues(*JJ, mapU_t.size(), mapU_t.data(), mapZ_c.size(), mapZ_c.data(), Z1loc.data(), INSERT_VALUES);  //cout << Z1loc.transpose() << "   " << mapZ_c.transpose() << endl <<endl;
             MatSetValues(*JJ, mapU_c.size(), mapU_c.data(), mapU_c.size(), mapU_c.data(), Aloc.data(), INSERT_VALUES);
             MatSetValues(*JJ, mapP_c.size(), mapP_c.data(), mapP_c.size(), mapP_c.data(), Eloc.data(), INSERT_VALUES);
         }
         continue;
       }//nodes at the interface are considered for cells outside the solids
-
+#endif
       // get nodal coordinates of the old and new cell
       mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
       if(is_curvt){
@@ -869,13 +892,13 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       if (is_sfip){
         mapZ_c = -VectorXi::Ones(nodes_per_cell*LZ);
         mapU_t = -VectorXi::Ones(n_dofs_u_per_cell);
-        SFI = false; VSF = false;
+        SVI = false; VSF = false;
         for (int j = 0; j < nodes_per_cell; ++j){
           tag_c = mesh->getNodePtr(cell->getNodeId(j))->getTag();
           nod_id = is_in_id(tag_c,flusoli_tags);
-          nod_is = 0;//is_in_id(tag_c,solidonly_tags);  //always zero: look the previous is_in(tag,solidonly_tags) condition
-          nod_vs = is_in_id(tag_c,slipvel_tags);
-          nodsum = nod_id+nod_is+nod_vs;
+          //nod_is = 0;//is_in_id(tag_c,solidonly_tags);  //always zero: look the previous is_in(tag,solidonly_tags) condition
+          nod_sv = is_in_id(tag_c,slipvel_tags);
+          nodsum = nod_id+nod_sv;//+nod_is;
           if (nodsum){
             for (int l = 0; l < LZ; l++){
               mapZ_c(j*LZ + l) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + l;
@@ -884,10 +907,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
               mapU_t(j*dim + l) = mapU_c(j*dim + l);
               mapU_c(j*dim + l) = -1;
             }
-            SFI = true;
-            if (nod_vs+nod_id) {VSF = true;}  //ojo antes solo nod_vs
+            if (nod_sv){SVI = true;}
+            if (nod_id){VSF = true;}  //ojo antes solo nod_sv  //TODO nod_id+nod_sv
           }
-          SV_c[j] = nod_id+nod_vs; VS_c[j] = nod_vs+nod_id;  //ojo antes solo nod_vs para VS_c
+          SV_c[j] = nod_sv; VS_c[j] = nod_id;  //ojo antes solo nod_sv para VS_c
         }
       }
 
@@ -899,7 +922,6 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           mapU_t = PerM6*mapU_t;  //cout << mapU_t.transpose() << endl;
         }
       }
-
 
       u_coefs_c_old = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
       u_coefs_c_new = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
@@ -952,7 +974,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         if (is_sfip) VecGetValues(Vec_uzp_m2,  mapU_t.size(), mapU_t.data(), u_coefs_c_om2c.data()); // bdf3
       }
 
-      if (VSF){
+      if (SVI){
         VecGetValues(Vec_slipv_0,  mapU_t.size(), mapU_t.data(), vs_coefs_c_old.data()); // bdf2,bdf3
         VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); // bdf2,bdf3
         VecGetValues(Vec_slipv_m1, mapU_t.size(), mapU_t.data(), vs_coefs_c_om1.data()); // bdf2,bdf3
@@ -982,7 +1004,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       p_coefs_c_mid       = utheta*p_coefs_c_new       + (1.-utheta)*p_coefs_c_old;
       z_coefs_c_mid_trans = utheta*z_coefs_c_new_trans + (1.-utheta)*z_coefs_c_old_trans;
 
-      if (VSF){
+      if (SVI){
         vs_coefs_c_old_trans = vs_coefs_c_old.transpose();  //cout << u_coefs_c_old_trans << endl << endl;
         vs_coefs_c_new_trans = vs_coefs_c_new.transpose();
         vs_coefs_c_om1_trans = vs_coefs_c_om1.transpose();
@@ -1026,18 +1048,18 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         hk2 = cell_volume / pi; // element size
 
-        if (SFI){
+        if (SVI){
           for (int J = 0; J < nodes_per_cell; J++){
             if (SV_c[J]){
               XJp_old = x_coefs_c_old_trans.col(J);
               uz_coefs_c_old.col(J) = SolidVel(XJp_old,XG_0[SV_c[J]-1],z_coefs_c_old_trans.col(J),dim);
-              if (VS_c[J])
+              //if (VS_c[J])
                 uz_coefs_c_old.col(J) += vs_coefs_c_old_trans.col(J);
             }
           }
         }
         uconv = (u_coefs_c_old - v_coefs_c_mid + uz_coefs_c_old.transpose()).lpNorm<Infinity>();
-        if (SFI){
+        if (SVI){
           tauk = 4.*visc/hk2 + 2.*rho*uconv/sqrt(hk2);
           tauk = 1./tauk;
         }
@@ -1135,7 +1157,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         //dxZ = z_coefs_c_mid_trans.block(0,0,2,nodes_per_cell) *  dLphi_c[qp] * invF_c_mid;
         Zqp = Vector::Zero(dim);
 
-        if (SFI){
+        if (SVI){
           if (is_bdf2 && time_step > 0){
             Uqp_m1 = u_coefs_c_om1c_trans * phi_c[qp];
           }
@@ -1236,7 +1258,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         for (int i = 0; i < n_dofs_p_per_cell; ++i)
           FPloc(i) -= JxW_mid* dxU.trace()*psi_c[qp][i];
 
-        if (SFI){
+        if (SVI){
           // residue
           for (int I = 0; I < nodes_per_cell; I++){
             int K = SV_c[I];
@@ -1360,7 +1382,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             }
           }//end for I Z5
 
-        }  //end if SFI
+        }  //end if SVI
 
         // ----------------
         //
@@ -1418,7 +1440,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             FPloc(i) -= JxW_mid *tauk* dxpsi_c.row(i).dot(Res);  //minus?
             //FPloc(i) -= JxW_mid *tauk* dxpsi_c.row(i).dot(dxP_new - force_at_mid); // somente laplaciano da pressao
 
-          if (SFI){
+          if (SVI){
             // residue
             for (int I = 0; I < nodes_per_cell; I++){
               int K = SV_c[I];
@@ -1542,7 +1564,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
                 }
               }
             }//end for J Z5
-          } //end SFI
+          } //end SVI
 
         } //end if(behaviors & BH_GLS)
 
@@ -2019,9 +2041,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
   // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol, NeumBody) //////////////////////////////////////////////////
   //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout))
   {
-    int                 tag, sid, tag_p, nod_id, nod_is, nod_vs, nodsum, pts_id[15], K;
+    int                 tag, sid, tag_p, nod_id, nod_is, nod_sv, nodsum, pts_id[15], K;
     bool                is_neumann, is_surface, is_solid, is_slipvel, is_fsi;
-    bool                SFI = false, VSF =  false;
+    bool                SVI = false, VSF =  false;
 
     VectorXi            mapU_f(n_dofs_u_per_facet), mapU_t(n_dofs_u_per_facet);
     VectorXi            mapP_f(n_dofs_p_per_facet);
@@ -2100,25 +2122,25 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         mesh->getFacetNodesId(&*facet, pts_id);
         mapZ_f = -VectorXi::Ones(nodes_per_facet*LZ);
         mapU_t = -VectorXi::Ones(n_dofs_u_per_facet);
-        SFI = false; VSF = false;
+        SVI = false; VSF = false;
         for (int j = 0; j < nodes_per_facet; ++j){
           tag_p = mesh->getNodePtr(pts_id[j])->getTag();
           //nod_id = is_in_id(tag,flusoli_tags);
           //nod_is = 0;//is_in_id(tag_c,solidonly_tags);  //always zero: look the previous is_in(tag,solidonly_tags) condition
-          nod_vs = is_in_id(tag,slipvel_tags);
-          //nodsum = nod_id+nod_is+nod_vs;
-          if (nod_vs){
+          nod_sv = is_in_id(tag,slipvel_tags);
+          //nodsum = nod_id+nod_is+nod_sv;
+          if (nod_sv){
             for (int l = 0; l < LZ; l++){
-              mapZ_f(j*LZ + l) = n_unknowns_u + n_unknowns_p + LZ*(nod_vs-1) + l;
+              mapZ_f(j*LZ + l) = n_unknowns_u + n_unknowns_p + LZ*(nod_sv-1) + l;
             }
             for (int l = 0; l < dim; l++){
               mapU_t(j*dim + l) = mapU_f(j*dim + l);
               mapU_f(j*dim + l) = -1;
             }
-            SFI = true;
-            if (nod_vs+nod_id) {VSF = true;}  //ojo antes solo nod_vs
+            SVI = true;
+            if (nod_sv+nod_id) {VSF = true;}  //ojo antes solo nod_sv
           }
-          //SV_c[j] = nod_id+nod_vs; VS_c[j] = nod_vs+nod_id;  //ojo antes solo nod_vs para VS_c
+          //SV_c[j] = nod_id+nod_sv; VS_c[j] = nod_sv+nod_id;  //ojo antes solo nod_sv para VS_c
         }
       }
 
@@ -2260,7 +2282,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             }
           }
 
-          if (SFI){
+          if (SVI){
             for (int I = 0; I < n_dofs_u_per_facet/dim; I++){
               if (K != 0){
                 XIp   = x_coefs_f_mid_trans.col(I); //ref point Xp, old, mid, or new
@@ -2306,7 +2328,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         MatSetValues(*JJ, mapU_f.size(), mapU_f.data(), mapU_f.size(), mapU_f.data(), Aloc_f.data(),  ADD_VALUES);
         if (is_fsi){
           VecSetValues(Vec_fun_fs, mapZ_f.size(), mapZ_f.data(), FZloc.data(), ADD_VALUES);
-          if (SFI){VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), ADD_VALUES);}
+          if (SVI){VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), ADD_VALUES);}
         }
       }
     }// end for facet

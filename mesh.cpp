@@ -1434,7 +1434,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
         else
         {
           if (nodsum){                                           //enforces solid motion for the nodsum mesh nodes,
-            Vm = vectorSolidMesh(nodsum,&*point,nod_vs+nod_id);  //to calculate mesh velocity //ojo antes solo nod_vs
+            Vm = vectorSolidMesh(nodsum,&*point,nod_vs);  //to calculate mesh velocity //ojo antes solo nod_vs
             tmp(0) = Vm(0); tmp(1) = Vm(1); if (dim == 3) tmp(2) = Vm(2);
           }
           else{
@@ -1560,9 +1560,9 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 PetscErrorCode AppCtx::updateSolidMesh()
 {
   int tag, nod_id, nod_is, nod_vs, nodsum;
-  VectorXi  dofs(dim), dofs_fs(LZ);
+  VectorXi  dofs(dim), dofs_fs(LZ), dofs_U(dim);
   Vector3d  X0(Vector3d::Zero(3)), Vs(Vector3d::Zero(3));
-  Vector    Zf(Vector::Zero(LZ));
+  Vector    Zf(Vector::Zero(LZ)), Uf(dim), U(dim), VS(dim);
   vector<bool>   SV(N_Solids,false);  //solid visited history
   Vector3d  Xg, XG_temp, Us;
 
@@ -1598,6 +1598,18 @@ PetscErrorCode AppCtx::updateSolidMesh()
         Vs = RotM(theta_1[nodsum-1],dim)*RotM(theta_0[nodsum-1],dim).transpose()*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
         VecSetValues(Vec_slipv_1, dim, dofs.data(), Vs.data(), INSERT_VALUES);
       }
+      else if (nod_id){
+        for (int l = 0; l < LZ; l++){
+          dofs_fs(l) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + l;
+        }
+        VecGetValues(Vec_uzp_0, LZ, dofs_fs.data(), Zf.data());
+        Uf = SolidVel(X0, XG_1[nod_id-1], Zf, dim);
+        getNodeDofs(&*point,DH_UNKM,VAR_U,dofs_U.data());
+        VecGetValues(Vec_uzp_0, dim, dofs_U.data(), U.data());
+        VS = U - Uf;  //cout << VS.transpose() << endl;
+        VecSetValues(Vec_slipv_1, dim, dofs.data(), VS.data(), INSERT_VALUES);
+      }
+
     }
   }
   PetscFunctionReturn(0);

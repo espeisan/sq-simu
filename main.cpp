@@ -1650,8 +1650,10 @@ PetscErrorCode AppCtx::setInitialConditions()
                << XG_0[nod_vs+nod_id-1].transpose() << "   "
                << Nr.transpose() << "   "
                << theta_ini[nod_vs+nod_id-1] << endl;*/
-          Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs
-          VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
+          if (nod_vs){
+            Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs
+            VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
+          }
           Tg(0) = -Nr(1); Tg(1) = Nr(0);
           VecSetValues(Vec_tangent, dim, dofs_mesh.data(), Tg.data(), INSERT_VALUES);
         }
@@ -2496,7 +2498,7 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
     }
   }
 
-  cout << "\n Traction force: " << Traction_ << endl;
+  cout << "\n Traction force: " << Traction_.transpose() << endl;
 }
 
 void AppCtx::pressureTimeCorrection(Vec &Vec_up_0, Vec &Vec_up_1, double a, double b) // p(n+1) = a*p(n+.5) + b* p(n)
@@ -3154,7 +3156,7 @@ PetscErrorCode AppCtx::plotFiles()
   VecGetArray(Vec_uzp_0, &q_array);  //VecGetArray(Vec_up_0, &q_array);
   VecGetArray(Vec_normal, &nml_array);
   VecGetArray(Vec_v_mid, &v_array);
-  if (is_slipv) VecGetArray(Vec_slipv_0, &vs_array);
+  if (is_sfip) VecGetArray(Vec_slipv_0, &vs_array);
   if (is_sslv) VecGetArray(Vec_slip_rho, &rho_array);
   vtk_printer.writeVtk();
 
@@ -3162,7 +3164,7 @@ PetscErrorCode AppCtx::plotFiles()
   vtk_printer.addNodeVectorVtk("u", GetDataVelocity(q_array, *this));
   vtk_printer.addNodeVectorVtk("n", GetDataNormal(nml_array, *this));
   vtk_printer.addNodeVectorVtk("v", GetDataMeshVel(v_array, *this));
-  if (is_slipv) vtk_printer.addNodeVectorVtk("vs", GetDataMeshVel(vs_array, *this));
+  if (is_sfip) vtk_printer.addNodeVectorVtk("vs", GetDataMeshVel(vs_array, *this));
   if (is_sslv) vtk_printer.addNodeScalarVtk("rho", GetDataSlipVel(rho_array, *this));
   vtk_printer.printPointTagVtk();
 
@@ -3177,7 +3179,7 @@ PetscErrorCode AppCtx::plotFiles()
   VecRestoreArray(Vec_uzp_0, &q_array);  //VecRestoreArray(Vec_up_0, &q_array);
   VecRestoreArray(Vec_normal, &nml_array);
   VecRestoreArray(Vec_v_mid, &v_array);
-  if (is_slipv) VecRestoreArray(Vec_slipv_0, &vs_array);
+  if (is_sfip) VecRestoreArray(Vec_slipv_0, &vs_array);
   if (is_sslv) VecRestoreArray(Vec_slip_rho, &rho_array);
 
   PetscFunctionReturn(0);

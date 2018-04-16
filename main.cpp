@@ -993,6 +993,13 @@ PetscErrorCode AppCtx::allocPetscObjs()
   ierr = VecSetSizes(Vec_tangent, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
   ierr = VecSetFromOptions(Vec_tangent);                          CHKERRQ(ierr);
 
+  //if (dim == 3){
+  //  //Vec Vec_tangent;
+  //  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_binormal);               CHKERRQ(ierr);
+  //  ierr = VecSetSizes(Vec_binormal, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
+  //  ierr = VecSetFromOptions(Vec_binormal);                          CHKERRQ(ierr);
+  //}
+
   if (is_slipv)
   {
     //Vec Vec_slipvel_0;
@@ -1566,14 +1573,14 @@ PetscErrorCode AppCtx::setInitialConditions()
 {
   PetscErrorCode      ierr(0);
 
-  Vector    Uf(dim), Zf(LZ), Vs(dim), Nr(dim), Tg(dim);
+  Vector    Uf(dim), Zf(LZ), Vs(dim), Nr(dim), Tg(dim), Bn(dim);
   Vector    X(dim);
   Tensor    R(dim,dim);
   VectorXi  dofs(dim), dofs_mesh(dim);  //global components unknowns enumeration from point dofs
   VectorXi  dofs_fs(LZ);
   Vector3d  Xg, XG_temp, Us;
   int       nod_id, nod_is, tag, nod_vs, nodsum;
-  int       PI = 10; //Picard Iterations
+  int       PI = 1; //Picard Iterations
   double    p_in;
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
@@ -1581,6 +1588,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   VecZeroEntries(Vec_x_0);
   VecZeroEntries(Vec_x_1);
   VecZeroEntries(Vec_normal);
+  VecZeroEntries(Vec_tangent);
   VecZeroEntries(Vec_res_fs); //this size is the [U,P,Z] sol vec size
   VecZeroEntries(Vec_uzp_0);
   VecZeroEntries(Vec_uzp_1);
@@ -1590,7 +1598,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     VecZeroEntries(Vec_x_aux);
     VecZeroEntries(Vec_uzp_m2);
   }
-  if (is_slipv){
+  if (is_sfip){
     VecZeroEntries(Vec_slipv_0);
     VecZeroEntries(Vec_slipv_1);
     VecZeroEntries(Vec_slipv_m1);
@@ -1599,6 +1607,9 @@ PetscErrorCode AppCtx::setInitialConditions()
   }
   if (is_sfip && (is_bdf2 || is_bdf3))
     VecZeroEntries(Vec_x_cur);
+
+  //if (dim == 3)
+  //  VecZeroEntries(Vec_binormal);
 
   copyMesh2Vec(Vec_x_0);  //copy initial mesh coordinates to Vec_x_0 = (a1,a2,a3,b1,b2,b3,c1,c2,c3,...)
   copyMesh2Vec(Vec_x_1);  //copy initial mesh coordinates to Vec_x_1
@@ -1654,8 +1665,11 @@ PetscErrorCode AppCtx::setInitialConditions()
             Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs
             VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
-          Tg(0) = -Nr(1); Tg(1) = Nr(0);
+          //Tg(0) = -Nr(1); Tg(1) = Nr(0);
+          getTangents(Tg,Bn,Nr,dim);  //cout << Nr.transpose() << " * " << Tg.transpose() << " = " << Nr.dot(Tg) << " Bin " << Bn.transpose() << endl;
           VecSetValues(Vec_tangent, dim, dofs_mesh.data(), Tg.data(), INSERT_VALUES);
+          //if (dim == 3)
+          //  VecSetValues(Vec_binormal, dim, dofs_mesh.data(), Bn.data(), INSERT_VALUES);
         }
         else
         {
@@ -1734,7 +1748,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //VecCopy(Vec_slipv_1, Vec_slipv_0);
       //copyVec2Mesh(Vec_x_0);
       //saveDOFSinfo();
-      //if (family_files){plotFiles();}
+      if (family_files){plotFiles();}
     }
     // update mesh and mech. dofs
     moveCenterMass(0.0);

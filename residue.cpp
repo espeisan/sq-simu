@@ -539,7 +539,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       VecSetValue(Vec_uzp_k, null_space_press_dof, 0.0, INSERT_VALUES);
     }
     else
-    {//imposes a pressure node (the first one in the mesh) at the dirichlet region (or wherever you want)
+    {//imposes a pressure node (the first one in the mesh) at the Dirichlet region (or wherever you want)
       point_iterator point = mesh->pointBegin();
       while (!( mesh->isVertex(&*point) && is_in(point->getTag(),dirichlet_tags) )){/*point->getTag() == 3*/
         ++point;
@@ -577,7 +577,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
   {
     VectorXd          FUloc(n_dofs_u_per_cell);  // U subvector part of F
     VectorXd          FPloc(n_dofs_p_per_cell);
-    VectorXd          FZloc(nodes_per_cell*LZ);
+    VectorXd          FZloc(n_dofs_z_per_cell);
 
     /* local data */
     int                 tag, tag_c, nod_id, nod_is, nod_sv, nodsum;
@@ -747,6 +747,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     //std::vector<bool>   VS(N_Solids,false);       //visited solid node history (Neumann BC)
     std::vector<int>    VS_c(nodes_per_cell,0);   //maximum nodes in visited solid saving the solid tag
     bool                VSF = false;              //visited solid-fluid, body mixed Neumann node detected
+    bool                PDN = false;              //Pure Dirichlet Node at the fluid region found
+    bool                FTN = false;              //Feature Tag Node found
 
     Vector   RotfI(dim), RotfJ(dim), ConfI(dim), ConfJ(dim);
     Vector3d XIg, XJg;
@@ -825,7 +827,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
           nod_is = is_in_id(tag_c,solidonly_tags);
           //nod_sv = is_in_id(tag_c,slipvel_tags);
-          nodsum = nod_is; //+nod_sv;
+          nodsum = 1.0;//nod_is; //+nod_sv;
           if (nodsum){
             mapP_t(i) = mapP_c(i);
             FPloc(i) = p_coefs_c_new(i) - 0.0; //set 0.0 pressure at interior solid only nodes
@@ -932,6 +934,19 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       }
       //////////////////////////////////////////////////
 
+      //identify if the cell has at least one Pure Dirichlet node at the fluid region //////////////////////////////////////////////////
+      PDN = false; FTN = false;
+      for (int j = 0; j < n_dofs_u_per_cell/dim; ++j){
+        tag_c = mesh->getNodePtr(cell->getNodeId(j))->getTag();
+        if (is_in(tag_c,dirichlet_tags)){
+          PDN = true;
+        }
+        else if (is_in(tag_c,feature_tags)){
+          FTN = true;
+        }
+      }
+      //////////////////////////////////////////////////
+
       //initialize zero values for the variables//////////////////////////////////////////////////
       u_coefs_c_old = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
       u_coefs_c_new = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
@@ -1033,8 +1048,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
       //initialization as zero of the residuals//////////////////////////////////////////////////
       FUloc.setZero();
-      FZloc.setZero();
       FPloc.setZero();
+      FZloc.setZero();
       //initialization as zero of the elemental matrices//////////////////////////////////////////////////
       Aloc.setZero();
       Gloc.setZero();
@@ -1173,7 +1188,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         //dxZ = z_coefs_c_mid_trans.block(0,0,2,nodes_per_cell) *  dLphi_c[qp] * invF_c_mid;
         Zqp = Vector::Zero(dim);
 
-        if (SVI){
+        if (SVI && false){
           if (is_bdf2 && time_step > 0){
             Uqp_m1 = u_coefs_c_om1c_trans * phi_c[qp];
           }
@@ -1280,8 +1295,6 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         for (int i = 0; i < n_dofs_p_per_cell; ++i)
           FPloc(i) -= JxW_mid* dxU.trace()*psi_c[qp][i]; //mass conservation residual
 
-
-        //FZloc =
 #if (false)
         if (SVI){
           // residue
@@ -1595,8 +1608,38 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
 //cout << "\n" << FUloc << endl; cout << "\n" << Aloc << endl; cout << "\n" << Gloc << endl; cout << "\n" << Dloc << endl;
 
-      // Projection - to force Dirichlet conditions: non-penetration, solid motion, pure Dirichlet //////////////////////////////////////////////////
-      if (SVI || VSF){
+      // Projection - to force Dirichlet conditions: solid motion, non-penetration, pure Dirichlet, respect //////////////////////////////////////////////////
+      if (SVI || VSF || PDN || FTN){
+#if (false)
+        for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
+        {
+          int K = SV_c[i] + VS_c[i];
+          if (K != 0){
+            XIp   = x_coefs_c_mid_trans.col(i); //ref point Xp, old, mid, or new
+            XIg   = XG_mid[K-1];                //mass center, mid, _0, "new"
+            for (int C = 0; C < LZ; C++){
+              RotfI = SolidVel(XIp,XIg,IdZ.col(C),dim);
+              for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)
+              {
+                for (int d = 0; d < dim; ++d)
+                {
+                  for (int row = 0; row < dim; row++){
+                    FZloc(i*LZ + C) +=  u_coefs_c_mid_trans(d,j)*RotfI(row)*Aloc(i*dim + row, j*dim + d);
+                  }
+                }
+              }
+
+              for (int j = 0; j < n_dofs_p_per_cell; ++j){
+                for (int row = 0; row < dim; row++){
+                  FZloc(i*LZ + C) -= p_coefs_c_mid(j)*RotfI(row)*Gloc(i*dim + row, j);
+                }
+              }
+
+            }//if C
+          }//if K
+        }
+#endif
+
         MatrixXd    Aloc_copy(n_dofs_u_per_cell, n_dofs_u_per_cell);
         MatrixXd    Gloc_copy(n_dofs_u_per_cell, n_dofs_p_per_cell);
         Aloc_copy = Aloc;
@@ -1615,11 +1658,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         //impose non-penetration BC at body's surface nodes
         VectorXd    FUloc_vs(VectorXd::Zero(n_dofs_u_per_cell));
         MatrixXd    Id_vs(MatrixXd::Identity(n_dofs_u_per_cell,n_dofs_u_per_cell));
-        VectorXi    mapZ_c_vs = -VectorXi::Ones(nodes_per_cell*LZ);
+        //VectorXi    mapZ_c_vs = -VectorXi::Ones(nodes_per_cell*LZ);
         MatrixXd    Z1loc_vs(MatrixXd::Zero(n_dofs_u_per_cell,n_dofs_z_per_cell));
         double      betaPrj = 1.0;
 
-        z_coefs_c_new = MatrixXd::Zero(n_dofs_z_per_cell/LZ,LZ);
+        //z_coefs_c_new = MatrixXd::Zero(n_dofs_z_per_cell/LZ,LZ);
 
         for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
         {
@@ -1630,12 +1673,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             //VecGetValues(Vec_uzp_k,   mapZ_c_vs.size(), mapZ_c_vs.data(), z_coefs_c_new.data()); //cout << z_coefs_c_new << endl << endl;
             //z_coefs_c_new_trans = z_coefs_c_new.transpose();
             XIp    = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
-            XIg    = XG_mid[VS_c[i]-1];          //mass center, mid, _0, "new"
+            XIg    = XG_mid[SV_c[i] + VS_c[i]-1];          //mass center, mid, _0, "new"
             RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);
 
             for (int c = 0; c < dim; ++c)
             {
-              FUloc_vs(i*dim + c) = u_coefs_c_new(i,c) - RotfI(c) - vs_coefs_c_new(i,c);
+              FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c) - vs_coefs_c_mid_trans(c,i);
             }
 
             for (int c = 0; c < dim; ++c)
@@ -1696,9 +1739,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         if (is_sfip){
           MatSetValues(*JJ, mapU_c.size(), mapU_c.data(), mapZ_c.size(), mapZ_c.data(), Z1loc.data(), ADD_VALUES);
           MatSetValues(*JJ, mapZ_c.size(), mapZ_c.data(), mapU_c.size(), mapU_c.data(), Z2loc.data(), ADD_VALUES);
-          //MatSetValues(*JJ, mapZ_c.size(), mapZ_c.data(), mapZ_c.size(), mapZ_c.data(), Z3loc.data(), ADD_VALUES);
+          MatSetValues(*JJ, mapZ_c.size(), mapZ_c.data(), mapZ_c.size(), mapZ_c.data(), Z3loc.data(), ADD_VALUES);
           MatSetValues(*JJ, mapZ_c.size(), mapZ_c.data(), mapP_c.size(), mapP_c.data(), Z4loc.data(), ADD_VALUES);
-          //MatSetValues(*JJ, mapP_c.size(), mapP_c.data(), mapZ_c.size(), mapZ_c.data(), Z5loc.data(), ADD_VALUES);
+          MatSetValues(*JJ, mapP_c.size(), mapP_c.data(), mapZ_c.size(), mapZ_c.data(), Z5loc.data(), ADD_VALUES);
         }
       }
     }  //end for cell
@@ -2351,7 +2394,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           }
         }
 
-        if (is_fsi && true) //for Neumann on the body//////////////////////////////////////////////////
+        if (is_fsi && false) //for Neumann on the body//////////////////////////////////////////////////
         {
           K = is_fsi;
           Xg = XG_mid[K-1];
@@ -2427,7 +2470,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
   // boundary conditions on global Jacobian
   // solid & triple tags .. force normal
-  if (force_dirichlet)
+  if (force_dirichlet && false)
   {
     int      nodeid;
     int      u_dofs[dim];

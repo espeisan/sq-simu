@@ -330,6 +330,22 @@ inline std::vector<Vector3d> midGP(std::vector<Vector3d> XG, std::vector<Vector3
   return XG_mid;
 }
 
+inline void getTangents(Vector& T, Vector &B, Vector const& N, int dim){
+  Tensor I(dim,dim);
+  I.setIdentity();
+  T.setZero();
+  B.setZero();
+
+  if (dim == 2){
+    T(0) = -N(1); T(1) = N(0);
+  }
+  else if (dim == 3){//TODO
+    //T = I - N*N.transpose();
+    //cross(T2, N, T1);
+  }
+}
+
+
 
 class Statistics
 {
@@ -750,7 +766,7 @@ public:
   SNESLineSearch      linesearch;
 
   // mesh
-  Vec                 Vec_res_m,  Vec_v_mid, Vec_v_1, Vec_x_0, Vec_x_1, Vec_normal, Vec_tangent;
+  Vec                 Vec_res_m,  Vec_v_mid, Vec_v_1, Vec_x_0, Vec_x_1, Vec_normal, Vec_tangent;//, Vec_binormal;
   Vec                 Vec_x_aux, Vec_x_cur; // bdf3
   Mat                 Mat_Jac_m;
   SNES                snes_m;

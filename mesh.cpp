@@ -2759,6 +2759,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
 //    for (int na = 0; na < 5; na++){
     for (int is_splitting = 0; is_splitting < 2 ; ++is_splitting)
     {
+      // FOR OVER EDGES' ID'S//////////////////////////////////////////////////
       int const n_edges_total = (dim==2) ? mesh->numFacetsTotal() : mesh->numCornersTotal();
       for (int eid = 0; eid < n_edges_total; ++eid)
       {
@@ -2781,9 +2782,9 @@ PetscErrorCode AppCtx::meshAdapt_s()
 
         if (is_in(tag_e, solidonly_tags) || is_in(tag_e, flusoli_tags) || is_in(tag_e, slipvel_tags))
           continue;
-        if ((is_in(tag_e, flusoli_tags) || is_in(tag_e, solidonly_tags)) && (!is_splitting))
-          continue;
-        if (!(tag_a==tag_b && tag_b==tag_e) && (is_splitting==0))  //only collapse edges inside the same type of domain
+        //if ((is_in(tag_e, flusoli_tags) || is_in(tag_e, solidonly_tags)) && (!is_splitting))
+        //  continue;
+        if (!(tag_a == tag_b && tag_b == tag_e) && (is_splitting == 0))  //only collapse edges inside the same type of domain
           continue;                                                //(ex: inside fluid)
 
         Point const* pt_a = mesh->getNodePtr(edge_nodes[0]);
@@ -2794,9 +2795,9 @@ PetscErrorCode AppCtx::meshAdapt_s()
         pt_a->getCoord(Xa.data(),dim);
         pt_b->getCoord(Xb.data(),dim);
 
-        h = (Xa-Xb).norm();
-
+        h          = (Xa-Xb).norm();
         expected_h = .5*(mesh_sizes[edge_nodes[0]] + mesh_sizes[edge_nodes[1]]);
+
         //Splitting (after Collapsing)
         if (is_splitting)//&& (time_step%2==0))
         {
@@ -2824,7 +2825,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
           {
             mesh_was_changed = true;
             int pt_id = MeshToolsTri::insertVertexOnEdge(edge->getIncidCell(), edge->getPosition(), 0.5, &*mesh);
-            //printf("INSERTED %d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", pt_id);
+            printf("INSERTED %d BETWEEN %d AND %d !!!!!!!!!!", pt_id, edge_nodes[0], edge_nodes[1]); cout << " " << Xa.transpose() << " and " << Xb.transpose() << endl;
             adde_vtcs.push_back(make_tuple(pt_id, edge_nodes[0], edge_nodes[1]));
             mesh->getNodePtr(pt_id)->setMarkedTo(true);
             if (pt_id < (int)mesh_sizes.size())
@@ -2854,14 +2855,17 @@ PetscErrorCode AppCtx::meshAdapt_s()
           {
             mesh_was_changed = true;
             int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 1.0, &*mesh);
-            //printf("COLLAPSED %d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", pt_id);
+            printf("COLLAPSED %d !!!!!!!!!!\n", pt_id);
             //mesh->getNodePtr(pt_id)->setMarkedTo(true);
           }
         }
-      } // end n_edges_total
-    }//end for adaptation
+      }
+      // end n_edges_total //////////////////////////////////////////////////
+    }
+    //end for adaptation //////////////////////////////////////////////////
 //    }
-  }// end if Qmesh
+  }
+  // end if Qmesh //////////////////////////////////////////////////
 
   if (!mesh_was_changed)
     PetscFunctionReturn(0);
@@ -2907,13 +2911,13 @@ PetscErrorCode AppCtx::meshAdapt_s()
     dof_handler_tmp[DH_UNKM].copy(dof_handler[DH_UNKM]);  //dof_handler_tmp[DH_UNKS].copy(dof_handler[DH_UNKS]);
 
     dofsUpdate();  //updates DH_ information: # variables u, z, p, mesh can change
-    cout << "#z=" << n_nodes_fsi << " #u=" << n_unknowns_u << " #p=" << n_unknowns_p << " #v=" << n_dofs_v_mesh  << endl;
+    cout << "#z=" << n_unknowns_z << " #u=" << n_unknowns_u << " #p=" << n_unknowns_p << " #v=" << n_dofs_v_mesh  << " #n_fsi=" << n_nodes_fsi << endl;
 
     Vec *petsc_vecs[] = {&Vec_uzp_0,    &Vec_uzp_1,    &Vec_x_0,      &Vec_x_1,      &Vec_uzp_m1,   &Vec_x_aux,    &Vec_uzp_m2,   &Vec_slipv_0,  &Vec_slipv_1,  &Vec_slipv_m1, &Vec_slipv_m2};
     int DH_t[]        = {DH_UNKM,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_MESH,       DH_MESH      };
     int n_unks_t[]    = {n_unknowns_fs, n_unknowns_fs, n_dofs_v_mesh, n_dofs_v_mesh, n_unknowns_fs, n_dofs_v_mesh, n_unknowns_fs, n_dofs_v_mesh, n_dofs_v_mesh, n_dofs_v_mesh, n_dofs_v_mesh};
     int L = 4;
-    if (is_slipv){L = static_cast<int>( sizeof(DH_t)/sizeof(int) );}
+    if (is_sfip){L = static_cast<int>( sizeof(DH_t)/sizeof(int) );}
     else{
       if(is_bdf2){L = 5;}
       else if (is_bdf3){L = 7;}//{L = static_cast<int>( sizeof(DH_t)/sizeof(int) );}
@@ -2923,7 +2927,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     // NOTE: the mesh must not be changed in this loop
     for (int v = 0; v < L; ++v)
     {
-      if (is_slipv){
+      if (is_sfip){
         if ((is_mr_ab || is_basic || is_mr) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
           continue;
         else if (is_bdf2 && (v == 5 || v == 6 || v == 10))

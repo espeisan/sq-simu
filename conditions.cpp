@@ -2257,7 +2257,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
 
   if (true && dim == 2)
   {
-    double B1 = -3.0, B2 = 0.0;
+    double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
     V(0) = -normal(1); V(1) = normal(0);
@@ -2274,9 +2274,9 @@ Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int d
   double psi = 0.0, k = 5.0;
 
   Vector f(Vector::Zero(X.size()));
-  if (false && dim == 2)
+  if (true && dim == 2)
   {
-    double B1 = 1.0, B2 = 0.0;
+    double B1 = -0.5, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
     f(0) = -normal(1); f(1) = normal(0);

@@ -875,14 +875,14 @@ void AppCtx::dofsUpdate()
   dof_handler[DH_UNKM].linkDofs(dofs1.size(), dofs1.data(), dofs2.data());
   n_unknowns_u = dof_handler[DH_UNKM].getVariable(VAR_U).numPositiveDofs();
   n_unknowns_p = dof_handler[DH_UNKM].getVariable(VAR_P).numPositiveDofs();
-  n_unknowns_z = N_Solids*3*(dim-1);
+  n_unknowns_z = N_Solids*LZ;
   //cout << n_unknowns_z << "   " <<  dof_handler[DH_UNKM].getVariable(VAR_Z).numPositiveDofs();
 
 //    dof_handler[DH_FOON].SetUp();
 //    n_unknowns_f = dof_handler[DH_FOON].getVariable(VAR_F).numPositiveDofs();
 //    n_unknowns_s = dof_handler[DH_FOON].getVariable(VAR_S).numPositiveDofs();
 
-  n_unknowns_fs = n_unknowns_u + n_unknowns_p + N_Solids*LZ; //- dim*n_nodes_fsi;
+  n_unknowns_fs = n_unknowns_u + n_unknowns_p + n_unknowns_z; //- dim*n_nodes_fsi;
 
   //for (unsigned int l = 0; l < NN_Solids.size(); l++) cout << NN_Solids[l] << " ";
   if (is_sslv){
@@ -1580,7 +1580,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   VectorXi  dofs_fs(LZ);
   Vector3d  Xg, XG_temp, Us;
   int       nod_id, nod_is, tag, nod_vs, nodsum;
-  int       PI = 1; //Picard Iterations
+  int       PI = 10; //Picard Iterations
   double    p_in;
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
@@ -1748,7 +1748,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //VecCopy(Vec_slipv_1, Vec_slipv_0);
       //copyVec2Mesh(Vec_x_0);
       //saveDOFSinfo();
-      if (family_files){plotFiles();}
+      //if (family_files){plotFiles();}
     }
     // update mesh and mech. dofs
     moveCenterMass(0.0);

@@ -2825,7 +2825,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
           {
             mesh_was_changed = true;
             int pt_id = MeshToolsTri::insertVertexOnEdge(edge->getIncidCell(), edge->getPosition(), 0.5, &*mesh);
-            printf("INSERTED %d BETWEEN %d AND %d !!!!!!!!!!", pt_id, edge_nodes[0], edge_nodes[1]); cout << " " << Xa.transpose() << " and " << Xb.transpose() << endl;
+            //printf("INSERTED %d BETWEEN %d AND %d !!!!!!!!!!", pt_id, edge_nodes[0], edge_nodes[1]); cout << " " << Xa.transpose() << " and " << Xb.transpose() << endl;
             adde_vtcs.push_back(make_tuple(pt_id, edge_nodes[0], edge_nodes[1]));
             mesh->getNodePtr(pt_id)->setMarkedTo(true);
             if (pt_id < (int)mesh_sizes.size())
@@ -2855,7 +2855,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
           {
             mesh_was_changed = true;
             int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 1.0, &*mesh);
-            printf("COLLAPSED %d !!!!!!!!!!\n", pt_id);
+            //printf("COLLAPSED %d !!!!!!!!!!\n", pt_id);
             //mesh->getNodePtr(pt_id)->setMarkedTo(true);
           }
         }

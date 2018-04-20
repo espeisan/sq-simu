@@ -908,7 +908,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           nod_id = is_in_id(tag_c,flusoli_tags);
           //nod_is = 0;//is_in_id(tag_c,solidonly_tags);  //always zero: look the previous is_in(tag,solidonly_tags) condition
           nod_sv = is_in_id(tag_c,slipvel_tags);
-          nodsum = nod_sv;//+nod_is; TODO +nod_id before
+          nodsum = nod_sv+nod_id; //TODO +nod_id before
           if (nodsum){
             for (int l = 0; l < LZ; l++){
               mapZ_c(j*LZ + l) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + l;
@@ -1399,14 +1399,16 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
             for (int c = 0; c < dim; ++c)
             {
-              FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c) - vs_coefs_c_mid_trans(c,i);
+              FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c);
+              if (SV_c[i])
+                FUloc_vs(i*dim + c) += - vs_coefs_c_mid_trans(c,i);
             }
 
             for (int c = 0; c < dim; ++c)
             {
               for (int D = 0; D < LZ; D++){
                 RotfI  = SolidVel(XIp, XIg, IdZ.col(D), dim);
-                Z1loc_vs(i*dim+c,i*LZ+D) = -RotfI(c);
+                Z1loc_vs(i*dim+c,i*LZ+D) = RotfI(c);  //builds the elemental matrix H of solid generator movement
               }
             }
           }
@@ -1414,11 +1416,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         FUloc += betaPrj*(Id_vs - Prj)*FUloc_vs;
         Aloc  += betaPrj*(Id_vs - Prj);
-        Z1loc  = betaPrj*(Id_vs - Prj)*Z1loc_vs;
+        Z1loc = -betaPrj*(Id_vs - Prj)*Z1loc_vs;
 
-        FZloc  = Z1loc_vs.transpose()*FUloc_copy;
-        Z2loc  = Z1loc_vs.transpose()*Aloc_copy;
-        Z4loc  = Z1loc_vs.transpose()*Gloc_copy;
+        FZloc  = Z1loc_vs.transpose()*(Id_vs - Prj)*FUloc;//_copy;
+        Z2loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Aloc;//_copy;
+        Z4loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Gloc;//_copy;
 
       }
       //////////////////////////////////////////////////
@@ -1937,6 +1939,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     VectorXd            FZsloc(LZ);// = VectorXd::Zero(LZ);
 
     MatrixXd            Prj(n_dofs_u_per_facet,n_dofs_u_per_facet);
+    MatrixXd            Id_vs(n_dofs_u_per_facet,n_dofs_u_per_facet);
     VectorXi            facet_nodes(nodes_per_facet);
 
     Vector              normal(dim), traction_(dim);
@@ -2018,9 +2021,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       z_coefs_f_mid_trans = z_coefs_f_new_trans;
 
 
-      FUloc.setZero();
-      FZloc.setZero();
-      FZsloc.setZero();
+      FUloc.setZero();  //U momentum
+      FZloc.setZero();  //S momentum
+      FZsloc.setZero(); //Lagrangian contribution to S momentum
       Aloc_f.setZero();
 
       if (is_sslv && false){ //for electrophoresis, TODO
@@ -2173,7 +2176,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         mesh->getFacetNodesId(&*facet, facet_nodes.data());
         getProjectorMatrix(Prj, nodes_per_facet, facet_nodes.data(), Vec_x_1, current_time+dt, *this);
-        FUloc = Prj*FUloc;
+        FUloc  = Prj*FUloc;
         Aloc_f = Prj*Aloc_f;//*Prj;
 
         MatrixXd    Z1loc_vs(MatrixXd::Zero(n_dofs_u_per_facet,n_dofs_z_per_facet));
@@ -2188,12 +2191,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           {
             for (int D = 0; D < LZ; D++){
               RotfI  = SolidVel(XIp, XIg, IdZ.col(D), dim);
-              Z1loc_vs(i*dim+c,i*LZ+D) = RotfI(c);
+              Z1loc_vs(i*dim+c,i*LZ+D) = RotfI(c);  //builds the elemental matrix H of solid generator movement
             }
           }
         }
 
-        FZloc = Z1loc_vs.transpose()*FUloc_copy;
+        FZloc = Z1loc_vs.transpose()*(Id_vs - Prj)*FUloc_copy;
       }
 
       ///cout << mapU_f.transpose() << "   " << FUloc.transpose() << endl;

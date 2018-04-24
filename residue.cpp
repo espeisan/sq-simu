@@ -1418,9 +1418,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         Aloc  += betaPrj*(Id_vs - Prj);
         Z1loc = -betaPrj*(Id_vs - Prj)*Z1loc_vs;
 
-        FZloc  = Z1loc_vs.transpose()*(Id_vs - Prj)*FUloc;//_copy;
-        Z2loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Aloc;//_copy;
-        Z4loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Gloc;//_copy;
+        FZloc  = Z1loc_vs.transpose()*(Id_vs - Prj)*FUloc_copy;
+        Z2loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
+        Z4loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Gloc_copy;
 
       }
       //////////////////////////////////////////////////

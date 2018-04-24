@@ -2276,7 +2276,7 @@ Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int d
   Vector f(Vector::Zero(X.size()));
   if (true && dim == 2)
   {
-    double B1 = -1.0, B2 = 0.0;
+    double B1 = 0.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
     f(0) = -normal(1); f(1) = normal(0);

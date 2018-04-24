@@ -1198,6 +1198,59 @@ PetscErrorCode AppCtx::allocPetscObjs()
     //cout << endl; ierr = SNESView(snes_s, PETSC_VIEWER_STDOUT_WORLD);
     }
 
+    if (is_sfip){
+    //  ------------------------------------------------------------------
+    //  ----------------------- Dissipative Force ------------------------
+    //  ------------------------------------------------------------------
+
+    //Vec Vec_forcd_0;
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_forcd_0);               CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_forcd_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_forcd_0);                          CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_forcd_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_fd);                CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_res_fd, PETSC_DECIDE, n_dofs_v_mesh);    CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_res_fd);                           CHKERRQ(ierr);
+
+    nnz.clear();
+    int n_fd_dofs = dof_handler[DH_MESH].numDofs();;
+    {
+      std::vector<SetVector<int> > tablf;
+      dof_handler[DH_MESH].getSparsityTable(tablf); // TODO: melhorar desempenho, função mt lenta
+
+      nnz.resize(n_fd_dofs, 0);
+
+      //FEP_PRAGMA_OMP(parallel for)
+      for (int i = 0; i < n_fd_dofs; ++i)
+        {nnz[i] = tablf[i].size();}  //cout << nnz[i] << " ";} //cout << endl;
+    }
+
+    ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_fd);                                     CHKERRQ(ierr);
+    ierr = MatSetType(Mat_Jac_fd, MATSEQAIJ);                                            CHKERRQ(ierr);
+    ierr = MatSetSizes(Mat_Jac_fd, PETSC_DECIDE, PETSC_DECIDE, n_fd_dofs, n_fd_dofs);    CHKERRQ(ierr);
+    //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*N_Solids, 2*dim*N_Solids);     CHKERRQ(ierr);
+    ierr = MatSeqAIJSetPreallocation(Mat_Jac_fd,  0, nnz.data());                        CHKERRQ(ierr);
+    //ierr = MatSetFromOptions(Mat_Jac_s);                                                CHKERRQ(ierr);
+    //ierr = MatSeqAIJSetPreallocation(Mat_Jac_s, PETSC_DEFAULT, NULL);                   CHKERRQ(ierr);
+    ierr = MatSetOption(Mat_Jac_fd,MAT_NEW_NONZERO_ALLOCATION_ERR,PETSC_FALSE);             CHKERRQ(ierr);
+    ierr = MatSetOption(Mat_Jac_fd,MAT_SYMMETRIC,PETSC_TRUE);                               CHKERRQ(ierr);
+
+    ierr = SNESCreate(PETSC_COMM_WORLD, &snes_fd);                                          CHKERRQ(ierr);
+    ierr = SNESSetFunction(snes_fd, Vec_res_fd, FormFunction_sqrm, this);                    CHKERRQ(ierr);
+    ierr = SNESSetJacobian(snes_fd, Mat_Jac_fd, Mat_Jac_fd, FormJacobian_sqrm, this);         CHKERRQ(ierr);
+    ierr = SNESGetLineSearch(snes_fd,&linesearch_fd);
+    ierr = SNESLineSearchSetType(linesearch_fd,SNESLINESEARCHBASIC);
+    ierr = SNESGetKSP(snes_fd,&ksp_fd);                                                   CHKERRQ(ierr);
+    ierr = KSPGetPC(ksp_fd,&pc_fd);                                                       CHKERRQ(ierr);
+    ierr = KSPSetOperators(ksp_fd,Mat_Jac_fd,Mat_Jac_fd,SAME_NONZERO_PATTERN);             CHKERRQ(ierr);
+    ierr = KSPSetType(ksp_fd,KSPPREONLY);                                                CHKERRQ(ierr);
+    ierr = PCSetType(pc_fd,PCLU);                                                        CHKERRQ(ierr);
+    ierr = SNESSetFromOptions(snes_fd);                                                  CHKERRQ(ierr);
+    ierr = SNESSetType(snes_fd, SNESKSPONLY);                                            CHKERRQ(ierr);
+    //cout << endl; ierr = SNESView(snes_s, PETSC_VIEWER_STDOUT_WORLD);
+    }
+
   printf(" done.\n");
   PetscFunctionReturn(0);
 }
@@ -1604,6 +1657,8 @@ PetscErrorCode AppCtx::setInitialConditions()
     VecZeroEntries(Vec_slipv_m1);
     if (is_bdf3){VecZeroEntries(Vec_slipv_m2);}
     if (is_sslv){VecZeroEntries(Vec_slip_rho);}
+    VecZeroEntries(Vec_res_fd);
+    VecZeroEntries(Vec_forcd_0);
   }
   if (is_sfip && (is_bdf2 || is_bdf3))
     VecZeroEntries(Vec_x_cur);

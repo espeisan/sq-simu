@@ -775,6 +775,12 @@ public:
   
   // slip velocity
   Vec                 Vec_slipv_0, Vec_slipv_1, Vec_slipv_m1, Vec_slipv_m2, Vec_normal_aux;
+  Vec                 Vec_forcd_0, Vec_res_fd;
+  Mat                 Mat_Jac_fd;
+  SNES                snes_fd;
+  KSP                 ksp_fd;
+  PC                  pc_fd;
+  SNESLineSearch      linesearch_fd;
 
   // swimmer
   Vec                 Vec_res_s, Vec_slip_rho, Vec_rho_aux;  //Vec_uzp_0_ns, Vec_uzp_1_ns,;

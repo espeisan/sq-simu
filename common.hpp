@@ -442,13 +442,12 @@ public:
   PetscErrorCode checkSnesConvergence(SNES snes, PetscInt it,PetscReal xnorm, PetscReal pnorm, PetscReal fnorm, SNESConvergedReason *reason);
   PetscErrorCode setUPInitialGuess();
   PetscErrorCode solveTimeProblem();
+  PetscErrorCode meshAdapt();
 //  PetscErrorCode formJacobian(SNES /*snes*/,Vec x,Mat *Mat_Jac, Mat* /*prejac*/, MatStructure * /*flag*/);
 //  PetscErrorCode formFunction(SNES /*snes*/, Vec x, Vec f);
 
   PetscErrorCode formJacobian_fs(SNES /*snes*/,Vec x,Mat *Mat_Jac, Mat* /*prejac*/, MatStructure * /*flag*/);
   PetscErrorCode formFunction_fs(SNES /*snes*/, Vec x, Vec f);
-  
-  PetscErrorCode meshAdapt();
   
   PetscErrorCode formJacobian_mesh(SNES /*snes*/,Vec x, Mat *Mat_Jac, Mat* /*prejac*/, MatStructure * /*flag*/);
   PetscErrorCode formFunction_mesh(SNES /*snes*/, Vec x, Vec f);
@@ -456,6 +455,9 @@ public:
   PetscErrorCode formJacobian_sqrm(SNES /*snes*/,Vec x, Mat *Mat_Jac, Mat* /*prejac*/, MatStructure * /*flag*/);
   PetscErrorCode formFunction_sqrm(SNES /*snes*/, Vec x, Vec f);
   
+  PetscErrorCode formJacobian_fd(SNES /*snes*/,Vec x, Mat *Mat_Jac, Mat* /*prejac*/, MatStructure * /*flag*/);
+  PetscErrorCode formFunction_fd(SNES /*snes*/, Vec x, Vec f);
+
   // form the residue of the cell
   void formCellFunction(cell_iterator &cell,
                                   VectorXi &mapU_c,  VectorXi &/*mapP_c*/, // mappers

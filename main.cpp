@@ -28,6 +28,8 @@ PetscErrorCode FormJacobian_fs(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac,
 PetscErrorCode FormFunction_fs(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
 PetscErrorCode FormJacobian_sqrm(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
 PetscErrorCode FormFunction_sqrm(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
+PetscErrorCode FormJacobian_fd(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
+PetscErrorCode FormFunction_fd(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
 
 class AppCtx;
 class Statistics;
@@ -1237,8 +1239,8 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = MatSetOption(Mat_Jac_fd,MAT_SYMMETRIC,PETSC_TRUE);                               CHKERRQ(ierr);
 
     ierr = SNESCreate(PETSC_COMM_WORLD, &snes_fd);                                          CHKERRQ(ierr);
-    ierr = SNESSetFunction(snes_fd, Vec_res_fd, FormFunction_sqrm, this);                    CHKERRQ(ierr);
-    ierr = SNESSetJacobian(snes_fd, Mat_Jac_fd, Mat_Jac_fd, FormJacobian_sqrm, this);         CHKERRQ(ierr);
+    ierr = SNESSetFunction(snes_fd, Vec_res_fd, FormFunction_fd, this);                    CHKERRQ(ierr);
+    ierr = SNESSetJacobian(snes_fd, Mat_Jac_fd, Mat_Jac_fd, FormJacobian_fd, this);         CHKERRQ(ierr);
     ierr = SNESGetLineSearch(snes_fd,&linesearch_fd);
     ierr = SNESLineSearchSetType(linesearch_fd,SNESLINESEARCHBASIC);
     ierr = SNESGetKSP(snes_fd,&ksp_fd);                                                   CHKERRQ(ierr);
@@ -1246,7 +1248,7 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = KSPSetOperators(ksp_fd,Mat_Jac_fd,Mat_Jac_fd,SAME_NONZERO_PATTERN);             CHKERRQ(ierr);
     ierr = KSPSetType(ksp_fd,KSPPREONLY);                                                CHKERRQ(ierr);
     ierr = PCSetType(pc_fd,PCLU);                                                        CHKERRQ(ierr);
-    ierr = SNESSetFromOptions(snes_fd);                                                  CHKERRQ(ierr);
+    //ierr = SNESSetFromOptions(snes_fd);                                                  CHKERRQ(ierr);
     ierr = SNESSetType(snes_fd, SNESKSPONLY);                                            CHKERRQ(ierr);
     //cout << endl; ierr = SNESView(snes_s, PETSC_VIEWER_STDOUT_WORLD);
     }
@@ -1794,6 +1796,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
       //if (is_sfip){updateSolidVel();}
+      if (is_sfip && (pic+1 == PI)){ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);}
     }
 
     if ((pic+1) < PI){
@@ -2120,6 +2123,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       if (solve_the_sys){
         ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
         //if (is_sfip){updateSolidVel();}
+        if (is_sfip && (pic+1 == PI)){ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);}
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         cout << "# snes iterations: " << its << endl
              << "--------------------------------------------------" << endl;
@@ -3221,11 +3225,14 @@ PetscErrorCode AppCtx::plotFiles()
 {
   double  *q_array;
   double  *nml_array;
-  double  *v_array, *vs_array, *rho_array;
+  double  *v_array, *vs_array, *rho_array, *fd_array;
   VecGetArray(Vec_uzp_0, &q_array);  //VecGetArray(Vec_up_0, &q_array);
   VecGetArray(Vec_normal, &nml_array);
   VecGetArray(Vec_v_mid, &v_array);
-  if (is_sfip) VecGetArray(Vec_slipv_0, &vs_array);
+  if (is_sfip){
+    VecGetArray(Vec_slipv_0, &vs_array);
+    VecGetArray(Vec_forcd_0, &fd_array);
+  }
   if (is_sslv) VecGetArray(Vec_slip_rho, &rho_array);
   vtk_printer.writeVtk();
 
@@ -3233,7 +3240,10 @@ PetscErrorCode AppCtx::plotFiles()
   vtk_printer.addNodeVectorVtk("u", GetDataVelocity(q_array, *this));
   vtk_printer.addNodeVectorVtk("n", GetDataNormal(nml_array, *this));
   vtk_printer.addNodeVectorVtk("v", GetDataMeshVel(v_array, *this));
-  if (is_sfip) vtk_printer.addNodeVectorVtk("vs", GetDataMeshVel(vs_array, *this));
+  if (is_sfip){
+    vtk_printer.addNodeVectorVtk("vs", GetDataMeshVel(vs_array, *this));
+    vtk_printer.addNodeVectorVtk("fd", GetDataMeshVel(fd_array, *this));
+  }
   if (is_sslv) vtk_printer.addNodeScalarVtk("rho", GetDataSlipVel(rho_array, *this));
   vtk_printer.printPointTagVtk();
 
@@ -3248,7 +3258,10 @@ PetscErrorCode AppCtx::plotFiles()
   VecRestoreArray(Vec_uzp_0, &q_array);  //VecRestoreArray(Vec_up_0, &q_array);
   VecRestoreArray(Vec_normal, &nml_array);
   VecRestoreArray(Vec_v_mid, &v_array);
-  if (is_sfip) VecRestoreArray(Vec_slipv_0, &vs_array);
+  if (is_sfip){
+    VecRestoreArray(Vec_slipv_0, &vs_array);
+    VecRestoreArray(Vec_forcd_0, &vs_array);
+  }
   if (is_sslv) VecRestoreArray(Vec_slip_rho, &rho_array);
 
   PetscFunctionReturn(0);
@@ -4121,5 +4134,24 @@ PetscErrorCode FormFunction_sqrm(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr
 {
   AppCtx *user    = static_cast<AppCtx*>(ptr);
   user->formFunction_sqrm(snes,Vec_up_1,Vec_fun);
+  PetscFunctionReturn(0);
+}
+/* ------------------------------------------------------------------- */
+#undef __FUNCT__
+#define __FUNCT__ "FormJacobian_fd"
+
+PetscErrorCode FormJacobian_fd(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr)
+{
+  AppCtx *user    = static_cast<AppCtx*>(ptr);
+  user->formJacobian_fd(snes,Vec_up_1,Mat_Jac,prejac,flag);
+  PetscFunctionReturn(0);
+}
+#undef __FUNCT__
+#define __FUNCT__ "FormFunction_fd"
+
+PetscErrorCode FormFunction_fd(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr)
+{
+  AppCtx *user    = static_cast<AppCtx*>(ptr);
+  user->formFunction_fd(snes,Vec_up_1,Vec_fun);
   PetscFunctionReturn(0);
 }

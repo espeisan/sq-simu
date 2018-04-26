@@ -281,6 +281,57 @@ void getProjectorSQRM(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Ap
   } // end nodes
 }
 
+// ====================================================================================================
+// to apply boundary conditions locally on dissipative force problem.
+template <typename Derived>
+void getProjectorFD(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec const& Vec_x_, double t, AppCtx const& app)
+{
+  int const dim = app.dim;
+  Mesh const* mesh = &*app.mesh;
+  //DofHandler const* dof_handler = &*app.dof_handler;
+  //std::vector<int> const& dirichlet_tags  = app.dirichlet_tags;
+  //std::vector<int> const& neumann_tags    = app.neumann_tags  ;
+  //std::vector<int> const& interface_tags  = app.interface_tags;
+  //std::vector<int> const& solid_tags      = app.solid_tags;
+  //std::vector<int> const& triple_tags     = app.triple_tags;
+  //std::vector<int> const& periodic_tags   = app.periodic_tags ;
+  //std::vector<int> const& feature_tags    = app.feature_tags;
+  std::vector<int> const& flusoli_tags    = app.flusoli_tags;
+  //std::vector<int> const& solidonly_tags  = app.solidonly_tags;
+  std::vector<int> const& slipvel_tags    = app.slipvel_tags;
+  //Vec const& Vec_normal = app.Vec_normal;
+
+  P.setIdentity();
+
+  Tensor I(dim,dim);
+  Tensor Z(dim,dim);
+  Vector X(dim);
+  Vector normal(dim);
+  int    dofs[dim];
+  int    tag;
+  Point const* point;
+
+  I.setIdentity();
+  Z.setZero();
+
+  // NODES
+  for (int i = 0; i < n_nodes; ++i)
+  {
+    point = mesh->getNodePtr(nodes[i]);
+    tag = point->getTag();  //cout << tag << endl;
+
+    if (is_in(tag,flusoli_tags) || is_in(tag,slipvel_tags)) //non-penetration BC
+    {
+      P.block(i*dim,i*dim,dim,dim) = I; //cout << endl << P << endl << endl << dofs[0] << ", " << dofs[1] << endl;
+    }
+    else
+    {
+      P.block(i*dim,i*dim,dim,dim) = Z;
+    }
+  } // end nodes
+
+} // end getProjectorMatrix
+
 
 // ******************************************************************************
 //                            FORM FUNCTION_MESH
@@ -512,11 +563,11 @@ PetscErrorCode AppCtx::formJacobian_mesh(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**
 PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun_fs)
 {
   double utheta = AppCtx::utheta;
-
   if (is_mr){utheta = 1.0;}
 
   VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
   VecSetOption(Vec_uzp_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
+
   std::vector<Vector3d> XG_mid = midGP(XG_1, XG_0, utheta, N_Solids);
 
   int null_space_press_dof = -1;
@@ -575,9 +626,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
   FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout,null_space_press_dof,JJ,utheta,iter,XG_mid))
 #endif
   {
-    VectorXd          FUloc(n_dofs_u_per_cell);  // U subvector part of F
-    VectorXd          FPloc(n_dofs_p_per_cell);
-    VectorXd          FZloc(n_dofs_z_per_cell);
+    VectorXd            FUloc(n_dofs_u_per_cell);  // U subvector part of F
+    VectorXd            FPloc(n_dofs_p_per_cell);
+    VectorXd            FZloc(n_dofs_z_per_cell);
 
     /* local data */
     int                 tag, tag_c, nod_id, nod_is, nod_sv, nodsum;
@@ -770,9 +821,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     PerM3(0,1) = 1; PerM3(1,2) = 1; PerM3(2,0) = 1;
     PerM6(0,2) = 1; PerM6(1,3) = 1; PerM6(2,4) = 1; PerM6(3,5) = 1; PerM6(4,0) = 1; PerM6(5,1) = 1;
 
+    ////////////////////////////////////////////////// STARTING CELL ITERATION //////////////////////////////////////////////////
     const int tid = omp_get_thread_num();
     const int nthreads = omp_get_num_threads();
-
     cell_iterator cell = mesh->cellBegin(tid,nthreads);    //cell_iterator cell = mesh->cellBegin();
     cell_iterator cell_end = mesh->cellEnd(tid,nthreads);  //cell_iterator cell_end = mesh->cellEnd();
 
@@ -1043,7 +1094,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
       //viscosity and density at the cell//////////////////////////////////////////////////
       visc = muu(tag);
-      rho  = pho(Xqp,tag);
+      rho  = pho(Xqp,tag);  //pho is elementwise, so Xqp does nothing
       //////////////////////////////////////////////////
 
       //initialization as zero of the residuals//////////////////////////////////////////////////
@@ -1948,7 +1999,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     Vector              Xqp(dim), Xqpc(3), maxw(3);
     Vector              Uqp(dim), Eqp(dim);
     Vector              noi(dim); // normal interpolada
-    double              J_mid = 0,JxW_mid;
+    double              J_mid = 0, JxW_mid;
     double              weight = 0, perE = 0;
 
     Vector3d            Xg, XIg;
@@ -2612,6 +2663,422 @@ PetscErrorCode AppCtx::formFunction_sqrm(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 }
 
 PetscErrorCode AppCtx::formJacobian_sqrm(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**Mat_Jac*/, Mat* /*prejac*/, MatStructure * /*flag*/)
+{
+  // jacobian matrix is done in the formFunction_mesh
+  PetscFunctionReturn(0);
+}
+
+// ******************************************************************************
+//                            FORM FUNCTION_FD
+// ******************************************************************************
+PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
+{
+  double utheta = AppCtx::utheta;
+  if (is_mr){utheta = 1.0;}
+
+  VecSetOption(Vec_fun, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
+  VecSetOption(Vec_fd, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
+
+  Mat *JJ = &Mat_Jac_fd;
+  VecZeroEntries(Vec_fun);
+  MatZeroEntries(*JJ);
+
+  // LOOP NAS CÉLULAS Parallel (uncomment it) //////////////////////////////////////////////////
+#ifdef FEP_HAS_OPENMP
+  FEP_PRAGMA_OMP(parallel default(none) shared(Vec_fd,Vec_fun,cout,JJ,utheta))
+#endif
+  {
+    VectorXd            FUloc(n_dofs_u_per_cell);  // U subvector part of F
+    VectorXd            FPloc(n_dofs_p_per_cell);
+    VectorXd            FZloc(n_dofs_z_per_cell);
+
+    /* local data */
+    int                 tag, tag_c, nod_is, nodsum;
+    MatrixXd            u_coefs_c_mid_trans(dim, n_dofs_u_per_cell/dim);  // n+utheta  // trans = transpost
+    MatrixXd            u_coefs_c_old(n_dofs_u_per_cell/dim, dim);        // n
+    MatrixXd            u_coefs_c_old_trans(dim,n_dofs_u_per_cell/dim);   // n
+    MatrixXd            u_coefs_c_new(n_dofs_u_per_cell/dim, dim);        // n+1
+    MatrixXd            u_coefs_c_new_trans(dim,n_dofs_u_per_cell/dim);   // n+1
+
+    MatrixXd            v_coefs_c_mid(nodes_per_cell, dim);        // mesh velocity; n
+    MatrixXd            v_coefs_c_mid_trans(dim,nodes_per_cell);   // mesh velocity; n
+
+    VectorXd            p_coefs_c_new(n_dofs_p_per_cell);  // n+1
+    VectorXd            p_coefs_c_old(n_dofs_p_per_cell);  // n
+    VectorXd            p_coefs_c_mid(n_dofs_p_per_cell);  // n
+
+    MatrixXd            x_coefs_c_mid_trans(dim, nodes_per_cell); // n+utheta
+    MatrixXd            x_coefs_c_new(nodes_per_cell, dim);       // n+1
+    MatrixXd            x_coefs_c_new_trans(dim, nodes_per_cell); // n+1
+    MatrixXd            x_coefs_c_old(nodes_per_cell, dim);       // n
+    MatrixXd            x_coefs_c_old_trans(dim, nodes_per_cell); // n
+
+    MatrixXd            f_coefs_c_mid_trans(dim, nodes_per_cell); // n+utheta
+    MatrixXd            f_coefs_c_new(nodes_per_cell, dim);       // n+1
+
+    Tensor              F_c_mid(dim,dim);       // n+utheta
+    Tensor              invF_c_mid(dim,dim);    // n+utheta
+    Tensor              invFT_c_mid(dim,dim);   // n+utheta
+
+    Tensor              F_c_old(dim,dim);       // n
+    Tensor              invF_c_old(dim,dim);    // n
+    Tensor              invFT_c_old(dim,dim);   // n
+
+    Tensor              F_c_new(dim,dim);       // n+1
+    Tensor              invF_c_new(dim,dim);    // n+1
+    Tensor              invFT_c_new(dim,dim);   // n+1
+
+    VectorXi            mapU_c(n_dofs_u_per_cell);
+    VectorXi            mapP_c(n_dofs_p_per_cell);
+
+    // mesh velocity
+    VectorXi            mapM_c(dim*nodes_per_cell);
+    VectorXi            mapM_t(dim*nodes_per_cell);
+
+    /* All variables are in (n+utheta) by default */
+    MatrixXd            dxphi_c(n_dofs_u_per_cell/dim, dim);
+    MatrixXd            dxphi_c_new(dxphi_c);
+    MatrixXd            dxpsi_c(n_dofs_p_per_cell, dim);
+    MatrixXd            dxpsi_c_new(dxpsi_c);
+    MatrixXd            dxqsi_c(nodes_per_cell, dim);
+    Vector              dxbble(dim);
+    Vector              dxbble_new(dim);
+    Tensor              dxU(dim,dim), dxZ(dim,dim);   // grad u
+    Tensor              dxU_old(dim,dim);   // grad u
+    Tensor              dxU_new(dim,dim);   // grad u
+    Tensor              dxUb(dim,dim);  // grad u bble
+    Vector              dxP_new(dim);   // grad p
+    Vector              Xqp(dim);
+    Vector              Xqp_old(dim);
+    Vector              Xc(dim);  // cell center; to compute CR element
+    Vector              Uqp(dim), Zqp(dim);
+    Vector              Ubqp(dim); // bble
+    Vector              Uqp_old(dim), Zqp_old(dim); // n
+    Vector              Uqp_new(dim), Zqp_new(dim); // n+1
+    Vector              dUqp_old(dim), Uqp_m1(dim);  // n
+    Vector              dUqp_vold(dim), Uqp_m2(dim);  // n
+    Vector              Vqp(dim);
+    Vector              Uconv_qp(dim);
+    Vector              dUdt(dim);
+    double              Pqp_new;
+    VectorXi            cell_nodes(nodes_per_cell);
+    double              J_mid;
+    double              J_new, J_old;
+    double              JxW_mid;  //JxW_new, JxW_old;
+    double              weight;
+    double              visc=-1; // viscosity
+    double              rho;
+    double              delta_cd;
+    Vector              force_at_mid(dim);
+    Vector              Fdqp(dim);
+    MatrixXd            Prj(dim*nodes_per_cell,dim*nodes_per_cell); // projector matrix
+
+    MatrixXd            Aloc(dim*nodes_per_cell,dim*nodes_per_cell);
+
+    ////////////////////////////////////////////////// STARTING CELL ITERATION //////////////////////////////////////////////////
+    const int tid = omp_get_thread_num();
+    const int nthreads = omp_get_num_threads();
+    cell_iterator cell = mesh->cellBegin(tid,nthreads);    //cell_iterator cell = mesh->cellBegin();
+    cell_iterator cell_end = mesh->cellEnd(tid,nthreads);  //cell_iterator cell_end = mesh->cellEnd();
+
+    for (; cell != cell_end; ++cell)
+    {
+
+      tag = cell->getTag();
+
+      if(is_in(tag,solidonly_tags)){//considers the cells completely inside the solid to impose the Dirichlet Fluid-Solid condition
+        FUloc.setZero();
+        Aloc.setIdentity();
+        mapM_t = -VectorXi::Ones(dim*nodes_per_cell);
+
+        dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);
+
+        for (int i = 0; i < dim*nodes_per_cell/dim; ++i)
+        {
+          tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
+          nod_is = is_in_id(tag_c,solidonly_tags);
+          //nod_sv = is_in_id(tag_c,slipvel_tags);
+          nodsum = nod_is; //+nod_sv;
+          if (nodsum){
+            for (int l = 0; l < dim; l++){
+              mapM_t(i*dim + l) = mapM_c(i*dim + l);
+            }
+          }
+        }
+
+        #ifdef FEP_HAS_OPENMP
+              FEP_PRAGMA_OMP(critical)
+        #endif
+        {
+          VecSetValues(Vec_fun, mapM_t.size(), mapM_t.data(), FUloc.data(), ADD_VALUES);
+          MatSetValues(*JJ, mapM_t.size(), mapM_t.data(), mapM_t.size(), mapM_t.data(), Aloc.data(), ADD_VALUES);
+        }
+        continue;
+      }
+
+
+      // mapeamento do local para o global //////////////////////////////////////////////////
+      dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);  //cout << mapM_c.transpose() << endl;  //unk. global ID's
+      dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);  //cout << mapU_c.transpose() << endl;
+      dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);  //cout << mapP_c.transpose() << endl;
+
+      //initialize zero values for the variables//////////////////////////////////////////////////
+      u_coefs_c_old = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
+      u_coefs_c_new = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
+
+      //get the value for the variables//////////////////////////////////////////////////
+      if ((is_bdf2 && time_step > 0) || (is_bdf3 && time_step > 1))
+        VecGetValues(Vec_v_1, mapM_c.size(), mapM_c.data(), v_coefs_c_mid.data());
+      else
+        VecGetValues(Vec_v_mid, mapM_c.size(), mapM_c.data(), v_coefs_c_mid.data());  //cout << v_coefs_c_mid << endl << endl;//size of vector mapM_c
+
+      VecGetValues(Vec_x_0,     mapM_c.size(), mapM_c.data(), x_coefs_c_old.data());  //cout << x_coefs_c_old << endl << endl;
+      VecGetValues(Vec_x_1,     mapM_c.size(), mapM_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl << endl;
+      VecGetValues(Vec_uzp_0,   mapU_c.size(), mapU_c.data(), u_coefs_c_old.data());  //cout << u_coefs_c_old << endl << endl;
+      VecGetValues(Vec_uzp_1,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());  //cout << u_coefs_c_new << endl << endl;
+      VecGetValues(Vec_uzp_0,   mapP_c.size(), mapP_c.data(), p_coefs_c_old.data());  //cout << p_coefs_c_old << endl << endl;
+      VecGetValues(Vec_uzp_1,   mapP_c.size(), mapP_c.data(), p_coefs_c_new.data());  //cout << p_coefs_c_new << endl << endl;
+      VecGetValues(Vec_fd,      mapM_c.size(), mapM_c.data(), f_coefs_c_new.data());  //cout << x_coefs_c_new << endl << endl;
+
+      v_coefs_c_mid_trans = v_coefs_c_mid.transpose();  //cout << v_coefs_c_mid_trans << endl << endl;
+      x_coefs_c_old_trans = x_coefs_c_old.transpose();
+      x_coefs_c_new_trans = x_coefs_c_new.transpose();
+      u_coefs_c_old_trans = u_coefs_c_old.transpose();  //cout << u_coefs_c_old_trans << endl << endl;
+      u_coefs_c_new_trans = u_coefs_c_new.transpose();
+
+      u_coefs_c_mid_trans = utheta*u_coefs_c_new_trans + (1.-utheta)*u_coefs_c_old_trans;
+      x_coefs_c_mid_trans = utheta*x_coefs_c_new_trans + (1.-utheta)*x_coefs_c_old_trans;
+      p_coefs_c_mid       = utheta*p_coefs_c_new       + (1.-utheta)*p_coefs_c_old;
+      f_coefs_c_mid_trans = f_coefs_c_new.transpose();
+
+      //viscosity and density at the cell//////////////////////////////////////////////////
+      visc = muu(tag);
+      rho  = pho(Xqp,tag);  //pho is elementwise, so Xqp does nothing
+      //////////////////////////////////////////////////
+
+      //initialization as zero of the residuals//////////////////////////////////////////////////
+      FUloc.setZero();
+      FPloc.setZero();
+      FZloc.setZero();
+      //initialization as zero of the elemental matrices//////////////////////////////////////////////////
+      Aloc.setZero();
+      //Gloc.setZero();
+      //Dloc.setZero();
+      //Eloc.setZero();
+
+      ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
+      for (int qp = 0; qp < n_qpts_cell; ++qp)
+      {
+
+        F_c_mid = x_coefs_c_mid_trans * dLqsi_c[qp];  // (dim x nodes_per_cell) (nodes_per_cell x dim)
+        F_c_old = x_coefs_c_old_trans * dLqsi_c[qp];
+        F_c_new = x_coefs_c_new_trans * dLqsi_c[qp];
+        inverseAndDet(F_c_mid,dim,invF_c_mid,J_mid);
+        inverseAndDet(F_c_old,dim,invF_c_old,J_old);
+        inverseAndDet(F_c_new,dim,invF_c_new,J_new);
+        invFT_c_mid= invF_c_mid.transpose();
+        invFT_c_old= invF_c_old.transpose();
+        invFT_c_new= invF_c_new.transpose();
+
+        dxphi_c_new = dLphi_c[qp] * invF_c_new;
+        dxphi_c     = dLphi_c[qp] * invF_c_mid;
+        dxpsi_c_new = dLpsi_c[qp] * invF_c_new;
+        dxpsi_c     = dLpsi_c[qp] * invF_c_mid;
+        dxqsi_c     = dLqsi_c[qp] * invF_c_mid;
+
+        dxP_new  = dxpsi_c.transpose() * p_coefs_c_new;
+        dxU      = u_coefs_c_mid_trans * dLphi_c[qp] * invF_c_mid; // n+utheta
+        dxU_new  = u_coefs_c_new_trans * dLphi_c[qp] * invF_c_new; // n+1
+        dxU_old  = u_coefs_c_old_trans * dLphi_c[qp] * invF_c_old; // n
+
+        Xqp      = x_coefs_c_mid_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp_old  = x_coefs_c_old_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Uqp      = u_coefs_c_mid_trans * phi_c[qp]; //n+utheta
+        Uqp_new  = u_coefs_c_new_trans * phi_c[qp]; //n+1
+        Uqp_old  = u_coefs_c_old_trans * phi_c[qp]; //n
+        Pqp_new  = p_coefs_c_new.dot(psi_c[qp]);
+//        Pqp      = p_coefs_c_mid.dot(psi_c[qp]);
+        Vqp      = v_coefs_c_mid_trans * qsi_c[qp];
+        dUdt     = (Uqp_new-Uqp_old)/dt;  //D1f^{n+1}/dt = U^{n+1}/dt-U^{n}/dt
+        Uconv_qp = Uqp - Vqp;  //Uconv_qp = Uqp_old;
+        Fdqp     = f_coefs_c_mid_trans * qsi_c[qp];
+
+        force_at_mid = force(Xqp,current_time+utheta*dt,tag);
+
+        weight = quadr_cell->weight(qp);
+        JxW_mid = J_mid*weight;
+
+        if (J_mid < 1.e-20)
+        {
+          FEP_PRAGMA_OMP(critical)
+          {
+            printf("in formCellFunction:\n");
+            std::cout << "erro: jacobiana da integral não invertível: ";
+            std::cout << "J_mid = " << J_mid << endl;
+            cout << "trans(f) matrix:\n" << F_c_mid << endl;
+            cout << "x coefs mid:" << endl;
+            cout << x_coefs_c_mid_trans.transpose() << endl;
+            cout << "-----" << endl;
+            cout << "cell id: " << mesh->getCellId(&*cell) << endl;
+            cout << "cell Contig id: " << mesh->getCellContigId( mesh->getCellId(&*cell) ) << endl;
+            cout << "cell nodes:\n" << cell_nodes.transpose() << endl;
+            cout << "mapM :\n" << mapM_c.transpose() << endl;
+            throw;
+          }
+        }
+
+        // ---------------- //////////////////////////////////////////////////
+        //
+        //  RESIDUAL AND JACOBIAN MATRIX
+        //
+        //  --------------- //////////////////////////////////////////////////
+
+        for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
+        {
+          for (int c = 0; c < dim; ++c)
+          {
+            FUloc(i*dim + c) += JxW_mid*  //momentum residual
+                 ( Fdqp(c)*phi_c[qp][i]
+                  +rho*(unsteady*dUdt(c) + has_convec*Uconv_qp.dot(dxU.row(c)))*phi_c[qp][i]  //aceleração
+                  +visc*dxphi_c.row(i).dot(dxU.row(c) + dxU.col(c).transpose())  //rigidez  //transpose() here is to add 2 row-vectors
+                  -force_at_mid(c)*phi_c[qp][i]  //força
+                  -Pqp_new*dxphi_c(i,c) );        //pressão
+
+            for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)
+            {
+              for (int d = 0; d < dim; ++d)
+              {
+                delta_cd = c==d;
+                Aloc(i*dim + c, j*dim + d) += JxW_mid * delta_cd * phi_c[qp][i]*phi_c[qp][j];
+              }
+            }
+          }
+        }
+
+      }
+
+
+      // Projection - to force Dirichlet conditions: solid motion, non-penetration, pure Dirichlet, respect //////////////////////////////////////////////////
+      mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
+      getProjectorFD(Prj, nodes_per_cell, cell_nodes.data(), Vec_x_1, current_time+dt, *this);
+      MatrixXd Id(MatrixXd::Identity(dim*nodes_per_cell,dim*nodes_per_cell));
+      FUloc = Prj*FUloc;
+      Aloc  = Prj*Aloc + (Id-Prj);
+
+      // ---------------- //////////////////////////////////////////////////
+      //
+      //  MATRIX ASSEMBLY
+      //
+      //  --------------- //////////////////////////////////////////////////
+#ifdef FEP_HAS_OPENMP
+      FEP_PRAGMA_OMP(critical)
+#endif
+      {
+        VecSetValues(Vec_fun, mapM_c.size(), mapM_c.data(), FUloc.data(), ADD_VALUES);
+        MatSetValues(*JJ, mapM_c.size(), mapM_c.data(), mapM_c.size(), mapM_c.data(), Aloc.data(), ADD_VALUES);
+      }
+    }//end for cell
+
+  }//end FEP_HAS_OPENMP
+
+#if (false)
+  // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol, NeumBody) //////////////////////////////////////////////////
+  //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout))
+  {
+    int                 tag;
+    bool                is_neumann, is_surface, is_solid;
+
+    VectorXd            FUloc(n_dofs_u_per_facet);
+    Vector              normal(dim), traction_(dim);
+    double              J_mid = 0, JxW_mid;
+    Vector              Xqp(dim);
+
+    facet_iterator facet = mesh->facetBegin();
+    facet_iterator facet_end = mesh->facetEnd();  // the next if controls the for that follows
+
+    if (neumann_tags.size() != 0 || interface_tags.size() != 0 || solid_tags.size() != 0
+                                 || slipvel_tags.size() != 0 || flusoli_tags.size() != 0)
+    for (; facet != facet_end; ++facet)
+    {
+      tag = facet->getTag();
+      is_neumann = is_in(tag, neumann_tags);
+      is_surface = is_in(tag, interface_tags);
+      is_solid   = is_in(tag, solid_tags);
+      //is_slipvel = is_in_id(tag, slipvel_tags);
+      //is_fsi     = is_in_id(tag, flusoli_tags);
+
+      if ((!is_neumann) && (!is_surface) && (!is_solid) /*&& !(is_slipvel) && !(is_fsi)*/)
+        continue;
+
+
+      FUloc.setZero();  //U momentum
+
+
+      ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
+      for (int qp = 0; qp < n_qpts_facet; ++qp)
+      {
+
+        F_f_mid   = x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
+
+        if (dim==2)
+        {
+          normal(0) = +F_f_mid(1,0);
+          normal(1) = -F_f_mid(0,0);
+          normal.normalize();  //this normal points INTO the body
+        }
+        else
+        {
+          normal = cross(F_f_mid.col(0), F_f_mid.col(1));
+          normal.normalize();
+        }
+
+        fff_f_mid.resize(dim-1,dim-1);
+        fff_f_mid  = F_f_mid.transpose()*F_f_mid;
+        J_mid      = sqrt(fff_f_mid.determinant());
+        invF_f_mid = fff_f_mid.inverse()*F_f_mid.transpose();
+
+        weight  = quadr_facet->weight(qp);
+        JxW_mid = J_mid*weight;
+
+        if (is_neumann) //////////////////////////////////////////////////
+        {
+          //Vector no(Xqp);
+          //no.normalize();
+          //traction_ = utheta*(traction(Xqp,current_time+dt,tag)) + (1.-utheta)*traction(Xqp,current_time,tag);
+          traction_ = traction(Xqp, normal, current_time + dt*utheta,tag);
+          //traction_ = (traction(Xqp,current_time,tag) +4.*traction(Xqp,current_time+dt/2.,tag) + traction(Xqp,current_time+dt,tag))/6.;
+
+          for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
+          {
+            for (int c = 0; c < dim; ++c)
+            {
+              FUloc(i*dim + c) -= JxW_mid * traction_(c) * phi_f[qp][i] ; // força
+            }
+          }
+        }//end is_neumann //////////////////////////////////////////////////
+      }
+  }
+#endif
+
+  Assembly(Vec_fun);
+  Assembly(*JJ);
+
+  if(true /*print_to_matlab*/)
+  {
+    static bool ja_foi=false;
+    if (!ja_foi)
+    {
+      View(Vec_fun, "matrizes/forcd/rhs.m","Res");
+      View(*JJ,"matrizes/forcd/jacob.m","Jac");
+    }
+    ja_foi = true;
+
+  }
+
+  PetscFunctionReturn(0);
+}
+
+PetscErrorCode AppCtx::formJacobian_fd(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**Mat_Jac*/, Mat* /*prejac*/, MatStructure * /*flag*/)
 {
   // jacobian matrix is done in the formFunction_mesh
   PetscFunctionReturn(0);

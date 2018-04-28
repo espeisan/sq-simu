@@ -1970,7 +1970,7 @@ Vector u_exact(Vector const& X, double t, int tag)
   double y = X(1);
   Vector v(Vector::Zero(X.size()));
   double Um = 1/*e-6*/, H = 3;//e-6;
-  if ( true && (tag == 4 || tag == 2 || tag == 1 || tag == 5) ){
+  if ( false && (tag == 4 || tag == 2 || tag == 1 || tag == 5) ){
     //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
     v(0) = Um*4*(H-y)*y/(H*H);
     v(1) = 0.0;
@@ -2005,7 +2005,7 @@ double p_exact(Vector const& X, double t, int tag)
   double x = X(0);
   double y = X(1);
 
-  return 0.0;
+  return 1;
 }
 
 Vector grad_p_exact(Vector const& X, double t, int tag)
@@ -2255,7 +2255,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
     }
   }
 
-  if (true && dim == 2)
+  if (false && dim == 2)
   {
     double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
@@ -2274,9 +2274,9 @@ Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int d
   double psi = 0.0, k = 5.0;
 
   Vector f(Vector::Zero(X.size()));
-  if (true && dim == 2)
+  if (false && dim == 2)
   {
-    double B1 = -1.0, B2 = 0.0;
+    double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
     f(0) = -normal(1); f(1) = normal(0);

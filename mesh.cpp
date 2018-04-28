@@ -1584,7 +1584,7 @@ PetscErrorCode AppCtx::updateSolidMesh()
         for (int l = 0; l < LZ; l++){
           dofs_fs(l) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + l;
         }
-        VecGetValues(Vec_uzp_0, LZ, dofs_fs.data(), Zf.data());  //cout << dofs_fs.transpose() << endl;
+        VecGetValues(Vec_uzp_0, LZ, dofs_fs.data(), Zf.data());  //cout << Zf.transpose() << endl;
         Xg = XG_0[nodsum-1];
         Xg(0) = Xg(0)+(dt/2.0)*Zf(0); Xg(1) = Xg(1)+(dt/2.0)*Zf(1); if (dim == 3){Xg(2) = Xg(2)+(dt/2.0)*Zf(2);}
         XG_1[nodsum-1] = Xg;                               // if Zf = 0, then XG_1 = XG_0

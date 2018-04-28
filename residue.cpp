@@ -580,7 +580,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     converged_times = 0;  //just for convergence test, it can be ignored
   }
 
-  if (force_pressure && (iter<2))
+  if (force_pressure)// && (iter<2))
   {
     Vector X(dim);
     Vector X_new(dim);
@@ -592,15 +592,15 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     else
     {//imposes a pressure node (the first one in the mesh) at the Dirichlet region (or wherever you want)
       point_iterator point = mesh->pointBegin();
-      while (!( mesh->isVertex(&*point) && is_in(point->getTag(),dirichlet_tags) )){/*point->getTag() == 3*/
+      while (!( mesh->isVertex(&*point) && /*(point->getTag() == 3)*/is_in(point->getTag(),dirichlet_tags) )){/*point->getTag() == 3*/
         ++point;
       }
       int x_dofs[3];
-      dof_handler[DH_MESH].getVariable(VAR_M).getVertexDofs(x_dofs, &*point);
+      dof_handler[DH_MESH].getVariable(VAR_M).getVertexDofs(x_dofs, &*point);  //cout << x_dofs[0] << " " << x_dofs[1] << " " << x_dofs[2] << endl;
       VecGetValues(Vec_x_1, dim, x_dofs, X_new.data());
       VecGetValues(Vec_x_0, dim, x_dofs, X.data());
       X = .5*(X+X_new);
-      dof_handler[DH_UNKM].getVariable(VAR_P).getVertexDofs(&null_space_press_dof, &*point);
+      dof_handler[DH_UNKM].getVariable(VAR_P).getVertexDofs(&null_space_press_dof, &*point); //null_space_press_dof used at the end for pressure imposition
       // fix the initial guess
       VecSetValue(Vec_uzp_k, null_space_press_dof, p_exact(X,current_time+.5*dt,point->getTag()), INSERT_VALUES);  //insert pressure value at node point
     }
@@ -881,12 +881,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           nodsum = 1.0;//nod_is; //+nod_sv;
           if (nodsum){
             mapP_t(i) = mapP_c(i);
-            FPloc(i) = p_coefs_c_new(i) - 0.0; //set 0.0 pressure at interior solid only nodes
+            FPloc(i) = p_coefs_c_new(i) - 100.0; //set 0.0 pressure at interior solid only nodes
           }
         }
 
-        VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data()); //cout << z_coefs_c_new << endl << endl;
-        z_coefs_c_new_trans = z_coefs_c_new.transpose();
+        VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());
+        z_coefs_c_new_trans = z_coefs_c_new.transpose();  //cout << z_coefs_c_new.transpose() << endl << endl;
 
         for (int i = 0; i < n_dofs_u_per_cell/dim; ++i){
           tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
@@ -897,12 +897,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
           XIp    = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
           XIg    = XG_mid[nodsum-1];                //mass center, mid, _0, "new"
-          RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);
+          RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);  //cout << RotfI << endl;
           //if (nod_sv){
           //  VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); //cout << vs_coefs_c_new << endl << endl;
           //}
           for (int c = 0; c < dim; ++c){
-            FUloc(i*dim + c) = u_coefs_c_new(i,c) - RotfI(c);// - vs_coefs_c_new(i,c);
+            FUloc(i*dim + c) = u_coefs_c_new(i,c) - 1*RotfI(c);// - vs_coefs_c_new(i,c);
             for (int D = 0; D < LZ; D++){
               RotfI  = SolidVel(XIp, XIg, IdZ.col(D), dim);
               Z1loc(i*dim+c,i*LZ+D) = -RotfI(c);
@@ -918,8 +918,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             VecSetValues(Vec_fun_fs, mapU_t.size(), mapU_t.data(), FUloc.data(), ADD_VALUES);  //cout << FUloc.transpose() << "   " << mapU_t.transpose() << endl;
             VecSetValues(Vec_fun_fs, mapP_t.size(), mapP_t.data(), FPloc.data(), ADD_VALUES);
             MatSetValues(*JJ, mapU_t.size(), mapU_t.data(), mapZ_c.size(), mapZ_c.data(), Z1loc.data(), ADD_VALUES);  //cout << Z1loc.transpose() << "   " << mapZ_c.transpose() << endl <<endl;
-            MatSetValues(*JJ, mapU_t.size(), mapU_t.data(), mapU_c.size(), mapU_c.data(), Aloc.data(), ADD_VALUES);
-            MatSetValues(*JJ, mapP_t.size(), mapP_t.data(), mapP_c.size(), mapP_c.data(), Eloc.data(), ADD_VALUES);
+            MatSetValues(*JJ, mapU_t.size(), mapU_t.data(), mapU_t.size(), mapU_t.data(), Aloc.data(), ADD_VALUES);
+            MatSetValues(*JJ, mapP_t.size(), mapP_t.data(), mapP_t.size(), mapP_t.data(), Eloc.data(), ADD_VALUES);
         }
         continue;
       }//nodes at the interface are considered for cells outside the solids
@@ -2314,7 +2314,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     }
   }  //end force_dirichlet
 
-  if (force_pressure)
+  if (force_pressure) //null_space_press_dof calculated at the beginning
   {
     double const p =1.0;
     MatSetValues(*JJ, 1, &null_space_press_dof, 1, &null_space_press_dof, &p, ADD_VALUES);
@@ -2785,15 +2785,28 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
     {
 
       tag = cell->getTag();
-
-      if(is_in(tag,solidonly_tags)){//considers the cells completely inside the solid to impose the Dirichlet Fluid-Solid condition
+/*
+      // finding pure fluid cell ////////////////////
+      int fonly_count = 0;
+      for (int i = 0; i < nodes_per_cell; ++i)
+      {
+        tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
+        if (is_in(tag_c,fluidonly_tags) || is_in(tag_c,dirichlet_tags) || is_in(tag_c,neumann_tags))
+          fonly_count++;
+      }
+      bool pure_fluid_c = false;
+      if (fonly_count == nodes_per_cell)
+        pure_fluid_c = true;
+      ////////////////////
+*/
+      if(is_in(tag,solidonly_tags) /*|| pure_fluid_c*/){//considers the cells completely inside the solid to impose the Dirichlet Fluid-Solid condition
         FUloc.setZero();
         Aloc.setIdentity();
         mapM_t = -VectorXi::Ones(dim*nodes_per_cell);
 
         dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);
 
-        for (int i = 0; i < dim*nodes_per_cell/dim; ++i)
+        for (int i = 0; i < nodes_per_cell; ++i)
         {
           tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
           nod_is = is_in_id(tag_c,solidonly_tags);
@@ -2812,6 +2825,10 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         {
           VecSetValues(Vec_fun, mapM_t.size(), mapM_t.data(), FUloc.data(), ADD_VALUES);
           MatSetValues(*JJ, mapM_t.size(), mapM_t.data(), mapM_t.size(), mapM_t.data(), Aloc.data(), ADD_VALUES);
+          /*if (pure_fluid_c){
+            VecSetValues(Vec_fun, mapM_c.size(), mapM_c.data(), FUloc.data(), ADD_VALUES);
+            MatSetValues(*JJ, mapM_c.size(), mapM_c.data(), mapM_c.size(), mapM_c.data(), Aloc.data(), ADD_VALUES);
+          }*/
         }
         continue;
       }
@@ -2933,25 +2950,25 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         //
         //  --------------- //////////////////////////////////////////////////
 
-        for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
+        for (int i = 0; i < n_dofs_v_per_cell/dim; ++i)
         {
           for (int c = 0; c < dim; ++c)
           {
             FUloc(i*dim + c) += JxW_mid*  //momentum residual
-                 ( Fdqp(c)*phi_c[qp][i]
-                  +rho*(unsteady*dUdt(c) + has_convec*Uconv_qp.dot(dxU.row(c)))*phi_c[qp][i]  //aceleração
-                  +visc*dxphi_c.row(i).dot(dxU.row(c) + dxU.col(c).transpose())  //rigidez  //transpose() here is to add 2 row-vectors
-                  -force_at_mid(c)*phi_c[qp][i]  //força
-                  -Pqp_new*dxphi_c(i,c) );        //pressão
+                 ( //Fdqp(c)*phi_c[qp][i]
+                  +rho*(unsteady*dUdt(c) + has_convec*Uconv_qp.dot(dxU.row(c)))*qsi_c[qp][i]  //aceleração
+                  +visc*dxqsi_c.row(i).dot(dxU.row(c) + dxU.col(c).transpose())  //rigidez  //transpose() here is to add 2 row-vectors
+                  -force_at_mid(c)*qsi_c[qp][i]  //força
+                  -Pqp_new*dxqsi_c(i,c) );        //pressão
 
-            for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)
-            {
-              for (int d = 0; d < dim; ++d)
-              {
-                delta_cd = c==d;
-                Aloc(i*dim + c, j*dim + d) += JxW_mid * delta_cd * phi_c[qp][i]*phi_c[qp][j];
-              }
-            }
+//            for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)
+//            {
+//              for (int d = 0; d < dim; ++d)
+//              {
+//                delta_cd = c==d;
+//                Aloc(i*dim + c, j*dim + d) += JxW_mid * delta_cd * phi_c[qp][i]*phi_c[qp][j];
+//              }
+//            }
           }
         }
 
@@ -2981,17 +2998,41 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
 
   }//end FEP_HAS_OPENMP
 
-#if (false)
+#if (true)
   // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol, NeumBody) //////////////////////////////////////////////////
   //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout))
   {
-    int                 tag;
+    int                 tag, is_slipvel, is_fsi;
     bool                is_neumann, is_surface, is_solid;
 
-    VectorXd            FUloc(n_dofs_u_per_facet);
+    MatrixXd            Aloc_f(n_dofs_v_per_facet, n_dofs_v_per_facet);
+    VectorXd            FUloc_f(n_dofs_v_per_facet);
     Vector              normal(dim), traction_(dim);
     double              J_mid = 0, JxW_mid;
     Vector              Xqp(dim);
+    double              weight = 0;
+
+    VectorXi            mapM_f(dim*nodes_per_facet);
+
+    MatrixXd            x_coefs_f_mid_trans(dim, n_dofs_v_per_facet/dim); // n+utheta
+    MatrixXd            x_coefs_f_old(n_dofs_v_per_facet/dim, dim);       // n
+    MatrixXd            x_coefs_f_old_trans(dim, n_dofs_v_per_facet/dim); // n
+    MatrixXd            x_coefs_f_new(n_dofs_v_per_facet/dim, dim);       // n+1
+    MatrixXd            x_coefs_f_new_trans(dim, n_dofs_v_per_facet/dim); // n+1
+
+    MatrixXd            f_coefs_f_mid_trans(dim, n_dofs_v_per_facet/dim); // n+utheta
+    MatrixXd            f_coefs_f_old(n_dofs_v_per_facet/dim, dim);       // n
+    MatrixXd            f_coefs_f_old_trans(dim, n_dofs_v_per_facet/dim); // n
+    MatrixXd            f_coefs_f_new(n_dofs_v_per_facet/dim, dim);       // n+1
+    MatrixXd            f_coefs_f_new_trans(dim, n_dofs_v_per_facet/dim); // n+1
+
+    MatrixXd            noi_coefs_f_new(n_dofs_v_per_facet/dim, dim);  // normal interpolada em n+1
+    MatrixXd            noi_coefs_f_new_trans(dim, n_dofs_v_per_facet/dim);  // normal interpolada em n+1
+
+    Tensor              F_f_mid(dim,dim-1);       // n+utheta
+    Tensor              invF_f_mid(dim-1,dim);    // n+utheta
+    Tensor              fff_f_mid(dim-1,dim-1);   // n+utheta; fff = first fundamental form
+    Vector              Fdqp(dim);
 
     facet_iterator facet = mesh->facetBegin();
     facet_iterator facet_end = mesh->facetEnd();  // the next if controls the for that follows
@@ -3004,21 +3045,39 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       is_neumann = is_in(tag, neumann_tags);
       is_surface = is_in(tag, interface_tags);
       is_solid   = is_in(tag, solid_tags);
-      //is_slipvel = is_in_id(tag, slipvel_tags);
-      //is_fsi     = is_in_id(tag, flusoli_tags);
+      is_slipvel = is_in_id(tag, slipvel_tags);
+      is_fsi     = is_in_id(tag, flusoli_tags);
 
-      if ((!is_neumann) && (!is_surface) && (!is_solid) /*&& !(is_slipvel) && !(is_fsi)*/)
+      if ((!is_neumann) && (!is_surface) && (!is_solid) && !(is_slipvel) && !(is_fsi))
         continue;
 
+      dof_handler[DH_MESH].getVariable(VAR_M).getFacetDofs(mapM_f.data(), &*facet);  //cout << mapM_f << endl;
 
-      FUloc.setZero();  //U momentum
+      VecGetValues(Vec_normal,  mapM_f.size(), mapM_f.data(), noi_coefs_f_new.data());
+      VecGetValues(Vec_x_0,     mapM_f.size(), mapM_f.data(), x_coefs_f_old.data());
+      VecGetValues(Vec_x_1,     mapM_f.size(), mapM_f.data(), x_coefs_f_new.data());
+      VecGetValues(Vec_fd,      mapM_f.size(), mapM_f.data(), f_coefs_f_new.data());  //cout << x_coefs_c_new << endl << endl;
+//      VecGetValues(Vec_uzp_0,   mapU_f.size(), mapU_f.data(), u_coefs_f_old.data());
+//      VecGetValues(Vec_uzp_k,   mapU_f.size(), mapU_f.data(), u_coefs_f_new.data());
 
+      x_coefs_f_old_trans = x_coefs_f_old.transpose();
+      x_coefs_f_new_trans = x_coefs_f_new.transpose();
+//      u_coefs_f_old_trans = u_coefs_f_old.transpose();
+//      u_coefs_f_new_trans = u_coefs_f_new.transpose();
+
+//      u_coefs_f_mid_trans = utheta*u_coefs_f_new_trans + (1.-utheta)*u_coefs_f_old_trans;
+      x_coefs_f_mid_trans = utheta*x_coefs_f_new_trans + (1.-utheta)*x_coefs_f_old_trans;
+      f_coefs_f_mid_trans = f_coefs_f_new.transpose();
+
+      FUloc_f.setZero();  //U momentum
+      Aloc_f.setZero();
 
       ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
       for (int qp = 0; qp < n_qpts_facet; ++qp)
       {
 
         F_f_mid   = x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
+        Fdqp      = f_coefs_f_mid_trans * qsi_f[qp];
 
         if (dim==2)
         {
@@ -3052,12 +3111,34 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
           {
             for (int c = 0; c < dim; ++c)
             {
-              FUloc(i*dim + c) -= JxW_mid * traction_(c) * phi_f[qp][i] ; // força
+              FUloc_f(i*dim + c) -= JxW_mid * traction_(c) * qsi_f[qp][i] ; // força
             }
           }
         }//end is_neumann //////////////////////////////////////////////////
-      }
+
+        if (is_fsi){
+          for (int i = 0; i < n_dofs_v_per_facet/dim; ++i){
+            for (int c = 0; c < dim; ++c){
+              FUloc_f(i*dim + c) += JxW_mid * Fdqp(c) * qsi_f[qp][i];
+            }
+            for (int j = 0; j < n_dofs_v_per_facet/dim; ++j){
+              for (int c = 0; c < dim; ++c){
+                Aloc_f(i*dim + c, j*dim + c) += JxW_mid * qsi_f[qp][i]*qsi_f[qp][j];
+              }
+            }
+          }
+        }//end is_fsi
+
+        //~ FEP_PRAGMA_OMP(critical)
+        {
+          VecSetValues(Vec_fun, mapM_f.size(), mapM_f.data(), FUloc_f.data(), ADD_VALUES);
+          MatSetValues(*JJ, mapM_f.size(), mapM_f.data(), mapM_f.size(), mapM_f.data(), Aloc_f.data(),  ADD_VALUES);
+        }
+
+      }//end quadrature //////////////////////////////////////////////////
+    }//end for facet
   }
+  // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
 #endif
 
   Assembly(Vec_fun);

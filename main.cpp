@@ -1195,7 +1195,7 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = KSPSetOperators(ksp_s,Mat_Jac_s,Mat_Jac_s,SAME_NONZERO_PATTERN);             CHKERRQ(ierr);
     ierr = KSPSetType(ksp_s,KSPPREONLY);                                                CHKERRQ(ierr);
     ierr = PCSetType(pc_s,PCLU);                                                        CHKERRQ(ierr);
-    ierr = SNESSetFromOptions(snes_s);                                                  CHKERRQ(ierr);
+    //ierr = SNESSetFromOptions(snes_s);                                                  CHKERRQ(ierr);
     ierr = SNESSetType(snes_s, SNESKSPONLY);                                            CHKERRQ(ierr);
     //cout << endl; ierr = SNESView(snes_s, PETSC_VIEWER_STDOUT_WORLD);
     }
@@ -1249,8 +1249,11 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = KSPSetType(ksp_fd,KSPPREONLY);                                                CHKERRQ(ierr);
     ierr = PCSetType(pc_fd,PCLU);                                                        CHKERRQ(ierr);
     //ierr = SNESSetFromOptions(snes_fd);                                                  CHKERRQ(ierr);
-    ierr = SNESSetType(snes_fd, SNESKSPONLY);                                            CHKERRQ(ierr);
-    //cout << endl; ierr = SNESView(snes_s, PETSC_VIEWER_STDOUT_WORLD);
+    //ierr = SNESSetType(snes_fd, SNESKSPONLY);                                            CHKERRQ(ierr);
+    //ierr = SNESView(snes_fd, PETSC_VIEWER_STDOUT_WORLD);
+    ierr = SNESMonitorSet(snes_fd, SNESMonitorDefault, 0, 0);                                CHKERRQ(ierr);
+    //ierr = SNESMonitorSet(snes_m,Monitor,0,0);CHKERRQ(ierr);
+    ierr = SNESSetTolerances(snes_fd,1.e-11,1.e-11,1.e-11,10,PETSC_DEFAULT);                 CHKERRQ(ierr);
     }
 
   printf(" done.\n");
@@ -1635,7 +1638,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   VectorXi  dofs_fs(LZ);
   Vector3d  Xg, XG_temp, Us;
   int       nod_id, nod_is, tag, nod_vs, nodsum;
-  int       PI = 10; //Picard Iterations
+  int       PI = 5; //Picard Iterations
   double    p_in;
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
@@ -1794,9 +1797,12 @@ PetscErrorCode AppCtx::setInitialConditions()
     // * SOLVE THE SYSTEM *
     if (solve_the_sys)
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
-      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
+      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");
       //if (is_sfip){updateSolidVel();}
-      if (is_sfip && (pic+1 == PI)){ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);}
+      if (is_sfip && (pic+1 == PI) && true){
+        cout << "-----Interaction force calculation------" << endl;
+        ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
+      }
     }
 
     if ((pic+1) < PI){
@@ -2119,15 +2125,18 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
       setUPInitialGuess();  //setup Vec_uzp_1 for SNESSolve
 
-      // * SOLVE THE SYSTEM *
+      // * SOLVE THE SYSTEM * /////////////////////////
       if (solve_the_sys){
-        ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr);
+        ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
         //if (is_sfip){updateSolidVel();}
-        if (is_sfip && (pic+1 == PI)){ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);}
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         cout << "# snes iterations: " << its << endl
              << "--------------------------------------------------" << endl;
-      }
+        if (is_sfip && (pic+1 == PI) && true){
+          cout << "-----Interaction force calculation-----" << endl;
+          ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
+        }
+      }//////////////////////////////////////////////////
 
       if ((pic+1) < PI){
         VecCopy(Vec_uzp_1, Vec_uzp_0);

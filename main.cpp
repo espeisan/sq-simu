@@ -574,14 +574,14 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   if (!unsteady)
   {
     if (ale) {
-      printf("ale with steady problem?\n");
+      printf("ALE with steady problem?\n");
       //throw;
     }
 
     if (utheta != 1)
     {
       cout << "WARNING!!!\n";
-      cout << ">>> steady problem .. setting utheta to 1" << endl;
+      cout << ">>> Steady problem... setting utheta to 1" << endl;
       utheta = 1;
     }
 
@@ -595,6 +595,19 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
 
   if (n_modes > 0){
     is_sfim = PETSC_TRUE;
+  }
+
+  if (dim == 2){
+    if (quadr_degree_err > 10){
+      cout << ">>> Exceeded maximum quadrature error order, setting it to 10" << endl;
+      quadr_degree_err = 10;
+    }
+  }
+  else if (dim == 3){
+    if (quadr_degree_err > 8){
+      cout << ">>> Exceeded maximum quadrature error order, setting it to 8" << endl;
+      quadr_degree_err = 8;
+    }
   }
 
   return false;
@@ -2662,7 +2675,7 @@ double AppCtx::getMeshVolume()
       volume += Jx * quadr_err->weight(qp);
 
     } // fim quadratura
-
+    //cout << volume << "  ";
   } // end elementos
   return volume;
 }

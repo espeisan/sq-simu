@@ -1651,7 +1651,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   VectorXi  dofs_fs(LZ);
   Vector3d  Xg, XG_temp, Us;
   int       nod_id, nod_is, tag, nod_vs, nodsum;
-  int       PI = 5; //Picard Iterations
+  int       PI = 2; //Picard Iterations
   double    p_in;
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
@@ -1812,7 +1812,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");
       //if (is_sfip){updateSolidVel();}
-      if (is_sfip && (pic+1 == PI) && true){
+      if (is_sfip && (pic+1 == PI) && (flusoli_tags.size() != 0) && true){
         cout << "-----Interaction force calculation------" << endl;
         ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
       }
@@ -2145,7 +2145,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         cout << "# snes iterations: " << its << endl
              << "--------------------------------------------------" << endl;
-        if (is_sfip && (pic+1 == PI) && true){
+        if (is_sfip && (pic+1 == PI) && (flusoli_tags.size() != 0) && true){
           cout << "-----Interaction force calculation-----" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
         }

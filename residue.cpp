@@ -881,7 +881,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           nodsum = 1.0;//nod_is; //+nod_sv;
           if (nodsum){
             mapP_t(i) = mapP_c(i);
-            FPloc(i) = p_coefs_c_new(i) - 100.0; //set 0.0 pressure at interior solid only nodes
+            FPloc(i) = p_coefs_c_new(i) - 0.0; //set 0.0 pressure at interior solid only nodes
           }
         }
 
@@ -904,8 +904,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           for (int c = 0; c < dim; ++c){
             FUloc(i*dim + c) = u_coefs_c_new(i,c) - 1*RotfI(c);// - vs_coefs_c_new(i,c);
             for (int D = 0; D < LZ; D++){
-              RotfI  = SolidVel(XIp, XIg, IdZ.col(D), dim);
-              Z1loc(i*dim+c,i*LZ+D) = -RotfI(c);
+              RotfJ  = SolidVel(XIp, XIg, IdZ.col(D), dim);
+              Z1loc(i*dim+c,i*LZ+D) = -RotfJ(c);
             }
           }
 
@@ -2316,7 +2316,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
   if (force_pressure) //null_space_press_dof calculated at the beginning
   {
-    double const p =1.0;
+    double const p = 1.0;
     MatSetValues(*JJ, 1, &null_space_press_dof, 1, &null_space_press_dof, &p, ADD_VALUES);
   }
 
@@ -2768,7 +2768,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
     double              weight;
     double              visc=-1; // viscosity
     double              rho;
-    double              delta_cd;
+    //double              delta_cd;
     Vector              force_at_mid(dim);
     Vector              Fdqp(dim);
     MatrixXd            Prj(dim*nodes_per_cell,dim*nodes_per_cell); // projector matrix
@@ -2973,14 +2973,14 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         }
 
       }
-
+      ////////////////////////////////////////////////// ENDING QUADRATURE //////////////////////////////////////////////////
 
       // Projection - to force Dirichlet conditions: solid motion, non-penetration, pure Dirichlet, respect //////////////////////////////////////////////////
       mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
       getProjectorFD(Prj, nodes_per_cell, cell_nodes.data(), Vec_x_1, current_time+dt, *this);
       MatrixXd Id(MatrixXd::Identity(dim*nodes_per_cell,dim*nodes_per_cell));
       FUloc = Prj*FUloc;
-      Aloc  = Prj*Aloc + (Id-Prj);
+      Aloc  = /*Prj*Aloc + */ Id-Prj;
 
       // ---------------- //////////////////////////////////////////////////
       //
@@ -3128,14 +3128,14 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
             }
           }
         }//end is_fsi
+      }
+      ////////////////////////////////////////////////// ENDING QUADRATURE //////////////////////////////////////////////////
 
-        //~ FEP_PRAGMA_OMP(critical)
-        {
-          VecSetValues(Vec_fun, mapM_f.size(), mapM_f.data(), FUloc_f.data(), ADD_VALUES);
-          MatSetValues(*JJ, mapM_f.size(), mapM_f.data(), mapM_f.size(), mapM_f.data(), Aloc_f.data(),  ADD_VALUES);
-        }
-
-      }//end quadrature //////////////////////////////////////////////////
+      //~ FEP_PRAGMA_OMP(critical)
+      {
+        VecSetValues(Vec_fun, mapM_f.size(), mapM_f.data(), FUloc_f.data(), ADD_VALUES);
+        MatSetValues(*JJ, mapM_f.size(), mapM_f.data(), mapM_f.size(), mapM_f.data(), Aloc_f.data(),  ADD_VALUES);
+      }
     }//end for facet
   }
   // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////

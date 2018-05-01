@@ -298,6 +298,21 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
   return R;
 }
 
+inline TensorZ SkewMatrix(Vector const& X, int dim){
+  TensorZ S;
+  if (dim == 2){
+    S = TensorZ::Zero(dim,1);
+    S(0) = X(1); S(1) = -X(0);
+  }
+  else if (dim == 3){
+    S = TensorZ::Zero(dim,dim);
+    S(0,1) = -X(2); S(1,0) =  X(2);
+    S(0,2) =  X(1); S(2,0) = -X(1);
+    S(1,2) = -X(0); S(2,1) =  X(0);
+  }
+  return S;
+}
+
 inline TensorZ SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ){
   TensorZ H = TensorZ::Zero(dim,LZ);
   if (dim == 2){
@@ -306,6 +321,9 @@ inline TensorZ SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ
     H(1,2) =  (X(0)-Xg(0));
   }
   else if(dim == 3){
+    H(0,0) = 1.0; H(1,1) = 1.0; H(2,2) = 1.0;
+    TensorZ S = SkewMatrix(X-Xg,dim);
+    H.block(0,dim,dim,dim) = -S;
     //H = Z.head(3) + cross(Z.tail(3),X-Xg);
   }
   return H;

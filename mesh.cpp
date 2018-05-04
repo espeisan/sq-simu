@@ -418,6 +418,7 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
     is_slv     = is_in(tag, slipvel_tags);
     is_fsi     = is_in(tag, flusoli_tags);
     is_slvid   = is_in_id(tag, slipvel_tags);
+    is_fsiid   = is_in_id(tag, flusoli_tags);
 
     if ( !(is_surface || is_solid || is_cl || mesh->inBoundary(&*point) || is_fsi || is_slv) )
       continue;
@@ -442,12 +443,12 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);
     }
-    if (false /*is_curvt*/ && (is_fsiid+is_slvid))
+    if (true /*is_curvt*/ && (is_fsiid+is_slvid))
     {
       point->getCoord(X.data(),dim);
       Xc = XG_0[is_fsiid+is_slvid-1];  //TODO: see what's the correct XG_
       normal = exact_normal_ellipse(X,Xc,0.0,RV[is_fsiid+is_slvid-1],RV[is_fsiid+is_slvid-1],dim); //theta_ini[is_fsiid+is_slvid-1]
-      cout << "HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE" << endl;
+      //cout << "HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE" << endl;
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);
     }

@@ -1950,8 +1950,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
     printMatlabLoader();
 
   if (is_sfip){
-    getSolidVolume();
-    getSolidCentroid();
+    //getSolidVolume();
+    //getSolidCentroid();
     getSolidInertiaTensor();
   }
   cout << endl;

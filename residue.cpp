@@ -799,7 +799,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     std::vector<int>    VS_c(nodes_per_cell,0);   //maximum nodes in visited solid saving the solid tag
     bool                VSF = false;              //visited solid-fluid, body mixed Neumann node detected
     bool                PDN = false;              //Pure Dirichlet Node at the fluid region found
-    bool                FTN = false;              //Feature Tag Node found
+    bool                FTN = false;              //Feature Tag Node found = true
+    bool                SRC = true;
 
     Vector   RotfI(dim), RotfJ(dim), ConfI(dim), ConfJ(dim);
     Vector3d XIg, XJg;
@@ -1287,6 +1288,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         weight = quadr_cell->weight(qp);
         JxW_mid = J_mid*weight;
+        if (SRC){
+          JxW_mid = JxW_mid*2*3.141592*Xqp(0);
+        }
+
 
         if (J_mid < 1.e-20)
         {
@@ -1322,7 +1327,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
                   +visc*dxphi_c.row(i).dot(dxU.row(c) + dxU.col(c).transpose())  //rigidez  //transpose() here is to add 2 row-vectors
                   -force_at_mid(c)*phi_c[qp][i]  //força
                   -Pqp_new*dxphi_c(i,c) );        //pressão
-
+            if (SRC && c == 0){
+              FUloc(i*dim + c) += JxW_mid*(  //momenntum residual
+                    +visc*phi_c[qp][i]*Uqp(c)/(Xqp(c)*Xqp(c))  //rigidez
+                    -Pqp_new*phi_c[qp][i]/(Xqp(c)));        //pressão
+            }
             for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)
             {
               for (int d = 0; d < dim; ++d)
@@ -1332,19 +1341,31 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
                     ( ddt_factor*unsteady*delta_cd*rho*phi_c[qp][i]*phi_c[qp][j]/dt + //time derivative
                       has_convec*phi_c[qp][i]*utheta*rho*( delta_cd*Uconv_qp.dot(dxphi_c.row(j)) + dxU(c,d)*phi_c[qp][j] ) + //advecção
                       utheta*visc*( delta_cd*dxphi_c.row(i).dot(dxphi_c.row(j)) + dxphi_c(i,d)*dxphi_c(j,c)) ); //rigidez
+                if (SRC && c == 0){
+                  Aloc(i*dim + c, j*dim + d) += JxW_mid*(
+                        utheta*visc*delta_cd*phi_c[qp][i]*phi_c[qp][j]/(Xqp(c)*Xqp(c)) ); //rigidez
+                }
               }
             }
             for (int j = 0; j < n_dofs_p_per_cell; ++j)
             {
               Gloc(i*dim + c,j) -= JxW_mid * psi_c[qp][j]* dxphi_c(i,c);            //pressure block
               Dloc(j,i*dim + c) -= utheta*JxW_mid * psi_c[qp][j]*  dxphi_c(i,c);    //transpose of the pressure block
+              if (SRC && c == 0){
+                Gloc(i*dim + c,j) -= JxW_mid * psi_c[qp][j] * phi_c[qp][i]/Xqp(c);    //pressure block
+                Dloc(j,i*dim + c) -= utheta*JxW_mid * psi_c[qp][j] * phi_c[qp][i]/Xqp(c);  //transpose of the pressure block
+              }
             }
 
           }
         }
 
-        for (int i = 0; i < n_dofs_p_per_cell; ++i)
+        for (int i = 0; i < n_dofs_p_per_cell; ++i){
           FPloc(i) -= JxW_mid* dxU.trace()*psi_c[qp][i]; //mass conservation residual
+          if (SRC){
+            FPloc(i) -= JxW_mid*psi_c[qp][i]*Uqp(0)/Xqp(0); //mass conservation residual
+          }
+        }
 
         // ---------------- //////////////////////////////////////////////////
         //

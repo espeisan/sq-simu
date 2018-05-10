@@ -602,6 +602,7 @@ public:
   PetscBool   is_curvt;
   PetscBool   is_mr;
   PetscBool   is_axis;
+  PetscBool   exact_normal;
   
   int         converged_times, PI, PIs;
   double      dt;

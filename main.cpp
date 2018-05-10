@@ -295,6 +295,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-print_step", "print_step", "main.cpp", print_step, &print_step, PETSC_NULL);
   PetscOptionsInt("-picard_iter_init_cond", "picard iteration for initial conditions", "main.cpp", PI, &PI, PETSC_NULL);
   PetscOptionsInt("-picard_iter_solver", "picard iteration for solver", "main.cpp", PIs, &PIs, PETSC_NULL);
+  PetscOptionsBool("-use_exact_normal", "use exact solid normal", "main.cpp", exact_normal, &exact_normal, PETSC_NULL);
   PetscOptionsScalar("-beta1", "par vel do fluido", "main.cpp", beta1, &beta1, PETSC_NULL);
   PetscOptionsScalar("-beta2", "par vel elastica", "main.cpp", beta2, &beta2, PETSC_NULL);
   PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
@@ -1818,7 +1819,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");
       //if (is_sfip){updateSolidVel();}
-      if (is_sfip && (pic+1 == PI) && (flusoli_tags.size() != 0) && true){
+      if (is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
         cout << "-----Interaction force calculation------" << endl;
         ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
       }
@@ -2153,7 +2154,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         cout << "# snes iterations: " << its << endl
              << "--------------------------------------------------" << endl;
-        if (is_sfip && (pic+1 == PIs) && (flusoli_tags.size() != 0) && true){
+        if (is_sfip && (pic+1 == PIs) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
           cout << "-----Interaction force calculation-----" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
         }

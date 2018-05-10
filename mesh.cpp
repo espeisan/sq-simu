@@ -443,11 +443,11 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);
     }
-    if (true /*is_curvt*/ && (is_fsiid+is_slvid))
+    if (false /*is_curvt*/ && (is_fsiid+is_slvid))
     {
       point->getCoord(X.data(),dim);
       Xc = XG_0[is_fsiid+is_slvid-1];  //TODO: see what's the correct XG_
-      normal = exact_normal_ellipse(X,Xc,0.0,RV[is_fsiid+is_slvid-1],RV[is_fsiid+is_slvid-1],dim); //theta_ini[is_fsiid+is_slvid-1]
+      normal = exact_normal_ellipse(X,Xc,0.0,RV[is_fsiid+is_slvid-1](0),RV[is_fsiid+is_slvid-1](1),dim); //theta_ini[is_fsiid+is_slvid-1]
       //cout << "HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE" << endl;
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);
@@ -1857,7 +1857,7 @@ double AppCtx::sizeField(double *coords)
     Xg = XG_1[i];
     double d = sqrt(pow(coords[0]-Xg(0), 2.0)+pow(coords[1]-Xg(1), 2.0));
 
-    d=((d-RV[i])>0)?(d-RV[i]):0.0;
+    d=((d-RV[i](0))>0)?(d-RV[i](0)):0.0;
 
     dist *= fmin(1.0,d/(L_range));
   }
@@ -1890,7 +1890,7 @@ double AppCtx::sizeField_s(Vector coords)
     C(0) = coords(0); C(1) = coords(1);
     if (coords.size() == 3) {C(2) = coords(2);}
     double d = (C-Xg).norm();
-    d=((d-RV[i])>0)?(d-RV[i]):0.0;
+    d=((d-RV[i](0))>0)?(d-RV[i](0)):0.0;
 
     dist *= fmin(1.0,d/(L_range));
   }

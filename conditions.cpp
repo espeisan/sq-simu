@@ -2005,7 +2005,7 @@ double p_exact(Vector const& X, double t, int tag)
   double x = X(0);
   double y = X(1);
 
-  return 3.5;
+  return 0.0; //3.5;
 }
 
 Vector grad_p_exact(Vector const& X, double t, int tag)
@@ -2022,9 +2022,9 @@ Vector traction(Vector const& X, Vector const& normal, double t, int tag)
   Vector T(Vector::Zero(X.size()));
   //T(0) = -p_exact(X,t,tag);
   //T(1) = muu(tag)*(cos(w_*t) + sin(w_*t));
-  Tensor dxU(grad_u_exact(X,t,tag));
-  Tensor I(Tensor::Identity(2,2));
-  T = (- p_exact(X,t,tag)*I +  muu(tag)*(dxU + dxU.transpose()))*normal;
+  //Tensor dxU(grad_u_exact(X,t,tag));
+  //Tensor I(Tensor::Identity(2,2));
+  //T = (- p_exact(X,t,tag)*I +  muu(tag)*(dxU + dxU.transpose()))*normal;
   return T;
 }
 
@@ -2075,18 +2075,20 @@ Vector solid_veloc(Vector const& X, double t, int tag)
 Tensor feature_proj(Vector const& X, double t, int tag)
 {
   Tensor f(Tensor::Zero(X.size(), X.size()));
-  if (true && (tag == 1 || tag == 5 || tag == 2 || tag == 4 /*|| tag == 3 || tag == 1*/)){
+  //if (true && (tag == 1 || tag == 5 || tag == 2 || tag == 4 || tag == 6 /*|| tag == 3 || tag == 1*/)){
     //f(0,0) = 1; //imposes zero tangential velocity at the output of the channel
                 //or cartesian wall by eliminating the contribution of the momentum
                 //equation in the normal direction, allowing penetration with zero
                 //stress in the normal direction. In other words,
                 //indicates that the component 0 (x-direction) is free, and is going
                 //to be imposed zero velocity in the component 1 (y-direction)
-    f(1,1) = 1;
-  }
-  //if (true && (tag == 4)){
-    //f(0,0) = 1;
+    //f(1,1) = 1;
   //}
+  //else if (true && (tag == 3 || tag == 7)){
+  //if (true && (tag == 4)){
+    //f(1,1) = 1;
+  //}
+  if (tag == 1 || tag == 5 || tag == 8){f(1,1) = 1;}
   return f;
 }
 
@@ -2275,9 +2277,9 @@ Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int d
   double psi = 0.0, k = 5.0;
 
   Vector f(Vector::Zero(X.size()));
-  if (false && dim == 2)
+  if (true && dim == 2)
   {
-    double B1 = -2.0, B2 = 0.0;
+    double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
     f(0) = -normal(1); f(1) = normal(0);

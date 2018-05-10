@@ -601,8 +601,9 @@ public:
   PetscBool   is_sfim;
   PetscBool   is_curvt;
   PetscBool   is_mr;
+  PetscBool   is_axis;
   
-  int         converged_times;
+  int         converged_times, PI, PIs;
   double      dt;
   double      steady_tol;
   double      utheta;
@@ -743,8 +744,8 @@ public:
   
   int                    N_Solids, LZ;
   std::vector<int>       NN_Solids;
-  std::vector<double>    MV, RV, VV;  //mass vector, radius vector, area vector
-  std::vector<Vector3d>  XG_0, XG_1, XG_aux, XG_ini;
+  std::vector<double>    MV, VV;  //mass vector, radius vector, area vector
+  std::vector<Vector3d>  XG_0, XG_1, XG_aux, XG_ini, RV;
   double                 hme, hmn, hmx;
   std::vector<double>    theta_0, theta_1, theta_aux, theta_ini;
   std::vector<Tensor3>   InTen;

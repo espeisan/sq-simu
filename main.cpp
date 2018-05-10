@@ -222,6 +222,8 @@ void AppCtx::setUpDefaultOptions()
   is_sfim                = PETSC_FALSE;
   is_curvt               = PETSC_FALSE;
   n_modes                = 0;
+  PI                     = 1;
+  PIs                    = 1;
 
   //Luzia's part for meshAdapt_l()
   h_star = 0.02;
@@ -278,6 +280,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsBool("-boundary_smoothing", "boundary_smoothing", "main.cpp", boundary_smoothing, &boundary_smoothing, PETSC_NULL);
   PetscOptionsBool("-force_mesh_velocity", "force_mesh_velocity", "main.cpp", force_mesh_velocity, &force_mesh_velocity, PETSC_NULL);
   PetscOptionsBool("-solve_slip_velocity", "activate slip velocity solver", "main.cpp", is_sslv, &is_sslv, PETSC_NULL);
+  PetscOptionsBool("-solve_axisymmetric", "activate axisymmetric solver", "main.cpp", is_axis, &is_axis, PETSC_NULL);
   PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
   PetscOptionsBool("-renumber_dofs", "renumber dofs", "main.cpp", renumber_dofs, &renumber_dofs, PETSC_NULL);
   PetscOptionsBool("-fprint_ca", "print contact angle", "main.cpp", fprint_ca, &fprint_ca, PETSC_NULL);
@@ -290,6 +293,8 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-quadr_f", "quadrature degree (facet)", "main.cpp", quadr_degree_facet, &quadr_degree_facet, PETSC_NULL);
   PetscOptionsInt("-quadr_r", "quadrature degree (corner)", "main.cpp", quadr_degree_corner, &quadr_degree_corner, PETSC_NULL);
   PetscOptionsInt("-print_step", "print_step", "main.cpp", print_step, &print_step, PETSC_NULL);
+  PetscOptionsInt("-picard_iter_init_cond", "picard iteration for initial conditions", "main.cpp", PI, &PI, PETSC_NULL);
+  PetscOptionsInt("-picard_iter_solver", "picard iteration for solver", "main.cpp", PIs, &PIs, PETSC_NULL);
   PetscOptionsScalar("-beta1", "par vel do fluido", "main.cpp", beta1, &beta1, PETSC_NULL);
   PetscOptionsScalar("-beta2", "par vel elastica", "main.cpp", beta2, &beta2, PETSC_NULL);
   PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
@@ -518,15 +523,17 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   if (flg_min){
     filemass.assign(minaux);
     int N = N_Solids;
-    double mass = 0.0, rad = 0.0, vol = 0.0, the = 0.0, xg = 0.0, yg = 0.0, zg = 0.0;
-    Vector3d Xg;
+    double mass = 0.0, rad1 = 0.0, rad2 = 0.0, rad3 = 0.0, vol = 0.0, the = 0.0, xg = 0.0, yg = 0.0, zg = 0.0;
+    Vector3d Xg, rad;
     ifstream is;
     is.open(filemass.c_str(),ifstream::in);
     if (!is.good()) {cout << "mass file not found" << endl; throw;}
-    else {cout << "mass file format: mass radius(ellipsoidal case) volume init.angle init.center" << endl;}
+    else {cout << "mass file format: mass volume radius(ellipsoidal case 2D or 3D) init.angle init.center" << endl;}
     for (; N > 0; N--){
-      is >> mass; is >> rad; is >> vol; is >> the;
+      is >> mass; is >> vol;
+      is >> rad1; is >> rad2; if(dim == 3){is >> rad3;} is >> the;
       is >> xg; is >> yg; if(dim == 3){is >> zg;}
+      rad << rad1, rad2, rad3;
       Xg << xg, yg, zg;
       MV.push_back(mass); RV.push_back(rad); VV.push_back(vol);
       XG_1.push_back(Xg); XG_0.push_back(Xg); XG_aux.push_back(Xg); XG_ini.push_back(Xg);
@@ -1651,7 +1658,6 @@ PetscErrorCode AppCtx::setInitialConditions()
   VectorXi  dofs_fs(LZ);
   Vector3d  Xg, XG_temp, Us;
   int       nod_id, nod_is, tag, nod_vs, nodsum;
-  int       PI = 2; //Picard Iterations
   double    p_in;
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
@@ -1689,7 +1695,7 @@ PetscErrorCode AppCtx::setInitialConditions()
 
   // normals at boundary points (n01,n02,n03, n11,n12,n13, n21,n22,n23, ..., 0) following node order .geo
   getVecNormals(&Vec_x_0, Vec_normal);  //std::cout << VecView(Vec_normal,PETSC_VIEWER_STDOUT_WORLD)
-  Assembly(Vec_normal); View(Vec_normal,"matrizes/nr0.m","nrm0"); View(Vec_x_0,"matrizes/vx0.m","vxv0");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
+  //Assembly(Vec_normal); View(Vec_normal,"matrizes/nr0.m","n0"); View(Vec_x_0,"matrizes/vx0.m","vxv0");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
 
   // compute mesh sizes
   getMeshSizes();
@@ -1775,7 +1781,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   if (is_sfip){View(Vec_slipv_0,"matrizes/sv0.m","s0");}
   View(Vec_tangent,"matrizes/tv0.m","t0");
   View(Vec_normal,"matrizes/nr0.m","n0");
-  if (true) {getFromBSV();}  //to calculate the analitical squirmer velocity
+  if (true) {getFromBSV();}  //to calculate the analytical squirmer velocity
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   //Assembly(Vec_uzp_0);  View(Vec_uzp_0,"matrizes/vuzp0.m","vuzp0m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
@@ -1810,7 +1816,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     // * SOLVE THE SYSTEM *
     if (solve_the_sys)
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
-      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");
+      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");
       //if (is_sfip){updateSolidVel();}
       if (is_sfip && (pic+1 == PI) && (flusoli_tags.size() != 0) && true){
         cout << "-----Interaction force calculation------" << endl;
@@ -1831,6 +1837,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     moveCenterMass(0.0);
     calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.0, Vec_v_mid, 0.0);
     VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
+    //View(Vec_uzp_1,"matrizes/UPS.m","ups");
   }// end Picard Iterartions loop //////////////////////////////////////////////////
   copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
 
@@ -1944,14 +1951,15 @@ PetscErrorCode AppCtx::solveTimeProblem()
   Vector   X(dim), Xe(dim), U0(Vector::Zero(3)), U1(Vector::Zero(3)), XG_temp(3);
   double   x_error=0;
   VectorXi dofs(dim);
-  int      PI = 1;
 
   if (print_to_matlab)
     printMatlabLoader();
 
   if (is_sfip){
-    //getSolidVolume();
-    //getSolidCentroid();
+    if (false && !is_axis){
+      getSolidVolume();
+      getSolidCentroid();
+    }
     getSolidInertiaTensor();
   }
   cout << endl;
@@ -2120,7 +2128,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
     VecCopy(Vec_slipv_1, Vec_slipv_0);
 
-    for (int pic = 0; pic < PI; pic++) // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
+    for (int pic = 0; pic < PIs; pic++) // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
     {
       printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
 
@@ -2145,13 +2153,13 @@ PetscErrorCode AppCtx::solveTimeProblem()
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         cout << "# snes iterations: " << its << endl
              << "--------------------------------------------------" << endl;
-        if (is_sfip && (pic+1 == PI) && (flusoli_tags.size() != 0) && true){
+        if (is_sfip && (pic+1 == PIs) && (flusoli_tags.size() != 0) && true){
           cout << "-----Interaction force calculation-----" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
         }
       }//////////////////////////////////////////////////
 
-      if ((pic+1) < PI){
+      if ((pic+1) < PIs){
         VecCopy(Vec_uzp_1, Vec_uzp_0);
       }
 
@@ -2703,7 +2711,7 @@ void AppCtx::getSolidVolume()
 //  VectorXi            cell_nodes_tmp(nodes_per_cell);
   Tensor              F_c_curv(dim,dim);
   int                 tag_pt0, tag_pt1, tag_pt2, bcell;
-  double const*       Xqpb;  //coordonates at the master element \hat{X}
+  double const*       Xqpb;  //Coordinates at the master element \hat{X}
   Vector              Phi(dim), DPhi(dim), Dphi(dim), X0(dim), X2(dim), T0(dim), T2(dim), Xc(3), Vdat(3);
   bool                curvf = false;
   TensorXi            PerM3(TensorXi::Zero(3,3));  //Permutation matrix
@@ -2779,6 +2787,10 @@ void AppCtx::getSolidVolume()
 
         F_c   += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;  //cout << dLqsi_err[qp];
         Jx     = F_c.determinant();
+        if (is_axis){
+          Xqp = x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+          Jx = Jx*2*pi*Xqp(0);
+        }
         VV[nod_id-1] += Jx * quadr_err->weight(qp); //cout << VV[nod_id-1] << endl;
         //tvol = tvol + Jx * quadr_err->weight(qp);
       } // fim quadratura
@@ -2865,10 +2877,13 @@ void AppCtx::getSolidCentroid()
           F_c = F_c_curv;
         }
 
-        F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
-        Jx      = F_c.determinant();
         Xqp     = x_coefs_c_trans * qsi_err[qp];
         Xqp3(0) = Xqp(0); Xqp3(1) = Xqp(1); if (dim == 3) Xqp3(2) = Xqp(2);
+        F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
+        Jx      = F_c.determinant();
+        if (is_axis){
+          Jx = Jx*2*pi*Xqp(0);
+        }
         XG_0[nod_id-1] += Xqp3 * Jx * quadr_err->weight(qp)/VV[nod_id-1]; //cout << XG_0[nod_id-1] << endl;
       } // fim quadratura
     }
@@ -3376,10 +3391,14 @@ void AppCtx::getSolidInertiaTensor()
           F_c = F_c_curv;
         }
 
-        F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
-        Jx      = F_c.determinant();
         Xqp     = x_coefs_c_trans * qsi_err[qp];
         Xqp3(0) = Xqp(0); Xqp3(1) = Xqp(1); if (dim == 3) Xqp3(2) = Xqp(2);
+        F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
+        Jx      = F_c.determinant();
+        if (is_axis){
+          Jx = Jx*2*pi*Xqp(0);
+        }
+
         for (int i = 0; i < 3; i++){
           for (int j = 0; j < 3; j++){
             delta_ij = i == j;
@@ -3402,7 +3421,7 @@ void AppCtx::getFromBSV() //Body Slip Velocity
   MatrixXd            x_coefs_f(n_dofs_v_per_facet/dim, dim), sv_coefs_f(n_dofs_v_per_facet/dim, dim);
   Tensor              F_f(dim,dim-1), fff_f(dim-1,dim-1);
   Vector              Xqp(dim), Xqp3(Vector::Zero(3)), Nr(dim), Vs(dim), TVsol(dim), TWsol(3), XG2(dim), Tg(dim);
-  const double        Pi = 3.141592653589793;
+  //const double        Pi = 3.141592653589793;
   double              Jx;
 
   Vsol = Vector3d::Zero(3); TVsol = Vector2d::Zero(2);
@@ -3437,11 +3456,14 @@ void AppCtx::getFromBSV() //Body Slip Velocity
     // Quadrature
     for (int qp = 0; qp < n_qpts_facet; ++qp)
     {
+      Xqp     = x_coefs_f.transpose() * qsi_f[qp];    //(2 because is the length of the master edge see shape_functions.cpp in fepicpp src)
+      Xqp3(0) = Xqp(0); Xqp3(1) = Xqp(1); if (dim == 3) Xqp3(2) = Xqp(2);
       F_f     = x_coefs_f.transpose() * dLqsi_f[qp];  //cout << x_coefs_f.transpose() << endl;// << dLqsi_f[qp] << endl << F_f << endl <<
       fff_f   = F_f.transpose()*F_f;                  //cout << fff_f << endl << endl;
       Jx      = sqrt(fff_f.determinant());            //cout << Jx << endl << endl;//  Jx is 2times the lenght of the edge...
-      Xqp     = x_coefs_f.transpose() * qsi_f[qp];    //(2 because is the length of the master edge see shape_functions.cpp in fepicpp src)
-      Xqp3(0) = Xqp(0); Xqp3(1) = Xqp(1); if (dim == 3) Xqp3(2) = Xqp(2);
+      if (is_axis){
+        Jx = Jx*2*pi*Xqp(0);
+      }
 
       //Nr      = Xqp;
       //Nr.normalize();  cout << Nr.transpose() << "   ";
@@ -3455,7 +3477,8 @@ void AppCtx::getFromBSV() //Body Slip Velocity
 
       Vs = SlipVel(Xqp, XG_0[is_slipvel+is_fsi-1], Nr, dim, tag, theta_ini[is_slipvel+is_fsi-1]);
       //cout << Vs.dot(Nr) << "   " << Vs.dot(Xqp) << "   " << endl;
-      //cout << Xqp.transpose() << "   " << Nr.transpose() << "   " << Tg.transpose() << "   " << Vs.transpose() << endl << endl; cout << x_coefs_f.transpose() << endl << endl;
+      //cout << Xqp.transpose() << "   " << Nr.transpose() << "   " << Tg.transpose() << "   " << Vs.transpose() << endl << endl;
+      //cout << x_coefs_f.transpose() << endl << endl;
       //cout << Nr.dot(Tg)  << "   " << Nr.dot(Vs) << endl;//cout << XG_0[is_slipvel+is_fsi-1] << endl;
 
       if (dim == 2){
@@ -3464,11 +3487,12 @@ void AppCtx::getFromBSV() //Body Slip Velocity
         //cout << quadr_facet->weight(qp) << endl;
         //cout << Nr.dot(Xqp-XG2) << "   " << Vs.transpose() << "   " << VV[is_slipvel+is_fsi-1] << endl << endl;
         //cout << TVsol.transpose() << endl;
-        TWsol(2) += /*cross(Nr,Vs)*/(Nr(0)*Vs(1)-Nr(1)*Vs(0)) * Jx * quadr_facet->weight(qp) / (RV[is_slipvel+is_fsi-1]*RV[is_slipvel+is_fsi-1]*RV[is_slipvel+is_fsi-1]);
+        TWsol(2) += /*cross(Nr,Vs)*/(Nr(0)*Vs(1)-Nr(1)*Vs(0)) * Jx *
+                                     quadr_facet->weight(qp) / (RV[is_slipvel+is_fsi-1](0)*RV[is_slipvel+is_fsi-1](0)*RV[is_slipvel+is_fsi-1])(0);
       }
       else{
-        TVsol += Vs * Jx * quadr_facet->weight(qp) / (RV[is_slipvel-1]*RV[is_slipvel-1]);
-        TWsol += cross(Nr,Vs) * Jx * quadr_facet->weight(qp) / (RV[is_slipvel-1]*RV[is_slipvel-1]*RV[is_slipvel-1]);
+        TVsol += Vs * Jx * quadr_facet->weight(qp) / (RV[is_slipvel-1](0)*RV[is_slipvel-1](0));
+        TWsol += cross(Nr,Vs) * Jx * quadr_facet->weight(qp) / (RV[is_slipvel-1](0)*RV[is_slipvel-1](0)*RV[is_slipvel-1](0));
       }
 
     }
@@ -3476,11 +3500,11 @@ void AppCtx::getFromBSV() //Body Slip Velocity
   if (dim == 2){
     Vsol(0) = -(1.0/2.0)*TVsol(0);
     Vsol(1) = -(1.0/2.0)*TVsol(1);
-    Wsol = -(1.0/(2.0*Pi))*TWsol;
+    Wsol = -(1.0/(2.0*pi))*TWsol;
   }
   else{
-    Vsol = -(1.0/(4.0*Pi))*TVsol;
-    Wsol = -(3.0/(8.0*Pi))*TWsol;
+    Vsol = -(1.0/(4.0*pi))*TVsol;
+    Wsol = -(3.0/(8.0*pi))*TWsol;
   }
   cout << "Real Velocities:" << endl
        << "Translation = " << Vsol.transpose() << ", Rotation = " << Wsol.transpose() <<  endl;

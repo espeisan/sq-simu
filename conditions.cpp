@@ -2425,7 +2425,7 @@ Vector Dcurved_Phi(double yb, Vector const& X0, Vector const& X2, Vector const& 
   return DPhi;
 }
 
-double atan2PI(double a, double b) //calculates tan(a/b), a = y, b = x
+double atan2PI(double a, double b) //calculates atan(a/b), a = y, b = x
 {
   if (b == 0)
     if (a > 0)

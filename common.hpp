@@ -538,6 +538,7 @@ public:
   Vector vectorSolidMesh(int const K, Point const* point, int const vs);
   void getFromBSV();
   PetscErrorCode saveDOFSinfo();
+  PetscErrorCode extractFdForce();
   Vector u_exacta(Vector const& X, double t, int tag);
   void computeForces(Vec const& Vec_x, Vec &Vec_up);
   //void printContactAngle(bool _print);

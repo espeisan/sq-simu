@@ -1822,6 +1822,8 @@ PetscErrorCode AppCtx::setInitialConditions()
       if (is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
         cout << "-----Interaction force calculation------" << endl;
         ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
+        cout << "-----Interaction force extracted------" << endl;
+        extractFdForce();
       }
     }
 
@@ -3838,6 +3840,53 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
   } // end Printing mech. dofs information //////////////////////////////////////////////////
 
  PetscFunctionReturn(0);
+}
+
+PetscErrorCode AppCtx::extractFdForce(){
+  int tag, nod_id, nod_vs;
+  double theta;
+  Point const* point(NULL);//, point_i(NULL);
+  const int n_nodes_total = mesh->numNodesTotal();
+  Vector  Xj(dim), Fd(dim), Nr(dim), Tg(dim);
+  VectorXi dofs_mesh(dim);
+  Vector3d XG;
+
+  ofstream filfd;
+  char fdc[PETSC_MAX_PATH_LEN];
+  sprintf(fdc,"%s/theta_Fd_file.txt",filehist_out.c_str());
+  filfd.open(fdc);
+  filfd.precision(15);
+
+  for (int j = 0; j < n_nodes_total; j++)
+  {
+    point = mesh->getNodePtr(j);
+    tag = point->getTag();
+    nod_id = is_in_id(tag,flusoli_tags);
+    nod_vs = is_in_id(tag,slipvel_tags);
+    if (!nod_vs && !nod_id)
+      continue;
+
+    point->getCoord(Xj.data(),dim);
+    getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
+    VecGetValues(Vec_forcd_0, dim, dofs_mesh.data(), Fd.data());
+    VecGetValues(Vec_normal, dim, dofs_mesh.data(), Nr.data());
+    VecGetValues(Vec_tangent, dim, dofs_mesh.data(), Tg.data());
+
+    XG = XG_0[nod_vs+nod_id-1];
+    theta = atan2PI(Xj(1)-XG(1),Xj(0)-XG(0));
+
+    if (j == n_nodes_total-1)
+      filfd << theta << " " << Fd(0) << " " << Fd(1) << " "
+                            << Nr(0) << " " << Nr(1) << " "
+                            << Tg(0) << " " << Tg(1);
+    else
+      filfd << theta << " " << Fd(0) << " " << Fd(1) << " "
+                            << Nr(0) << " " << Nr(1) << " "
+                            << Tg(0) << " " << Tg(1) << endl;
+  }
+  filfd.close();
+
+  PetscFunctionReturn(0);
 }
 
 void AppCtx::freePetscObjs()

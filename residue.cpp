@@ -1349,7 +1349,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
                   -Pqp_new*dxphi_c(i,c) );        //pressão
             if (is_axis && c == 0){
               FUloc(i*dim + c) += JxW_mid*(  //Momentum residual
-                    +visc*phi_c[qp][i]*Uqp(c)/(Xqp(c)*Xqp(c))  //rigidez
+                    +2.0*visc*phi_c[qp][i]*Uqp(c)/(Xqp(c)*Xqp(c))  //rigidez
                     -Pqp_new*phi_c[qp][i]/(Xqp(c)) );        //pressão
             }
             for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)
@@ -1363,7 +1363,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
                       utheta*visc*( delta_cd*dxphi_c.row(i).dot(dxphi_c.row(j)) + dxphi_c(i,d)*dxphi_c(j,c)) ); //rigidez
                 if (is_axis && c == 0){
                   Aloc(i*dim + c, j*dim + d) += JxW_mid*(
-                        utheta*visc*delta_cd*phi_c[qp][i]*phi_c[qp][j]/(Xqp(c)*Xqp(c)) ); //rigidez
+                        utheta*2.0*visc*delta_cd*phi_c[qp][i]*phi_c[qp][j]/(Xqp(c)*Xqp(c)) ); //rigidez
                 }
               }
             }
@@ -1509,7 +1509,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         Z2loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
         Z4loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Gloc_copy;
 
-        if (true /*is_axis*/){// eliminating specific solid DOFS
+        if (is_axis && is_sfip){// eliminating specific solid DOFS
           MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
           MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
           VectorXi s_DOFS(LZ); s_DOFS << 0, 1, 0;
@@ -3013,7 +3013,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
                   -Pqp_new*dxqsi_c(i,c) );        //pressão
             if (is_axis && c == 0){
               FUloc(i*dim + c) += JxW_mid*(  //Momentum residual
-                    +visc*qsi_c[qp][i]*Uqp(c)/(Xqp(c)*Xqp(c))  //rigidez
+                    +2.0*visc*qsi_c[qp][i]*Uqp(c)/(Xqp(c)*Xqp(c))  //rigidez
                     -Pqp_new*qsi_c[qp][i]/(Xqp(c)));        //pressão
             }
 //            for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)

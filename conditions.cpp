@@ -42,7 +42,8 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
-Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
 double nuB_coeff(int tag);
@@ -2088,8 +2089,10 @@ Tensor feature_proj(Vector const& X, double t, int tag)
   //if (true && (tag == 4)){
     //f(1,1) = 1;
   //}
-  //if (tag == 1 || tag == 5 || tag == 8){f(1,1) = 1;}
-  if (tag == 4 || tag == 5 || tag == 1 || tag == 8){f(1,1) = 1;}
+  //if (tag == 4 || tag == 5 || tag == 8){f(1,1) = 1;}
+  //if (tag == 6 || tag == 5 || tag == 1 || tag == 8){
+    f(1,1) = 1;
+  //}
   return f;
 }
 
@@ -2260,34 +2263,51 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
 
   if (true && dim == 2)
   {
-    double B1 = 0.01, B2 = 0.0;
+    double B1 = -0.5, B2 = 0.0;
     //theta = pi/2;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
-    double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
+    double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
     V(0) = -normal(1); V(1) = normal(0);
     V = uthe*V;
+    //if ( X(1)-XG(1) < 0.0 )
+    //  V = Vector::Zero(dim);
+    //else
+    //  V = V*(X(1)-XG(1))/0.2;
   }
 
   return V;
 }
 
-Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta)//
+Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta)//
 {
   double x = X(0);
   double y = X(1);
-  double psi = 0.0, k = 5.0;
+  double psi = 0.0, k = 1.0;
 
   Vector f(Vector::Zero(X.size()));
   if (true && dim == 2)
   {
     double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
-    double uthe = B1*sin(psi-theta) + B2*sin(psi-theta)*cos(psi-theta);
+    double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
     f(0) = -normal(1); f(1) = normal(0);
+    //f(0) = k*normal(0); f(1) = k*normal(1);
     f = k*uthe*f;
+    //if ( X(1)-XG(1) < 0.0 )
+    //  f = Vector::Zero(dim);
+    //else
+    //  f = f*(X(1)-XG(1))/0.2;
+    //f(0) = 0; f(1) = -0.1;
   }
 
   return f;
+}
+
+VectorXi DOFS_elimination(int LZ)
+{ //0 for component to eliminate, 1 for component to compute
+  VectorXi s_DOFS(LZ);
+  s_DOFS << 0, 1, 0;
+  return s_DOFS;
 }
 
 double Dif_coeff(int tag)

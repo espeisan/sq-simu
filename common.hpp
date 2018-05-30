@@ -137,7 +137,8 @@ TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, int dim);
 //Vector SlipVel(Vector const& X, Vector const& XG, int dim, int tag);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
-Vector force_Htau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
 double nuB_coeff(int tag);
@@ -539,6 +540,7 @@ public:
   void getFromBSV();
   PetscErrorCode saveDOFSinfo();
   PetscErrorCode extractFdForce();
+  Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);
   void computeForces(Vec const& Vec_x, Vec &Vec_up);
   //void printContactAngle(bool _print);
@@ -604,6 +606,7 @@ public:
   PetscBool   is_mr;
   PetscBool   is_axis;
   PetscBool   exact_normal;
+  PetscBool   read_from_sv_fd;
   
   int         converged_times, PI, PIs;
   double      dt;
@@ -620,7 +623,7 @@ public:
   int         quadr_degree_err;
   bool        pres_pres_block;
   float       grow_factor;
-  string      filename, filemass, filexas;
+  string      filename, filemass, filexas, filesvfd;
   string      filename_out, filehist_out;
 
   std::vector<int> dirichlet_tags;   // vetor com os tags que indicam contorno dirichlet
@@ -745,9 +748,9 @@ public:
   int           n_nodes_sv;
   
   int                    N_Solids, LZ;
-  std::vector<int>       NN_Solids;
+  std::vector<int>       NN_Solids, pIDs;
   std::vector<double>    MV, VV;  //mass vector, radius vector, area vector
-  std::vector<Vector3d>  XG_0, XG_1, XG_aux, XG_ini, RV;
+  std::vector<Vector3d>  XG_0, XG_1, XG_aux, XG_ini, RV, SV_file, FD_file, FT_file, NR_file, TG_file;
   double                 hme, hmn, hmx;
   std::vector<double>    theta_0, theta_1, theta_aux, theta_ini;
   std::vector<Tensor3>   InTen;
@@ -789,8 +792,8 @@ public:
   SNESLineSearch      linesearch;
 
   // mesh
-  Vec                 Vec_res_m,  Vec_v_mid, Vec_v_1, Vec_x_0, Vec_x_1, Vec_normal, Vec_tangent;//, Vec_binormal;
-  Vec                 Vec_x_aux, Vec_x_cur; // bdf3
+  Vec                 Vec_res_m,  Vec_v_mid, Vec_v_1, Vec_normal, Vec_tangent;//, Vec_binormal;
+  Vec                 Vec_x_0, Vec_x_1, Vec_x_aux, Vec_x_cur; // bdf3
   Mat                 Mat_Jac_m;
   SNES                snes_m;
   KSP    			  ksp_m;
@@ -798,7 +801,7 @@ public:
   
   // slip velocity
   Vec                 Vec_slipv_0, Vec_slipv_1, Vec_slipv_m1, Vec_slipv_m2, Vec_normal_aux;
-  Vec                 Vec_forcd_0, Vec_res_fd;
+  Vec                 Vec_Fdis_0, Vec_res_Fdis, Vec_ftau_0;
   Mat                 Mat_Jac_fd;
   SNES                snes_fd;
   KSP                 ksp_fd;

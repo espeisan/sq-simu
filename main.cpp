@@ -244,9 +244,9 @@ void AppCtx::setUpDefaultOptions()
 
 bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
 {
-  PetscBool          flg_fin, flg_fout, flg_min, flg_hout, flg_sin;
+  PetscBool          flg_fin, flg_fout, flg_min, flg_hout, flg_sin, flg_iin;
   char               finaux[PETSC_MAX_PATH_LEN], minaux[PETSC_MAX_PATH_LEN], sinaux[PETSC_MAX_PATH_LEN];
-  char               foutaux[PETSC_MAX_PATH_LEN], houtaux[PETSC_MAX_PATH_LEN];
+  char               foutaux[PETSC_MAX_PATH_LEN], houtaux[PETSC_MAX_PATH_LEN], iinaux[PETSC_MAX_PATH_LEN];
   PetscBool          ask_help;
 
   if (argc == 1)
@@ -305,6 +305,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsGetString(PETSC_NULL,"-min",minaux,PETSC_MAX_PATH_LEN-1,&flg_min);
   PetscOptionsGetString(PETSC_NULL,"-hout",houtaux,PETSC_MAX_PATH_LEN-1,&flg_hout);
   PetscOptionsGetString(PETSC_NULL,"-sin",sinaux,PETSC_MAX_PATH_LEN-1,&flg_sin);
+  PetscOptionsGetString(PETSC_NULL,"-iin",iinaux,PETSC_MAX_PATH_LEN-1,&flg_iin);
   PetscOptionsHasName(PETSC_NULL,"-help",&ask_help);
 
   is_mr_ab           = PETSC_FALSE;
@@ -569,6 +570,40 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
         mkdir(filehist_out.c_str(), 0770);
     }
   }
+
+  if (flg_iin){
+    read_from_sv_fd = PETSC_TRUE;
+    filesvfd.assign(iinaux);
+    int pID = 0;
+    int N = 0;
+    double theta = 0.0;
+    double fd1 = 0.0, fd2 = 0.0, fd3 = 0.0, sv1 = 0.0, sv2 = 0.0, sv3 = 0.0,
+           nr1 = 0.0, nr2 = 0.0, nr3 = 0.0, tg1 = 0.0, tg2 = 0.0, tg3 = 0.0,
+           ft1 = 0.0, ft2 = 0.0, ft3 = 0.0;
+    Vector3d FD, FT, SV, NR, TG;
+    ifstream is;
+    is.open(filesvfd.c_str(),ifstream::in);
+    if (!is.good()) {cout << "svfd file not found" << endl; throw;}
+    while(!is.eof()){
+      is >> pID; is >> theta;
+      is >> fd1; is >> fd2; if(dim == 3){is >> fd3;}
+      is >> ft1; is >> ft2; if(dim == 3){is >> ft3;}
+      is >> sv1; is >> sv2; if(dim == 3){is >> sv3;}
+      is >> nr1; is >> nr2; if(dim == 3){is >> nr3;}
+      is >> tg1; is >> tg2; if(dim == 3){is >> tg3;}
+      FD << fd1, fd2, fd3; FT << ft1, ft2, ft3; SV << sv1, sv2, sv3;
+      NR << nr1, nr2, nr3; TG << tg1, tg2, tg3;
+      FD_file.push_back(FD); FT_file.push_back(FT); SV_file.push_back(SV);
+      NR_file.push_back(NR); TG_file.push_back(TG);
+      pIDs.push_back(pID);
+      N++;
+    }
+    is.close();
+    FD_file.resize(N); FT_file.resize(N); SV_file.resize(N); NR_file.resize(N); TG_file.resize(N);
+    pIDs.resize(N);
+  }
+  else
+    read_from_sv_fd = PETSC_FALSE;
 
   //if (neumann_tags.size() + interface_tags.size() == 0 || force_pressure)
   if (force_pressure)
@@ -1226,15 +1261,20 @@ PetscErrorCode AppCtx::allocPetscObjs()
     //  ----------------------- Dissipative Force ------------------------
     //  ------------------------------------------------------------------
 
-    //Vec Vec_forcd_0;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_forcd_0);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_forcd_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_forcd_0);                          CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_forcd_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+    //Vec Vec_Fdis_0;
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_Fdis_0);               CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_Fdis_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_Fdis_0);                          CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_Fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_fd);                CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_res_fd, PETSC_DECIDE, n_dofs_v_mesh);    CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_res_fd);                           CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_Fdis);                CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_res_Fdis, PETSC_DECIDE, n_dofs_v_mesh);    CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_res_Fdis);                           CHKERRQ(ierr);
+
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_ftau_0);               CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_ftau_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_ftau_0);                          CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_ftau_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
     nnz.clear();
     int n_fd_dofs = dof_handler[DH_MESH].numDofs();;
@@ -1260,7 +1300,7 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = MatSetOption(Mat_Jac_fd,MAT_SYMMETRIC,PETSC_TRUE);                               CHKERRQ(ierr);
 
     ierr = SNESCreate(PETSC_COMM_WORLD, &snes_fd);                                          CHKERRQ(ierr);
-    ierr = SNESSetFunction(snes_fd, Vec_res_fd, FormFunction_fd, this);                    CHKERRQ(ierr);
+    ierr = SNESSetFunction(snes_fd, Vec_res_Fdis, FormFunction_fd, this);                    CHKERRQ(ierr);
     ierr = SNESSetJacobian(snes_fd, Mat_Jac_fd, Mat_Jac_fd, FormJacobian_fd, this);         CHKERRQ(ierr);
     ierr = SNESGetLineSearch(snes_fd,&linesearch_fd);
     ierr = SNESLineSearchSetType(linesearch_fd,SNESLINESEARCHBASIC);
@@ -1652,7 +1692,7 @@ PetscErrorCode AppCtx::setInitialConditions()
 {
   PetscErrorCode      ierr(0);
 
-  Vector    Uf(dim), Zf(LZ), Vs(dim), Nr(dim), Tg(dim), Bn(dim);
+  Vector    Uf(dim), Zf(LZ), Vs(dim), Nr(dim), Tg(dim), Bn(dim), Ftau(dim);
   Vector    X(dim);
   Tensor    R(dim,dim);
   VectorXi  dofs(dim), dofs_mesh(dim);  //global components unknowns enumeration from point dofs
@@ -1682,8 +1722,9 @@ PetscErrorCode AppCtx::setInitialConditions()
     VecZeroEntries(Vec_slipv_m1);
     if (is_bdf3){VecZeroEntries(Vec_slipv_m2);}
     if (is_sslv){VecZeroEntries(Vec_slip_rho);}
-    VecZeroEntries(Vec_res_fd);
-    VecZeroEntries(Vec_forcd_0);
+    VecZeroEntries(Vec_res_Fdis);
+    VecZeroEntries(Vec_Fdis_0);
+    VecZeroEntries(Vec_ftau_0);
   }
   if (is_sfip && (is_bdf2 || is_bdf3))
     VecZeroEntries(Vec_x_cur);
@@ -1735,6 +1776,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //VecSetValues(Vec_uzp_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
       if (nod_vs+nod_id){  //ojo antes solo nod_vs
         getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
+        int pID = mesh->getPointId(&*point);
         if(!is_sslv){  //calculate slip velocity at slipvel nodes (and in fsi nodes, which is not a problem, cause this is just a shoot) TODO
           VecGetValues(Vec_normal, dim, dofs_mesh.data(), Nr.data());
           /*cout << X.transpose() << "   "
@@ -1742,10 +1784,23 @@ PetscErrorCode AppCtx::setInitialConditions()
                << Nr.transpose() << "   "
                << theta_ini[nod_vs+nod_id-1] << endl;*/
           if (nod_vs){
-            Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs
+            if (read_from_sv_fd){
+              Vs = BFields_from_file(pID,2);
+            }
+            else{
+              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs
+            }
             VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
-          //Tg(0) = -Nr(1); Tg(1) = Nr(0);
+          else if (nod_id){
+            if (read_from_sv_fd){
+              Vs = BFields_from_file(pID,1);
+            }
+            else{
+              Ftau = force_Ftau(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);
+            }
+            VecSetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ftau.data(), INSERT_VALUES);
+          }
           getTangents(Tg,Bn,Nr,dim);  //cout << Nr.transpose() << " * " << Tg.transpose() << " = " << Nr.dot(Tg) << " Bin " << Bn.transpose() << endl;
           VecSetValues(Vec_tangent, dim, dofs_mesh.data(), Tg.data(), INSERT_VALUES);
           //if (dim == 3)
@@ -1821,7 +1876,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //if (is_sfip){updateSolidVel();}
       if (is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
         cout << "-----Interaction force calculation------" << endl;
-        ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
+        ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         cout << "-----Interaction force extracted------" << endl;
         extractFdForce();
       }
@@ -1968,7 +2023,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   cout << endl;
   cout.precision(15);
   for (int K = 0; K < N_Solids; K++){
-    cout << K+1 << "- volume = " << VV[K] <<  "; center of mass = " << XG_0[K].transpose() << "; inertia tensor = " << endl ;
+    cout << K+1 << ": volume = " << VV[K] <<  "; center of mass = " << XG_0[K].transpose() << "; inertia tensor = " << endl ;
     cout << InTen[K] << endl;
   }
   cout << endl;
@@ -2158,7 +2213,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
              << "--------------------------------------------------" << endl;
         if (is_sfip && (pic+1 == PIs) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
           cout << "-----Interaction force calculation-----" << endl;
-          ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_forcd_0);  CHKERRQ(ierr);
+          ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         }
       }//////////////////////////////////////////////////
 
@@ -3265,13 +3320,15 @@ PetscErrorCode AppCtx::plotFiles()
 {
   double  *q_array;
   double  *nml_array;
-  double  *v_array, *vs_array, *rho_array, *fd_array;
+  double  *v_array, *vs_array, *rho_array, *fd_array, *Ftau_array, *tg_array;
   VecGetArray(Vec_uzp_0, &q_array);  //VecGetArray(Vec_up_0, &q_array);
   VecGetArray(Vec_normal, &nml_array);
   VecGetArray(Vec_v_mid, &v_array);
   if (is_sfip){
     VecGetArray(Vec_slipv_0, &vs_array);
-    VecGetArray(Vec_forcd_0, &fd_array);
+    VecGetArray(Vec_Fdis_0, &fd_array);
+    VecGetArray(Vec_ftau_0, &Ftau_array);
+    VecGetArray(Vec_tangent, &tg_array);
   }
   if (is_sslv) VecGetArray(Vec_slip_rho, &rho_array);
   vtk_printer.writeVtk();
@@ -3283,6 +3340,8 @@ PetscErrorCode AppCtx::plotFiles()
   if (is_sfip){
     vtk_printer.addNodeVectorVtk("vs", GetDataMeshVel(vs_array, *this));
     vtk_printer.addNodeVectorVtk("fd", GetDataMeshVel(fd_array, *this));
+    vtk_printer.addNodeVectorVtk("ftau", GetDataMeshVel(Ftau_array, *this));
+    vtk_printer.addNodeVectorVtk("tg", GetDataMeshVel(tg_array, *this));
   }
   if (is_sslv) vtk_printer.addNodeScalarVtk("rho", GetDataSlipVel(rho_array, *this));
   vtk_printer.printPointTagVtk();
@@ -3300,7 +3359,9 @@ PetscErrorCode AppCtx::plotFiles()
   VecRestoreArray(Vec_v_mid, &v_array);
   if (is_sfip){
     VecRestoreArray(Vec_slipv_0, &vs_array);
-    VecRestoreArray(Vec_forcd_0, &vs_array);
+    VecRestoreArray(Vec_Fdis_0, &fd_array);
+    VecRestoreArray(Vec_ftau_0, &Ftau_array);
+    VecRestoreArray(Vec_tangent, &tg_array);
   }
   if (is_sslv) VecRestoreArray(Vec_slip_rho, &rho_array);
 
@@ -3843,19 +3904,25 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
 }
 
 PetscErrorCode AppCtx::extractFdForce(){
-  int tag, nod_id, nod_vs;
+  int tag, nod_id, nod_vs, pID;
   double theta;
   Point const* point(NULL);//, point_i(NULL);
   const int n_nodes_total = mesh->numNodesTotal();
-  Vector  Xj(dim), Fd(dim), Nr(dim), Tg(dim);
-  VectorXi dofs_mesh(dim);
+  Vector  Xj(dim), Fd(dim), Nr(dim), Tg(dim), Sv(dim), Ft(dim);
+  Vector  Zf(Vector::Zero(LZ)), Uf(dim), U(dim);
+  VectorXi dofs_mesh(dim), dofs_U(dim), dofs_fs(LZ);
   Vector3d XG;
 
-  ofstream filfd;
-  char fdc[PETSC_MAX_PATH_LEN];
+  ofstream filfd, filfd_info;
+  char fdc[PETSC_MAX_PATH_LEN], fdc_info[PETSC_MAX_PATH_LEN];
   sprintf(fdc,"%s/theta_Fd_file.txt",filehist_out.c_str());
+  sprintf(fdc_info,"%s/theta_Fd_file_info.txt",filehist_out.c_str());
   filfd.open(fdc);
   filfd.precision(15);
+
+  filfd_info.open(fdc_info);
+  filfd_info << "Point ID   Theta   Force Fd(dim)   Force Ft(dim)   Slip Vel(dim)   Normal(dim)   Tangent(dim)";
+  filfd_info.close();
 
   for (int j = 0; j < n_nodes_total; j++)
   {
@@ -3866,27 +3933,77 @@ PetscErrorCode AppCtx::extractFdForce(){
     if (!nod_vs && !nod_id)
       continue;
 
+    pID = mesh->getPointId(&*point);
     point->getCoord(Xj.data(),dim);
     getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
-    VecGetValues(Vec_forcd_0, dim, dofs_mesh.data(), Fd.data());
+    VecGetValues(Vec_Fdis_0, dim, dofs_mesh.data(), Fd.data());
+    VecGetValues(Vec_slipv_0, dim, dofs_mesh.data(), Sv.data());
+    VecGetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ft.data());
     VecGetValues(Vec_normal, dim, dofs_mesh.data(), Nr.data());
     VecGetValues(Vec_tangent, dim, dofs_mesh.data(), Tg.data());
 
     XG = XG_0[nod_vs+nod_id-1];
     theta = atan2PI(Xj(1)-XG(1),Xj(0)-XG(0));
 
+    if (nod_vs){
+      VecGetValues(Vec_slipv_0, dim, dofs_mesh.data(), Sv.data());
+      Ft(0) = Fd.dot(Nr); Ft(1) = Fd.dot(Tg);
+    }
+    else if (nod_id){
+      for (int l = 0; l < LZ; l++){
+        dofs_fs(l) = n_unknowns_u + n_unknowns_p + LZ*(nod_id-1) + l;
+      }
+      VecGetValues(Vec_uzp_1, LZ, dofs_fs.data(), Zf.data());
+      Uf = SolidVel(Xj, XG, Zf, dim);
+      getNodeDofs(&*point,DH_UNKM,VAR_U,dofs_U.data());
+      VecGetValues(Vec_uzp_1, dim, dofs_U.data(), U.data());
+      Sv = U - Uf;  //cout << VS.transpose() << endl;
+      VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Sv.data(), INSERT_VALUES);// before Vec_slipv_1
+    }
+
     if (j == n_nodes_total-1)
-      filfd << theta << " " << Fd(0) << " " << Fd(1) << " "
-                            << Nr(0) << " " << Nr(1) << " "
-                            << Tg(0) << " " << Tg(1);
+      filfd << pID << " " << theta << " " << Fd(0) << " " << Fd(1) << " "
+                                          << Ft(0) << " " << Ft(1) << " "
+                                          << Sv(0) << " " << Sv(1) << " "
+                                          << Nr(0) << " " << Nr(1) << " "
+                                          << Tg(0) << " " << Tg(1);
     else
-      filfd << theta << " " << Fd(0) << " " << Fd(1) << " "
-                            << Nr(0) << " " << Nr(1) << " "
-                            << Tg(0) << " " << Tg(1) << endl;
+      filfd << pID << " " << theta << " " << Fd(0) << " " << Fd(1) << " "
+                                          << Ft(0) << " " << Ft(1) << " "
+                                          << Sv(0) << " " << Sv(1) << " "
+                                          << Nr(0) << " " << Nr(1) << " "
+                                          << Tg(0) << " " << Tg(1) << endl;
   }
   filfd.close();
 
   PetscFunctionReturn(0);
+}
+
+Vector AppCtx::BFields_from_file(int pID, int opt)
+{
+  Vector VR(Vector::Zero(dim));
+  int point = std::find(pIDs.begin(),pIDs.end(),pID) - pIDs.begin();
+  if (opt == 0){
+    Vector3d FD = FD_file[point];
+    VR(0) = FD(0); VR(1) = FD(1); if(dim == 3){VR(2) = FD(2);}
+  }
+  else if (opt == 1){
+    Vector3d FT = FT_file[point];
+    VR(0) = FT(0); VR(1) = FT(1); if(dim == 3){VR(2) = FT(2);}
+  }
+  else if (opt == 2){
+    Vector3d SV = SV_file[point];
+    VR(0) = SV(0); VR(1) = SV(1); if(dim == 3){VR(2) = SV(2);}
+  }
+  else if (opt == 3){
+    Vector3d NR = NR_file[point];
+    VR(0) = NR(0); VR(1) = NR(1); if(dim == 3){VR(2) = NR(2);}
+  }
+  else if (opt == 4){
+    Vector3d TG = TG_file[point];
+    VR(0) = TG(0); VR(1) = TG(1); if(dim == 3){VR(2) = TG(2);}
+  }
+  return VR;
 }
 
 void AppCtx::freePetscObjs()

@@ -1611,7 +1611,7 @@ PetscErrorCode AppCtx::updateSolidMesh()
         getNodeDofs(&*point,DH_UNKM,VAR_U,dofs_U.data());
         VecGetValues(Vec_uzp_0, dim, dofs_U.data(), U.data());
         VS = U - Uf;  //cout << VS.transpose() << endl;
-        VecSetValues(Vec_slipv_1, dim, dofs.data(), VS.data(), INSERT_VALUES);
+        VecSetValues(Vec_slipv_0, dim, dofs.data(), VS.data(), INSERT_VALUES);// before Vec_slipv_1
       }
 
     }
@@ -2902,7 +2902,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     SNESLineSearchReset(linesearch_s);
   }
   if (is_sfip){
-    Destroy(Vec_forcd_0);
+    Destroy(Vec_Fdis_0);
     Destroy(Mat_Jac_fd);
     SNESReset(snes_fd);
     KSPReset(ksp_fd);
@@ -3243,15 +3243,15 @@ PetscErrorCode AppCtx::meshAdapt_s()
     //  ----------------------- Dissipative Force ------------------------
     //  ------------------------------------------------------------------
 
-    //Vec Vec_forcd_0;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_forcd_0);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_forcd_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_forcd_0);                          CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_forcd_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+    //Vec Vec_Fdis_0;
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_Fdis_0);               CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_Fdis_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_Fdis_0);                          CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_Fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_fd);                CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_res_fd, PETSC_DECIDE, n_dofs_v_mesh);    CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_res_fd);                           CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_Fdis);                CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_res_Fdis, PETSC_DECIDE, n_dofs_v_mesh);    CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_res_Fdis);                           CHKERRQ(ierr);
 
     nnz.clear();
     int n_fd_dofs = dof_handler[DH_MESH].numDofs();;
@@ -3277,7 +3277,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     ierr = MatSetOption(Mat_Jac_fd,MAT_SYMMETRIC,PETSC_TRUE);                               CHKERRQ(ierr);
 
     ierr = SNESCreate(PETSC_COMM_WORLD, &snes_fd);                                          CHKERRQ(ierr);
-    ierr = SNESSetFunction(snes_fd,Vec_res_fd,FormFunction_fd,this);                    CHKERRQ(ierr);
+    ierr = SNESSetFunction(snes_fd,Vec_res_Fdis,FormFunction_fd,this);                    CHKERRQ(ierr);
     ierr = SNESSetJacobian(snes_fd,Mat_Jac_fd,Mat_Jac_fd,FormJacobian_fd,this);         CHKERRQ(ierr);
     ierr = SNESGetLineSearch(snes_fd,&linesearch_fd);
     ierr = SNESLineSearchSetType(linesearch_fd,SNESLINESEARCHBASIC);

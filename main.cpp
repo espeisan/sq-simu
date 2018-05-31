@@ -189,27 +189,21 @@ void AppCtx::setUpDefaultOptions()
   behaviors              = BH_GLS;
   //Re                   = 0.0;
   dt                     = 0.1;
-  unsteady               = PETSC_TRUE;
-  boundary_smoothing     = PETSC_TRUE;
   steady_tol             = 1.e-6;
   utheta                 = 1;      // time step, theta method (momentum)
   vtheta                 = 1;      // time step, theta method (mesh velocity) NOT USED
   maxts                  = 10;   // max num of time steps
   finaltime              = -1;
-  force_pressure         = PETSC_FALSE;  // elim null space (auto)
-  print_to_matlab        = PETSC_FALSE;  // imprime o jacobiano e a função no formato do matlab
-  force_dirichlet        = PETSC_TRUE;   // impõe cc ? (para debug)
-  full_diriclet          = PETSC_TRUE;
-  force_mesh_velocity    = PETSC_FALSE;
-  is_sslv                = PETSC_FALSE;
-  solve_the_sys          = true;   // for debug
-  plot_exact_sol         = PETSC_FALSE;
   quadr_degree_cell      = (dim==2) ? 3 : 3;   // ordem de quadratura
   quadr_degree_facet     = 3;
   quadr_degree_corner    = 3;
   quadr_degree_err       = 8; // to compute error
   grow_factor            = 0.05;
   print_step             = 1;
+  n_modes                = 0;
+  PI                     = 1;
+  PIs                    = 1;
+  temporal_solver        = 0;
   family_files           = PETSC_TRUE;
   has_convec             = PETSC_TRUE;
   renumber_dofs          = PETSC_FALSE;
@@ -218,12 +212,34 @@ void AppCtx::setUpDefaultOptions()
   mesh_adapt             = PETSC_TRUE;
   time_adapt             = PETSC_TRUE;
   fprint_hgv             = PETSC_FALSE;
-  filename               = (dim==2 ? "malha/cavity2d-1o.msh" : "malha/cavity3d-1o.msh");
   is_sfim                = PETSC_FALSE;
   is_curvt               = PETSC_FALSE;
-  n_modes                = 0;
-  PI                     = 1;
-  PIs                    = 1;
+  is_unksv               = PETSC_FALSE;
+  is_axis                = PETSC_FALSE;
+  exact_normal           = PETSC_FALSE;
+  force_pressure         = PETSC_FALSE;  // elim null space (auto)
+  print_to_matlab        = PETSC_FALSE;  // imprime o jacobiano e a função no formato do matlab
+  force_dirichlet        = PETSC_TRUE;   // impõe cc ? (para debug)
+  full_diriclet          = PETSC_TRUE;
+  force_mesh_velocity    = PETSC_FALSE;
+  is_sslv                = PETSC_FALSE;
+  plot_exact_sol         = PETSC_FALSE;
+  unsteady               = PETSC_TRUE;
+  boundary_smoothing     = PETSC_TRUE;
+
+  is_mr_ab           = PETSC_FALSE;
+  is_bdf3            = PETSC_FALSE;
+  is_bdf2            = PETSC_FALSE;
+  is_bdf2_bdfe       = PETSC_FALSE;
+  is_bdf2_ab         = PETSC_FALSE;
+  is_bdf_cte_vel     = PETSC_FALSE;
+  is_bdf_euler_start = PETSC_FALSE;
+  is_bdf_extrap_cte  = PETSC_FALSE;
+  is_basic           = PETSC_FALSE;
+  is_mr              = PETSC_FALSE;
+
+  solve_the_sys          = true;   // for debug
+  filename               = (dim==2 ? "malha/cavity2d-1o.msh" : "malha/cavity3d-1o.msh");
 
   //Luzia's part for meshAdapt_l()
   h_star = 0.02;
@@ -265,11 +281,23 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-mesh_type", "mesh type", "main.cpp", mesh_cell_type, &mesh_cell_type, PETSC_NULL);
   PetscOptionsInt("-function_space", "function_space", "main.cpp", 1, &function_space, PETSC_NULL);
   PetscOptionsInt("-maxts", "maximum number of time steps", "main.cpp", maxts, &maxts, PETSC_NULL);
-  //PetscOptionsScalar("-Re", "Reynolds number", "main.cpp", Re, &Re, PETSC_NULL);
+  PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
+  PetscOptionsInt("-quadr_e", "quadrature degree (for calculating the error)", "main.cpp", quadr_degree_err, &quadr_degree_err, PETSC_NULL);
+  PetscOptionsInt("-quadr_c", "quadrature degree", "main.cpp", quadr_degree_cell, &quadr_degree_cell, PETSC_NULL);
+  PetscOptionsInt("-quadr_f", "quadrature degree (facet)", "main.cpp", quadr_degree_facet, &quadr_degree_facet, PETSC_NULL);
+  PetscOptionsInt("-quadr_r", "quadrature degree (corner)", "main.cpp", quadr_degree_corner, &quadr_degree_corner, PETSC_NULL);
+  PetscOptionsInt("-print_step", "print_step", "main.cpp", print_step, &print_step, PETSC_NULL);
+  PetscOptionsInt("-picard_iter_init_cond", "picard iteration for initial conditions", "main.cpp", PI, &PI, PETSC_NULL);
+  PetscOptionsInt("-picard_iter_solver", "picard iteration for solver", "main.cpp", PIs, &PIs, PETSC_NULL);
+  PetscOptionsInt("-temporal_solver", "choose timporal solver", "main.cpp", temporal_solver, &temporal_solver, PETSC_NULL);
+//PetscOptionsScalar("-Re", "Reynolds number", "main.cpp", Re, &Re, PETSC_NULL);
   PetscOptionsScalar("-dt", "time step", "main.cpp", dt, &dt, PETSC_NULL);
   PetscOptionsScalar("-utheta", "utheta value", "main.cpp", utheta, &utheta, PETSC_NULL);
   PetscOptionsScalar("-vtheta", "vtheta value", "main.cpp", vtheta, &vtheta, PETSC_NULL);  //borrar
   PetscOptionsScalar("-sst", "steady state tolerance", "main.cpp", steady_tol, &steady_tol, PETSC_NULL);
+  PetscOptionsScalar("-beta1", "par vel do fluido", "main.cpp", beta1, &beta1, PETSC_NULL);
+  PetscOptionsScalar("-beta2", "par vel elastica", "main.cpp", beta2, &beta2, PETSC_NULL);
+  PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
   PetscOptionsBool("-print_to_matlab", "print jacobian to matlab", "main.cpp", print_to_matlab, &print_to_matlab, PETSC_NULL);
   PetscOptionsBool("-force_dirichlet", "force dirichlet bound cond", "main.cpp", force_dirichlet, &force_dirichlet, PETSC_NULL);
   PetscOptionsBool("-force_pressure", "force_pressure", "main.cpp", force_pressure, &force_pressure, PETSC_NULL);
@@ -281,24 +309,14 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsBool("-force_mesh_velocity", "force_mesh_velocity", "main.cpp", force_mesh_velocity, &force_mesh_velocity, PETSC_NULL);
   PetscOptionsBool("-solve_slip_velocity", "activate slip velocity solver", "main.cpp", is_sslv, &is_sslv, PETSC_NULL);
   PetscOptionsBool("-solve_axisymmetric", "activate axisymmetric solver", "main.cpp", is_axis, &is_axis, PETSC_NULL);
-  PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
   PetscOptionsBool("-renumber_dofs", "renumber dofs", "main.cpp", renumber_dofs, &renumber_dofs, PETSC_NULL);
   PetscOptionsBool("-fprint_ca", "print contact angle", "main.cpp", fprint_ca, &fprint_ca, PETSC_NULL);
   PetscOptionsBool("-nonlinear_elasticity", "put a non-linear term in the elasticity problem", "main.cpp", nonlinear_elasticity, &nonlinear_elasticity, PETSC_NULL);
   PetscOptionsBool("-mesh_adapt", "adapt the mesh during simulation", "main.cpp", mesh_adapt, &mesh_adapt, PETSC_NULL);
   PetscOptionsBool("-time_adapt", "adapt the time during simulation", "main.cpp", time_adapt, &time_adapt, PETSC_NULL);
   PetscOptionsBool("-curved_trian", "enable curved elements", "main.cpp", is_curvt, &is_curvt, PETSC_NULL);
-  PetscOptionsInt("-quadr_e", "quadrature degree (for calculating the error)", "main.cpp", quadr_degree_err, &quadr_degree_err, PETSC_NULL);
-  PetscOptionsInt("-quadr_c", "quadrature degree", "main.cpp", quadr_degree_cell, &quadr_degree_cell, PETSC_NULL);
-  PetscOptionsInt("-quadr_f", "quadrature degree (facet)", "main.cpp", quadr_degree_facet, &quadr_degree_facet, PETSC_NULL);
-  PetscOptionsInt("-quadr_r", "quadrature degree (corner)", "main.cpp", quadr_degree_corner, &quadr_degree_corner, PETSC_NULL);
-  PetscOptionsInt("-print_step", "print_step", "main.cpp", print_step, &print_step, PETSC_NULL);
-  PetscOptionsInt("-picard_iter_init_cond", "picard iteration for initial conditions", "main.cpp", PI, &PI, PETSC_NULL);
-  PetscOptionsInt("-picard_iter_solver", "picard iteration for solver", "main.cpp", PIs, &PIs, PETSC_NULL);
+  PetscOptionsBool("-solve_coupled_slip_velocity", "solve the slip velocity coupled with the UPS problem", "main.cpp", is_unksv, &is_unksv, PETSC_NULL);
   PetscOptionsBool("-use_exact_normal", "use exact solid normal", "main.cpp", exact_normal, &exact_normal, PETSC_NULL);
-  PetscOptionsScalar("-beta1", "par vel do fluido", "main.cpp", beta1, &beta1, PETSC_NULL);
-  PetscOptionsScalar("-beta2", "par vel elastica", "main.cpp", beta2, &beta2, PETSC_NULL);
-  PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
   PetscOptionsBool("-ale", "mesh movement", "main.cpp", ale, &ale, PETSC_NULL);
   PetscOptionsGetString(PETSC_NULL,"-fin",finaux,PETSC_MAX_PATH_LEN-1,&flg_fin);
   PetscOptionsGetString(PETSC_NULL,"-fout",foutaux,PETSC_MAX_PATH_LEN-1,&flg_fout);
@@ -308,16 +326,19 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsGetString(PETSC_NULL,"-iin",iinaux,PETSC_MAX_PATH_LEN-1,&flg_iin);
   PetscOptionsHasName(PETSC_NULL,"-help",&ask_help);
 
-  is_mr_ab           = PETSC_FALSE;
-  is_bdf3            = PETSC_FALSE;
-  is_bdf2            = PETSC_FALSE;
-  is_bdf2_bdfe       = PETSC_FALSE;
-  is_bdf2_ab         = PETSC_FALSE;
-  is_bdf_cte_vel     = PETSC_FALSE;
-  is_bdf_euler_start = PETSC_FALSE;
-  is_bdf_extrap_cte  = PETSC_FALSE;
-  is_basic           = PETSC_FALSE;
-  is_mr              = PETSC_TRUE;
+  switch(temporal_solver)
+  {
+    case 0:{is_mr               = PETSC_TRUE; break;}
+    case 1:{is_mr_ab            = PETSC_TRUE; break;}
+    case 2:{is_bdf3             = PETSC_TRUE; break;}
+    case 3:{is_bdf2             = PETSC_TRUE; break;}
+    case 4:{is_bdf2_bdfe        = PETSC_TRUE; break;}
+    case 5:{is_bdf2_ab          = PETSC_TRUE; break;}
+    case 6:{is_bdf_cte_vel      = PETSC_TRUE; break;}
+    case 7:{is_bdf_euler_start  = PETSC_TRUE; break;}
+    case 8:{is_bdf_extrap_cte   = PETSC_TRUE; break;}
+    case 9:{is_basic            = PETSC_TRUE; break;}
+  }
 
   if ((is_bdf2 && utheta!=1) || (is_bdf3 && utheta!=1))
   {
@@ -941,6 +962,9 @@ void AppCtx::dofsUpdate()
 //    n_unknowns_s = dof_handler[DH_FOON].getVariable(VAR_S).numPositiveDofs();
 
   n_unknowns_fs = n_unknowns_u + n_unknowns_p + n_unknowns_z; //- dim*n_nodes_fsi;
+  if (is_unksv){
+    n_unknowns_fs += n_unknowns_u;
+  }
 
   //for (unsigned int l = 0; l < NN_Solids.size(); l++) cout << NN_Solids[l] << " ";
   if (is_sslv){

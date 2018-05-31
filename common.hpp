@@ -573,6 +573,13 @@ public:
   int         function_space;  // P1P1, P2P1, P2P0, etc ...
   int         behaviors;
   int         n_modes;
+  int         converged_times, PI, PIs;
+  int         maxts;
+  int         quadr_degree_cell;
+  int         quadr_degree_facet;
+  int         quadr_degree_corner;
+  int         quadr_degree_err;
+  int         temporal_solver;
   //double      Re;
   PetscBool   has_convec;
   PetscBool   unsteady;
@@ -607,21 +614,15 @@ public:
   PetscBool   is_axis;
   PetscBool   exact_normal;
   PetscBool   read_from_sv_fd;
-  
-  int         converged_times, PI, PIs;
+  PetscBool   is_unksv;
+  PetscBool   force_pressure;
   double      dt;
   double      steady_tol;
   double      utheta;
   double      vtheta;
-  int         maxts;
   double      finaltime;
-  PetscBool   force_pressure;
-  bool        solve_the_sys;
-  int         quadr_degree_cell;
-  int         quadr_degree_facet;
-  int         quadr_degree_corner;
-  int         quadr_degree_err;
   bool        pres_pres_block;
+  bool        solve_the_sys;
   float       grow_factor;
   string      filename, filemass, filexas, filesvfd;
   string      filename_out, filehist_out;
@@ -657,8 +658,6 @@ public:
 
   shared_ptr<ShapeFunction>    shape_bble;
 
-
-
   shared_ptr<Quadrature>       quadr_cell;
   shared_ptr<Quadrature>       quadr_facet;
   shared_ptr<Quadrature>       quadr_corner;
@@ -681,7 +680,6 @@ public:
   VecOfVec                     qsi_f;         // shape function evaluated at quadrature points (facet)
   VecOfVec                     qsi_r;         // shape function evaluated at quadrature points (corner)
   VectorXd                     qsi_c_at_center; // shape function evaluated at quadrature points
-
 
   // velocity
   VecOfMat                     dLphi_c;       // matriz de gradiente no elemento unitário

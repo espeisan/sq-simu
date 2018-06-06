@@ -42,7 +42,8 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
-Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
+double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
@@ -2278,29 +2279,44 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
   return V;
 }
 
-Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta)//
+Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs)//
 {
   double x = X(0);
   double y = X(1);
-  double psi = 0.0, k = 1.0;
+  double psi = 0.0, k = 10.0;
+  Vector tau(dim);
+  tau(0) = -normal(1); tau(1) = normal(0);
 
   Vector f(Vector::Zero(X.size()));
-  if (true && dim == 2)
+  if (false && dim == 2)
   {
     double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
-    f(0) = -normal(1); f(1) = normal(0);
     //f(0) = k*normal(0); f(1) = k*normal(1);
-    f = k*uthe*f;
+    f = k*uthe*tau;
     //if ( X(1)-XG(1) < 0.0 )
     //  f = Vector::Zero(dim);
     //else
     //  f = f*(X(1)-XG(1))/0.2;
     //f(0) = 0; f(1) = -0.1;
   }
+  else
+  {
+    double uthe = 1.0/sqrt(k + Vs.dot(tau)*Vs.dot(tau));
+    f = uthe*tau;
+  }
 
   return f;
+}
+
+double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs)
+{
+  double k = 10.0;
+  Vector tau(dim);
+  tau(0) = -normal(1); tau(1) = normal(0);
+  double duthe = -0.5*Vs.dot(tau)/pow(k + Vs.dot(tau)*Vs.dot(tau),1.5);
+  return duthe;
 }
 
 VectorXi DOFS_elimination(int LZ)

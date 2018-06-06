@@ -137,7 +137,8 @@ TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, int dim);
 //Vector SlipVel(Vector const& X, Vector const& XG, int dim, int tag);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
-Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
+double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
@@ -734,6 +735,7 @@ public:
   int           n_unknowns_u;
   int           n_unknowns_p;
   int           n_unknowns_z;
+  int           n_unknowns_ups;
   int           n_unknowns_sv;
   int           n_dofs_z_per_cell;
   int           n_dofs_z_per_facet;

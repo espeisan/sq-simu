@@ -1188,7 +1188,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           tauk = 4.*visc/hk2 + 2.*rho*uconv/sqrt(hk2);
           tauk = 1./tauk;
         }
-        else{tauk = hk2/(0.1*visc);}
+        else{tauk = hk2/(1*visc);}
         if (dim==3)
           tauk *= 0.1;
 
@@ -1335,7 +1335,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         weight = quadr_cell->weight(qp);
         JxW_mid = J_mid*weight;
         if (is_axis){
-          JxW_mid = JxW_mid*2*pi*Xqp(0);
+          JxW_mid = JxW_mid*2.0*pi*Xqp(0);
         }
         //////////////////////////////////////////////////
 
@@ -1500,7 +1500,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         //impose non-penetration BC at body's surface nodes
         VectorXd    FUloc_vs(VectorXd::Zero(n_dofs_u_per_cell));
         //VectorXi    mapZ_c_vs = -VectorXi::Ones(nodes_per_cell*LZ);
-        MatrixXd    Z1loc_vs(MatrixXd::Zero(n_dofs_u_per_cell,n_dofs_z_per_cell));
+        MatrixXd    Hq_vs(MatrixXd::Zero(n_dofs_u_per_cell,n_dofs_z_per_cell));
         double      betaPrj = 1.0;
 
         //z_coefs_c_new = MatrixXd::Zero(n_dofs_z_per_cell/LZ,LZ);
@@ -1513,13 +1513,13 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);
 
             for (int c = 0; c < dim; ++c){
-              FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c) - is_unksv*vs_coefs_c_mid_trans(c,i);
+              FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c);// - is_unksv*vs_coefs_c_mid_trans(c,i);
               if (SV_c[i]){
                 FUloc_vs(i*dim + c) += - vs_coefs_c_mid_trans(c,i);
               }
               for (int D = 0; D < LZ; D++){
                 RotfJ  = SolidVel(XIp, XIg, IdZ.col(D), dim);
-                Z1loc_vs(i*dim+c,i*LZ+D) = RotfJ(c);  //builds the elemental matrix H of solid generator movement
+                Hq_vs(i*dim+c,i*LZ+D) = RotfJ(c);  //builds the elemental matrix H of solid generator movement
               }
             }
           }
@@ -1527,11 +1527,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         FUloc += betaPrj*(Id_vs - Prj)*FUloc_vs;
         Aloc  += betaPrj*(Id_vs - Prj);
-        Z1loc = -betaPrj*(Id_vs - Prj)*Z1loc_vs;
+        Z1loc = -betaPrj*(Id_vs - Prj)*Hq_vs;
 
-        FZloc  = Z1loc_vs.transpose()*(Id_vs - Prj)*FUloc_copy;
-        Z2loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
-        Z4loc  = Z1loc_vs.transpose()*(Id_vs - Prj)*Gloc_copy;
+        FZloc  = Hq_vs.transpose()*(Id_vs - Prj)*FUloc_copy;
+        Z2loc  = Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
+        Z4loc  = Hq_vs.transpose()*(Id_vs - Prj)*Gloc_copy;
 
         //if (is_unksv && (SVI || VSF)){
         //  Asloc = -betaPrj*(Id_vs - Prj);
@@ -2067,14 +2067,16 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     Tensor              fff_f_mid(dim-1,dim-1);   // n+utheta; fff = first fundamental form
 
     MatrixXd            Aloc_f(n_dofs_u_per_facet, n_dofs_u_per_facet);
-    MatrixXd            AZsloc_f(LZ,n_dofs_u_per_facet);
     MatrixXd            AZaux_f(dim,n_dofs_u_per_facet);
     VectorXd            FUloc_f(n_dofs_u_per_facet), FSloc(LZ), Fval(1);
     VectorXd            FZloc_f(nodes_per_facet*LZ);
     VectorXd            FZsloc_f(LZ);// = VectorXd::Zero(LZ);
-    MatrixXd            Z1loc_vs(n_dofs_u_per_facet,LZ);
 
+    MatrixXd            Z1loc_f(n_dofs_u_per_facet,LZ);
     MatrixXd            Z2loc_f(n_dofs_z_per_facet,n_dofs_u_per_facet);
+    MatrixXd            Z3loc_f(n_dofs_z_per_facet,LZ);
+    MatrixXd            Z2sloc_f(LZ,n_dofs_u_per_facet);
+    MatrixXd            Z3sloc_f(LZ,LZ);
 
     MatrixXd            Prj(n_dofs_u_per_facet,n_dofs_u_per_facet);
     VectorXi            facet_nodes(nodes_per_facet);
@@ -2091,7 +2093,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     Vector3d            Xg, XIg;
     Vector              XIp(dim), RotfI(dim), RotfJ(dim);
     TensorZ const       IdZ(Tensor::Identity(LZ,LZ));
-    MatrixXd            Hq(TensorZ::Zero(LZ,dim));
+    MatrixXd            HqT(TensorZ::Zero(LZ,dim));
     VectorXd            Ftau(dim);
 
 
@@ -2183,7 +2185,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       FZsloc_f.setZero(); //Lagrangian contribution to S momentum
 
       Aloc_f.setZero();
-      AZsloc_f.setZero();
+      Z2sloc_f.setZero(); Z3sloc_f.setZero();
+      Z1loc_f.setZero(); Z2loc_f.setZero(); Z3loc_f.setZero();
 
       if (is_sslv && false){ //for electrophoresis, TODO
         dof_handler[DH_SLIP].getVariable(VAR_S).getFacetDofs(mapS_f.data(), &*facet);
@@ -2214,7 +2217,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dxU_f   = u_coefs_f_mid_trans * dxphi_f; // n+utheta
         Uqp     = u_coefs_f_mid_trans * phi_f[qp];
         if (is_fsi && is_unksv){//.col(0) is choosen because the S unknown is the same for any node: they are on the same body
-          Usqp  = Uqp - 0*SolidVel(Xqp, XG_0[is_fsi-1], z_coefs_f_mid_trans.col(0), dim); //vs_coefs_f_mid_trans * phi_f[qp];
+          Usqp  = Uqp - 1.0*SolidVel(Xqp, XG_0[is_fsi-1], z_coefs_f_mid_trans.col(0), dim); //vs_coefs_f_mid_trans * phi_f[qp];
         }
         //noi     = noi_coefs_f_new_trans * qsi_f[qp];
         if (is_sslv && false){ //for electrophoresis, TODO
@@ -2303,7 +2306,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           int K = is_fsi;
           Xg = XG_mid[K-1];
           Ftau = force_Ftau(Xqp, Xg, normal, dim, tag, theta_1[K-1], Usqp); //normal points OUT the fluid, see definition of normal above
-          DFtau = Dforce_Ftau(Xqp, Xg, normal, dim, tag, theta_1[K-1], Usqp);
+          DFtau = Dforce_Ftau(Xqp, Xg, normal, dim, tag, theta_1[K-1], Usqp); //cout << Ftau.transpose() << "       " << DFtau << endl;
+
           //from velocity test functions (see variational formulation)//////////////////////////////////////////////////
           for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
           {
@@ -2317,7 +2321,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
               for (int j = 0; j < n_dofs_u_per_facet/dim; ++j){
                 for (int c = 0; c < dim; ++c){
                   for (int d = 0; d < dim; ++d){
-                    Aloc_f(i*dim + c, j*dim + c) += utheta*JxW_mid*DFtau*phi_f[qp][i]*phi_f[qp][j] * tangent(c)*tangent(d);
+                    Aloc_f(i*dim + c, j*dim + d) += utheta*JxW_mid*DFtau*phi_f[qp][i]*phi_f[qp][j] * tangent(c)*tangent(d);
                   }
                 }
               }
@@ -2326,12 +2330,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
           //for (int c = 0; c < dim; ++c){
           //  RotfJ  = SolidVel(Xqp, XIg, IdZ.col(D), dim);
-          //  Z1loc_vs(i*dim+c,i*LZ) = RotfJ(c);  //builds the elemental matrix H of solid generator movement
+          //  Hq_vs(i*dim+c,i*LZ) = RotfJ(c);  //builds the elemental matrix H of solid generator movement
           //}
 
           //from dofs test functions (see variational formulation)//////////////////////////////////////////////////
-          Hq        = SolidVelMatrix(Xqp,Xg,dim,LZ).transpose();
-          FZsloc_f -= JxW_mid*Hq*Ftau; //cout << Hq*Ftau << endl;
+          HqT       = SolidVelMatrix(Xqp,Xg,dim,LZ).transpose();
+          FZsloc_f -= JxW_mid*HqT*Ftau; //cout << HqT*Ftau << endl;
           if (is_unksv){
             for (int j = 0; j < n_dofs_u_per_facet/dim; ++j){
               for (int d = 0; d < dim; ++d){
@@ -2340,7 +2344,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
                 }
               }
             }
-            AZsloc_f -= JxW_mid*DFtau*Hq*AZaux_f;
+            Z2sloc_f -= JxW_mid*DFtau*HqT*AZaux_f;  //body's dofs equation in lagrangian part
           }
 
         }// end Neumann on the body //////////////////////////////////////////////////
@@ -2358,11 +2362,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         mesh->getFacetNodesId(&*facet, facet_nodes.data());
         getProjectorMatrix(Prj, nodes_per_facet, facet_nodes.data(), Vec_x_1, current_time+dt, *this);
-        FUloc_f  = Prj*FUloc_f;
-        Aloc_f = Prj*Aloc_f;//*Prj;
+        FUloc_f = Prj*FUloc_f;  //momentum
+        Aloc_f  = Prj*Aloc_f;   //momentum
 
         MatrixXd    Id_vs(MatrixXd::Identity(n_dofs_u_per_facet,n_dofs_u_per_facet));
-        MatrixXd    Z1loc_vs(MatrixXd::Zero(n_dofs_u_per_facet,n_dofs_z_per_facet));
+        MatrixXd    Hq_vs(MatrixXd::Zero(n_dofs_u_per_facet,n_dofs_z_per_facet));
+        MatrixXd    HqS(MatrixXd::Zero(n_dofs_u_per_facet,LZ));
         for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
         {
           int K = SV_f[i] + VS_f[i];
@@ -2370,19 +2375,31 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           XIg    = XG_mid[K-1];          //mass center, mid, _0, "new"
           //RotfI  = SolidVel(XIp, XIg, z_coefs_f_mid_trans.col(i), dim);
 
-          for (int c = 0; c < dim; ++c)
-          {
-            for (int D = 0; D < LZ; D++){
-              RotfI  = SolidVel(XIp, XIg, IdZ.col(D), dim);
-              Z1loc_vs(i*dim+c,i*LZ+D) = RotfI(c);  //builds the elemental matrix H of solid generator movement
+          for (int D = 0; D < LZ; D++){
+            RotfI  = SolidVel(XIp, XIg, IdZ.col(D),dim);
+            for (int c = 0; c < dim; ++c){
+              Hq_vs(i*dim+c,i*LZ+D) = RotfI(c);  //builds the elemental matrix H of solid generator movement
+              HqS(i*dim+c,D) = RotfI(c);
             }
           }
+
+          //for (int c = 0; c < dim; ++c)
+          //{
+          //  for (int D = 0; D < LZ; D++){
+          //    RotfI  = SolidVel(XIp, XIg, IdZ.col(D), dim);
+          //    Hq_vs(i*dim+c,i*LZ+D) = RotfI(c);  //builds the elemental matrix H of solid generator movement
+          //    HqS(i*dim+c,D) = RotfI(c);
+          //  }
+          //}
         }
         //cout << Id_vs << endl;
-        FZloc_f = Z1loc_vs.transpose()*(Id_vs - Prj)*FUloc_copy; //cout << FZloc_f << endl;
+        FZloc_f = Hq_vs.transpose()*(Id_vs - Prj)*FUloc_copy; //cout << FZloc_f << endl; //body's dofs equation
 
         if(is_unksv){
-          Z2loc_f = Z1loc_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
+          Z1loc_f  = -Prj*Aloc_copy*HqS;  //minus from the derivative with respect to body's dofs
+          Z2loc_f  =  Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
+          Z3loc_f  = -Z2loc_f*HqS;//Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy*HqS;
+          Z3sloc_f = -Z2sloc_f*HqS;
         }
       }
 
@@ -2397,6 +2414,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         FZsloc_f = PrjDOFSlz*FZsloc_f;
         if (is_unksv){
           Z2loc_f = PrjDOFS*Z2loc_f;
+          Z3loc_f = PrjDOFS*Z3loc_f;
+          Z2sloc_f = PrjDOFSlz*Z2sloc_f;
+          Z3sloc_f = PrjDOFSlz*Z3sloc_f;
         }
       }
 
@@ -2408,8 +2428,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           VecSetValues(Vec_fun_fs, mapZ_f.size(), mapZ_f.data(), FZloc_f.data(), ADD_VALUES);
           VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc_f.data(), ADD_VALUES);
           if (is_unksv){
+            MatSetValues(*JJ, mapU_f.size(), mapU_f.data(), mapZ_s.size(), mapZ_s.data(), Z1loc_f.data(), ADD_VALUES);
             MatSetValues(*JJ, mapZ_f.size(), mapZ_f.data(), mapU_f.size(), mapU_f.data(), Z2loc_f.data(), ADD_VALUES);
-            MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapU_f.size(), mapU_f.data(), AZsloc_f.data(), ADD_VALUES);
+            MatSetValues(*JJ, mapZ_f.size(), mapZ_f.data(), mapZ_s.size(), mapZ_s.data(), Z3loc_f.data(), ADD_VALUES);
+            MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapU_f.size(), mapU_f.data(), Z2sloc_f.data(), ADD_VALUES);
+            MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_s.size(), mapZ_s.data(), Z3sloc_f.data(), ADD_VALUES);
           }
         }
       }
@@ -2417,45 +2440,6 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
   }
   // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
-
-#if (false)
-  // LINHA DE CONTATO
-  //FEP_PRAGMA_OMP(parallel shared(Vec_uzp_k,Vec_fun_fs,cout) default(none))
-
-  // boundary conditions on global Jacobian
-  // solid & triple tags .. force normal
-  if (force_dirichlet && false)
-  {
-    int      nodeid;
-    int      u_dofs[dim];
-    Vector   normal(dim);
-    Tensor   A(dim,dim);
-    Tensor   I(Tensor::Identity(dim,dim));
-    int      tag;
-
-    point_iterator point = mesh->pointBegin();
-    point_iterator point_end = mesh->pointEnd();
-    for ( ; point != point_end; ++point)
-    {
-      tag = point->getTag();
-      if (!(is_in(tag,feature_tags)   /*||
-            is_in(tag,solid_tags)     ||
-            is_in(tag,interface_tags) ||
-            is_in(tag,triple_tags)    ||
-            is_in(tag,dirichlet_tags) ||
-            is_in(tag,neumann_tags)   ||
-            is_in(tag,periodic_tags)  || is_in(tag,flusoli_tags)*/  )  )
-        continue;
-      //dof_handler[DH_UNKS].getVariable(VAR_U).getVertexAssociatedDofs(u_dofs, &*point);
-      getNodeDofs(&*point, DH_UNKM, VAR_U, u_dofs);
-
-      nodeid = mesh->getPointId(&*point);  //cout << tag << "   " <<  nodeid << endl;
-      getProjectorMatrix(A, 1, &nodeid, Vec_x_1, current_time+dt, *this);
-      A = I - A;
-      MatSetValues(*JJ, dim, u_dofs, dim, u_dofs, A.data(), ADD_VALUES);
-    }
-  }  //end force_dirichlet
-#endif
 
   if (force_pressure) //null_space_press_dof calculated at the beginning
   {
@@ -2976,7 +2960,6 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         continue;
       }
 
-
       // mapeamento do local para o global //////////////////////////////////////////////////
       dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);  //cout << mapM_c.transpose() << endl;  //unk. global ID's
       dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);  //cout << mapU_c.transpose() << endl;
@@ -3227,20 +3210,6 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       {
 
         F_f_mid   = x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
-        Fdqp      = f_coefs_f_mid_trans * qsi_f[qp];
-
-        if (dim==2)
-        {
-          normal(0) = +F_f_mid(1,0);
-          normal(1) = -F_f_mid(0,0);
-          normal.normalize();  //this normal points INTO the body
-        }
-        else
-        {
-          normal = cross(F_f_mid.col(0), F_f_mid.col(1));
-          normal.normalize();
-        }
-
         fff_f_mid.resize(dim-1,dim-1);
         fff_f_mid  = F_f_mid.transpose()*F_f_mid;
         J_mid      = sqrt(fff_f_mid.determinant());
@@ -3250,8 +3219,26 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         weight  = quadr_facet->weight(qp);
         JxW_mid = J_mid*weight;
         if (is_axis){
-          JxW_mid = JxW_mid*2*pi*Xqp(0);
+          JxW_mid = JxW_mid*2.0*pi*Xqp(0);
         }
+
+        Fdqp      = f_coefs_f_mid_trans * qsi_f[qp];
+
+        //calculating normal to the facet//////////////////////////////////////////////////
+        if (dim==2)
+        {//originally this normal points INTO the body (CHECKED!)...
+          normal(0) = +F_f_mid(1,0);
+          normal(1) = -F_f_mid(0,0);
+          normal.normalize();  //cout << normal.transpose() << endl;
+          normal = -normal;  //... now this normal points OUT the body
+          //tangent(0) = -normal(1); tangent(1) = normal(0);
+        }
+        else
+        {
+          normal = cross(F_f_mid.col(0), F_f_mid.col(1));
+          normal.normalize();
+        }
+        //////////////////////////////////////////////////
 
         if (is_neumann) //////////////////////////////////////////////////
         {
@@ -3295,7 +3282,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       }
 
     }//end for facet
-    cout << "Areas = " << areas << endl;
+    //cout << "Areas = " << areas << endl;
   }
   // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
 #endif

@@ -2283,7 +2283,7 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
 {
   double x = X(0);
   double y = X(1);
-  double psi = 0.0, k = 10.0;
+  double psi = 0.0, k = 100;
   Vector tau(dim);
   tau(0) = -normal(1); tau(1) = normal(0);
 
@@ -2301,7 +2301,7 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
     //  f = f*(X(1)-XG(1))/0.2;
     //f(0) = 0; f(1) = -0.1;
   }
-  else
+  else if(true)
   {
     double uthe = 1.0/sqrt(k + Vs.dot(tau)*Vs.dot(tau));
     f = uthe*tau;
@@ -2312,11 +2312,14 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
 
 double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs)
 {
-  double k = 10.0;
+  double k = 100;
   Vector tau(dim);
   tau(0) = -normal(1); tau(1) = normal(0);
-  double duthe = -0.5*Vs.dot(tau)/pow(k + Vs.dot(tau)*Vs.dot(tau),1.5);
-  return duthe;
+  double duthe = 0.0;
+  if (true){
+      duthe = -Vs.dot(tau)/pow(k + Vs.dot(tau)*Vs.dot(tau),1.5);
+    }
+  return duthe;//pow(2,1.5);//
 }
 
 VectorXi DOFS_elimination(int LZ)

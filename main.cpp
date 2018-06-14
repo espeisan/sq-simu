@@ -3947,7 +3947,7 @@ PetscErrorCode AppCtx::extractFdForce(){
   filfd.precision(15);
 
   filfd_info.open(fdc_info);
-  filfd_info << "Point ID   Theta   Force Fd(dim)   Force Ft(dim)   Slip Vel(dim)   Normal(dim)   Tangent(dim)";
+  filfd_info << "Point ID   Theta   Force Fd(dim)   Force Ft(dim)   Slip Vel(dim)   Normal(dim)   Tangent(dim)   PointCoords(dim)";
   filfd_info.close();
 
   for (int j = 0; j < n_nodes_total; j++)
@@ -3985,6 +3985,10 @@ PetscErrorCode AppCtx::extractFdForce(){
       VecGetValues(Vec_uzp_1, dim, dofs_U.data(), U.data());
       Sv = U - Uf;  //cout << VS.transpose() << endl;
       VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Sv.data(), INSERT_VALUES);// before Vec_slipv_1
+      if (is_unksv){
+        Ft = force_Ftau(Xj, XG, Nr, dim, tag, theta_ini[nod_vs+nod_id-1], Sv);
+        VecSetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ft.data(), INSERT_VALUES);// before Vec_slipv_1
+      }
     }
 
     if (j == n_nodes_total-1)
@@ -3992,13 +3996,15 @@ PetscErrorCode AppCtx::extractFdForce(){
                                           << Ft(0) << " " << Ft(1) << " "
                                           << Sv(0) << " " << Sv(1) << " "
                                           << Nr(0) << " " << Nr(1) << " "
-                                          << Tg(0) << " " << Tg(1);
+                                          << Tg(0) << " " << Tg(1) << " "
+                                          << Xj(0) << " " << Xj(1);
     else
       filfd << pID << " " << theta << " " << Fd(0) << " " << Fd(1) << " "
                                           << Ft(0) << " " << Ft(1) << " "
                                           << Sv(0) << " " << Sv(1) << " "
                                           << Nr(0) << " " << Nr(1) << " "
-                                          << Tg(0) << " " << Tg(1) << endl;
+                                          << Tg(0) << " " << Tg(1) << " "
+                                          << Xj(0) << " " << Xj(1) << endl;
   }
   filfd.close();
 

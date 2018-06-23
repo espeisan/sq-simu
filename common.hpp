@@ -617,6 +617,7 @@ public:
   PetscBool   read_from_sv_fd;
   PetscBool   is_unksv;
   PetscBool   force_pressure;
+  PetscBool   dup_press_nod;
   double      dt;
   double      steady_tol;
   double      utheta;

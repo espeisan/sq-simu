@@ -227,6 +227,7 @@ void AppCtx::setUpDefaultOptions()
   plot_exact_sol         = PETSC_FALSE;
   unsteady               = PETSC_TRUE;
   boundary_smoothing     = PETSC_TRUE;
+  dup_press_nod          = PETSC_TRUE;
 
   is_mr_ab           = PETSC_FALSE;
   is_bdf3            = PETSC_FALSE;
@@ -301,7 +302,8 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
   PetscOptionsBool("-print_to_matlab", "print jacobian to matlab", "main.cpp", print_to_matlab, &print_to_matlab, PETSC_NULL);
   PetscOptionsBool("-force_dirichlet", "force dirichlet bound cond", "main.cpp", force_dirichlet, &force_dirichlet, PETSC_NULL);
-  PetscOptionsBool("-force_pressure", "force_pressure", "main.cpp", force_pressure, &force_pressure, PETSC_NULL);
+  PetscOptionsBool("-force_pressure", "force pressure", "main.cpp", force_pressure, &force_pressure, PETSC_NULL);
+  PetscOptionsBool("-duplicate_pressure_nodes", "duplicate pressure nodes", "main.cpp", dup_press_nod, &dup_press_nod, PETSC_NULL);
   PetscOptionsBool("-plot_es", "plot exact solution", "main.cpp", plot_exact_sol, &plot_exact_sol, PETSC_NULL);
   PetscOptionsBool("-family_files", "plot family output", "main.cpp", family_files, &family_files, PETSC_NULL);
   PetscOptionsBool("-has_convec", "convective term", "main.cpp", has_convec, &has_convec, PETSC_NULL);
@@ -588,8 +590,15 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
     filehist_out.assign(houtaux);
     fprint_hgv = PETSC_TRUE;
     struct stat st;
-    if (stat(filehist_out.c_str(), &st) == -1) {
-        mkdir(filehist_out.c_str(), 0770);
+    if (stat(filehist_out.c_str(), &st) == -1){
+      mkdir(filehist_out.c_str(), 0770);
+    }
+    if (print_to_matlab){
+      char matrices_out[PETSC_MAX_PATH_LEN];
+      sprintf(matrices_out,"%s/matrices",filehist_out.c_str());
+      if (stat(matrices_out, &st) == -1){
+        mkdir(matrices_out, 0770);
+      }
     }
   }
 
@@ -826,7 +835,7 @@ void AppCtx::dofsCreate()
 //    dof_handler[DH_UNKM].addVariable("velo_fluid", shape_phi_c.get(), dim, fluidonly_tags.size(), fo_tag);
   dof_handler[DH_UNKM].addVariable("velo_fluid", shape_phi_c.get(), dim);
   dof_handler[DH_UNKM].addVariable("pres_fluid", shape_psi_c.get(), 1);
-  //if (!is_sfip)
+  if (dup_press_nod)
     dof_handler[DH_UNKM].getVariable(VAR_P).setType(SPLITTED_BY_REGION_CELL,0,0);
 
   if (is_sfip && false){ //the varible "velo_solid" gives problems with getSparsityTable()
@@ -1900,7 +1909,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     { //VecView(Vec_uzp_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");
       //if (is_sfip){updateSolidVel();}
-      if (is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
+      if (true && is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
         cout << "-----Interaction force calculation------" << endl;
         ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         cout << "-----Interaction force extracted------" << endl;
@@ -1924,6 +1933,8 @@ PetscErrorCode AppCtx::setInitialConditions()
     //View(Vec_uzp_1,"matrizes/UPS.m","ups");
   }// end Picard Iterartions loop //////////////////////////////////////////////////
   copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
+
+  computeError(Vec_x_0,Vec_uzp_1,current_time);
 
   cout << "--------------------------------------------------" << endl;
   PetscFunctionReturn(0);
@@ -2036,7 +2047,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   double   x_error=0;
   VectorXi dofs(dim);
 
-  if (print_to_matlab)
+  if (false && print_to_matlab)
     printMatlabLoader();
 
   if (is_sfip){
@@ -2049,7 +2060,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   cout << endl;
   cout.precision(15);
   for (int K = 0; K < N_Solids; K++){
-    cout << K+1 << ": volume = " << VV[K] <<  "; center of mass = " << XG_0[K].transpose() << "; inertia tensor = " << endl ;
+    cout << K+1 << ": volume = " << VV[K] <<  "; center of mass = " << XG_0[K].transpose() << "; inertia tensor = " << endl;
     cout << InTen[K] << endl;
   }
   cout << endl;
@@ -2212,7 +2223,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
     VecCopy(Vec_slipv_1, Vec_slipv_0);
 
-    for (int pic = 0; pic < PIs; pic++) // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
+    // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
+    for (int pic = 0; pic < PIs; pic++)
     {
       printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
 
@@ -2232,12 +2244,12 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
       // * SOLVE THE SYSTEM * /////////////////////////
       if (solve_the_sys){
-        ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
+        ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_uzp_1);  CHKERRQ(ierr); //Assembly(Vec_uzp_1);  View(Vec_uzp_1,"matrizes/vuzp1.m","vuzp1m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
         //if (is_sfip){updateSolidVel();}
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         cout << "# snes iterations: " << its << endl
              << "--------------------------------------------------" << endl;
-        if (is_sfip && (pic+1 == PIs) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
+        if (false && is_sfip && (pic+1 == PIs) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
           cout << "-----Interaction force calculation-----" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         }
@@ -2251,7 +2263,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       moveCenterMass(0.0);
       calcMeshVelocity(Vec_x_0, Vec_uzp_0, Vec_uzp_1, 1.0, Vec_v_mid, 0.0);
       VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
-    }
+    }//end Picard iterations //////////////////////////////////////////////////
 
     current_time += dt;
     time_step += 1;
@@ -2263,7 +2275,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
     //steady_error = VecNorm(Vec_res, NORM_1)/(Qmax==0.?1.:Qmax);
     VecNorm(Vec_res_fs, NORM_1, &steady_error); //VecNorm(Vec_res, NORM_1, &steady_error);
     steady_error /= (Qmax==0.?1.:Qmax);
-    computeForces(Vec_x_0, Vec_uzp_0);
+    computeForces(Vec_x_0,Vec_uzp_0);
+    computeError(Vec_x_0,Vec_uzp_1,current_time);
 
     if(time_step >= maxts) {
       cout << "\n==========================================\n";
@@ -2282,53 +2295,12 @@ PetscErrorCode AppCtx::solveTimeProblem()
   // END TIME LOOP
   //
 
-  // PRINT AGAIN
-  if (false && is_basic && !unsteady)
-  {
-    plotFiles();
-
-    if (family_files && false)  // borrar este if
-    {
-      double  *q_array;
-      double  *nml_array;
-      double  *v_array;
-      VecGetArray(Vec_uzp_0, &q_array);
-      VecGetArray(Vec_normal, &nml_array);
-      VecGetArray(Vec_v_mid, &v_array);
-      vtk_printer.writeVtk();
-
-      /* ---- nodes data ---- */
-      vtk_printer.addNodeVectorVtk("u", GetDataVelocity(q_array, *this));
-      //vtk_printer.addNodeVectorVtk("normal",  GetDataNormal(nml_array, *this));
-      //vtk_printer.addNodeVectorVtk("v",  GetDataMeshVel(v_array, *this));
-      vtk_printer.printPointTagVtk();
-
-      if (!shape_psi_c->discontinuous())
-        vtk_printer.addNodeScalarVtk("pressure", GetDataPressure(q_array, *this));
-      else
-        vtk_printer.addCellScalarVtk("pressure", GetDataPressCellVersion(q_array, *this));
-
-      vtk_printer.addCellIntVtk("cell_tag", GetDataCellTag(*this));
-      //vtk_printer.printPointTagVtk("point_tag");
-
-      VecRestoreArray(Vec_uzp_0, &q_array);  //VecRestoreArray(Vec_up_0, &q_array);
-      VecRestoreArray(Vec_normal, &nml_array);
-      VecRestoreArray(Vec_v_mid, &v_array);
-
-      ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
-      cout << "num snes iterations: " << its << endl;
-    }
-
-  }//end if false
-
-
   cout << endl;
 
   final_volume = getMeshVolume();
   printf("final volume: %.15lf \n", final_volume);
   printf("volume error 100*(f-i)/i: %.15lf per percent\n", 100*abs(final_volume-initial_volume)/initial_volume);
   printf("x error : %.15lf \n", x_error);
-
 
   SNESConvergedReason reason;
   ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
@@ -2431,6 +2403,10 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
   {
     tag = cell->getTag();
 
+    if (is_sfip)
+      if (is_in(tag,solidonly_tags))
+        continue;
+
     // mapeamento do local para o global:
     dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);
     dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);
@@ -2462,10 +2438,16 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       Uqp  = u_coefs_c_trans * phi_err[qp];
       Pqp  = p_coefs_c.dot(psi_err[qp]);
 
+      //quadrature weight//////////////////////////////////////////////////
       weight = quadr_err->weight(qp);
-
       JxW = J*weight;
-      //cout << u_exacta(Xqp, tt, tag) << "   " << Uqp << endl;
+      if (is_axis){
+        JxW = JxW*2.0*pi*Xqp(0);
+      }
+      //////////////////////////////////////////////////
+
+      //NORMS//////////////////////////////////////////////////
+      //cout << Xqp.transpose() << "   " << u_exacta(Xqp, tt, tag).transpose() << "   " << Uqp.transpose() << endl;
       //  note: norm(u, H1)^2 = norm(u, L2)^2 + norm(gradLphi_c, L2)^2
       //u_L2_norm        += (u_exact(Xqp, tt, tag) - Uqp).squaredNorm()*JxW;      //cambiar a u_exact
       u_L2_norm        += (u_exacta(Xqp, tt, tag) - Uqp).squaredNorm()*JxW;      //cambiar a u_exact
@@ -2477,9 +2459,9 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       p_inf_norm       = max(p_inf_norm, fabs(p_exact(Xqp, tt, tag) - Pqp));
 
       volume += JxW;
-    } // fim quadratura
+    } // fim quadratura //////////////////////////////////////////////////
+  } // end elementos //////////////////////////////////////////////////
 
-  } // end elementos
 #if (true)
   facet_iterator facet = mesh->facetBegin();
   facet_iterator facet_end = mesh->facetEnd();
@@ -2489,6 +2471,9 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
 
     if (!(is_in(tag, dirichlet_tags) || is_in(tag, neumann_tags) || is_in(tag, interface_tags) ||
           is_in(tag, solid_tags) || is_in(tag, periodic_tags) || is_in(tag, feature_tags)))
+      continue;
+
+    if (!is_in(tag, flusoli_tags))
       continue;
 
     // mapeamento do local para o global:
@@ -2513,11 +2498,15 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       Xqp  = x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
       Uqp  = u_coefs_f_trans * phi_f[qp];
 
+      //quadrature weight//////////////////////////////////////////////////
       weight = quadr_facet->weight(qp);
-
       JxW = J*weight;
+      if (is_axis){
+        JxW = JxW*2.0*pi*Xqp(0);
+      }
+      //////////////////////////////////////////////////
 
-      Vector U_exact = u_exact(Xqp, tt, tag);
+      Vector U_exact = u_exacta(Xqp, tt, tag);
 
       u_L2_facet_norm += (U_exact - Uqp).squaredNorm()*JxW;
       //u_L2_facet_norm += JxW;
@@ -2596,10 +2585,10 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
     cout << endl;
     //cout << "errors computed at last time step: "<< endl;
     //cout << "# hmean               u_L2_norm         p_L2_norm         grad_u_L2_norm    grad_p_L2_norm   u_L2_facet_norm    u_inf_facet_norm" << endl;
-    //printf("%-21s %-21s %-21s %-21s %-21s %-21s %s\n", "# hmean", "u_L2_norm", "p_L2_norm", "grad_u_L2_norm", "grad_p_L2_norm", "u_L2_facet_norm", "u_inf_facet_norm" );
-    //printf("%.15e %.15e %.15e %.15e %.15e %.15e %.15e\n\n", hmean, u_L2_norm, p_L2_norm, grad_u_L2_norm, grad_p_L2_norm, u_L2_facet_norm, u_inf_facet_norm);
-    printf("%-21s %-21s %-21s \n", "# hmean", "u_L2_norm", "u_inf_facet_norm" );
-    printf("%.15e %.15e %.15e \n\n", hmean, u_L2_norm, u_inf_norm);
+    printf("%-21s %-21s %-21s %-21s %-21s %-21s %s\n", "# hmean", "u_L2_norm", "p_L2_norm", "grad_u_L2_norm", "grad_p_L2_norm", "u_L2_facet_norm", "u_inf_facet_norm" );
+    printf("%.15e %.15e %.15e %.15e %.15e %.15e %.15e\n\n", hmean, u_L2_norm, p_L2_norm, grad_u_L2_norm, grad_p_L2_norm, u_L2_facet_norm, u_inf_facet_norm);
+    //printf("%-21s %-21s %-21s \n", "# hmean", "u_L2_norm", "u_inf_facet_norm", "p_L2_norm", );
+    //printf("%.15e %.15e %.15e \n\n", hmean, u_L2_norm, u_inf_norm);
   }
 
   Stats.add_p_L2_norm        (p_L2_norm       );
@@ -2966,7 +2955,7 @@ void AppCtx::getSolidCentroid()
         F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
         Jx      = F_c.determinant();
         if (is_axis){
-          Jx = Jx*2*pi*Xqp(0);
+          Jx = Jx*2.0*pi*Xqp(0);
         }
         XG_0[nod_id-1] += Xqp3 * Jx * quadr_err->weight(qp)/VV[nod_id-1]; //cout << XG_0[nod_id-1] << endl;
       } // fim quadratura
@@ -3486,7 +3475,7 @@ void AppCtx::getSolidInertiaTensor()
         F_c    += x_coefs_c_trans * dLqsi_err[qp];// + curvf*F_c_curv;
         Jx      = F_c.determinant();
         if (is_axis){
-          Jx = Jx*2*pi*Xqp(0);
+          Jx = Jx*2.0*pi*Xqp(0);
         }
 
         for (int i = 0; i < 3; i++){
@@ -3552,7 +3541,7 @@ void AppCtx::getFromBSV() //Body Slip Velocity
       fff_f   = F_f.transpose()*F_f;                  //cout << fff_f << endl << endl;
       Jx      = sqrt(fff_f.determinant());            //cout << Jx << endl << endl;//  Jx is 2times the lenght of the edge...
       if (is_axis){
-        Jx = Jx*2*pi*Xqp(0);
+        Jx = Jx*2.0*pi*Xqp(0);
       }
 
       //Nr      = Xqp;
@@ -3609,6 +3598,9 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
   double uth = 0.0, uthn = 0.0;
   int id = 0;
   double w2 = 2.0;
+  Vector nor(Vector::Zero(X.size()));
+  Vector tau(Vector::Zero(X.size()));
+  double theta = 0.0;
   if ( false && t == 0 ){
     if (tag == 1){
       v(0) = -w2*y;
@@ -3626,6 +3618,18 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
     v(0) = uth*(-y/r);
     v(1) = uth*(x/r);
   }
+  if (true)
+  {
+    Vector Xc(2), Y(2);
+    Xc << XG_0[0](0), XG_0[0](1);
+    Y = X - Xc;
+    x = Y(0); y = Y(1);
+    r  = sqrt(x*x+y*y);
+    nor = -Y/r; tau(0) = -nor(1); tau(1) = nor(0);
+    theta = atan2(Y(1),Y(0))+pi/2.0;
+    v = cos(theta)/(3.0*r*r*r)*nor + sin(theta)/(6.0*r*r*r)*tau;
+  }
+
   return v;
 }
 
@@ -4241,8 +4245,8 @@ int main(int argc, char **argv)
   user.mesh->printInfo();
   cout << "\n# velocity unknowns: " << user.n_unknowns_u;
   cout << "\n# pressure unknowns: " << user.n_unknowns_p << " = "
-                                    << user.n_unknowns_u/user.dim << " + " << user.n_nodes_fsi << " + " << user.n_nodes_sv;
-//  cout << "\n# total unknowns: " << user.n_unknowns << endl;
+                                    << user.mesh->numVertices() << " + " << user.n_unknowns_p-user.mesh->numVertices();
+//  cout << "\n# total unknowns: " << user.n_unknowns << end;
   if (user.N_Solids){
     cout << "\n# velocity fluid only unknowns: " << user.n_unknowns_u - user.dim*(user.n_nodes_so+user.n_nodes_fsi+user.n_nodes_sv);
     cout << "\n# velocity solid only unknowns: " << user.n_nodes_so*user.dim;
@@ -4252,7 +4256,7 @@ int main(int argc, char **argv)
     cout << "\n# total unknowns: " << user.n_unknowns_fs << " = " << user.n_unknowns_fs - user.dim*(user.n_nodes_fsi+user.n_nodes_sv)
                                                          << " + " << user.dim*(user.n_nodes_fsi+user.n_nodes_sv);
     cout << "\n# solids: " << user.N_Solids << endl;
-    cout << "unknowns distribution: " << 0 << "-" << user.n_unknowns_u-1 <<
+    cout << "  unknowns distribution: " << 0 << "-" << user.n_unknowns_u-1 <<
     		", " << user.n_unknowns_u << "-" << user.n_unknowns_u + user.n_unknowns_p - 1 <<
 			", " << user.n_unknowns_u + user.n_unknowns_p << "-"  << user.n_unknowns_u + user.n_unknowns_p +
 			                                                         user.n_unknowns_z - 1;
@@ -4279,8 +4283,9 @@ int main(int argc, char **argv)
   cout << endl;
   }
 
-  printf("on update mesh\n");
+  //printf("on update mesh\n");
   user.onUpdateMesh();
+
   user.solveTimeProblem();
 
   cout << "\n";

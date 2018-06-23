@@ -2283,12 +2283,12 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
 {
   double x = X(0);
   double y = X(1);
-  double psi = 0.0, k = 100;
+  double psi = 0.0, k = 1.0;
   Vector tau(dim);
   tau(0) = -normal(1); tau(1) = normal(0);
 
   Vector f(Vector::Zero(X.size()));
-  if (false && dim == 2)
+  if (true && dim == 2)
   {
     double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
@@ -2301,7 +2301,7 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
     //  f = f*(X(1)-XG(1))/0.2;
     //f(0) = 0; f(1) = -0.1;
   }
-  else if(true)
+  else if(false)
   {
     double uthe = 1.0/sqrt(k + Vs.dot(tau)*Vs.dot(tau));
     f = uthe*tau;

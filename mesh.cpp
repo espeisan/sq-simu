@@ -164,7 +164,7 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
   int               tag_0, tag_1, tag_2;
   bool              contrib_0, contrib_1, contrib_2;
   bool              virtual_mesh;
-  bool              is_surface, is_solid, is_cl, is_fsi, is_slv;
+  bool              is_surface, is_solid, is_cl, is_fsi, is_slv, is_boundary;
   int               sign_, is_fsiid, is_slvid;
   int               pts_id[15];
 
@@ -190,8 +190,9 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
     is_cl      = is_in(tag, triple_tags);
     is_fsi     = is_in(tag, flusoli_tags);
     is_slv     = is_in(tag, slipvel_tags);
+    is_boundary= mesh->inBoundary(&*facet);
 
-    if ( !(is_surface || is_solid || is_cl || mesh->inBoundary(&*facet) || is_fsi || is_slv) )
+    if ( !(is_surface || is_solid || is_cl || is_boundary || is_fsi || is_slv) )
       continue;
     //cout << tag << "  ";
     contrib_0 = true;
@@ -419,8 +420,9 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
     is_fsi     = is_in(tag, flusoli_tags);
     is_slvid   = is_in_id(tag, slipvel_tags);
     is_fsiid   = is_in_id(tag, flusoli_tags);
+    is_boundary= mesh->inBoundary(&*point);
 
-    if ( !(is_surface || is_solid || is_cl || mesh->inBoundary(&*point) || is_fsi || is_slv) )
+    if ( !(is_surface || is_solid || is_cl || is_fsi || is_slv || is_boundary) )
       continue;
 
     getNodeDofs(&*point, DH_MESH, VAR_M, map.data());
@@ -443,7 +445,7 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);
     }
-    if (exact_normal /*is_curvt*/ && (is_fsiid+is_slvid))
+    if ((exact_normal || is_boundary) /*is_curvt*/ && (is_fsiid+is_slvid))
     {
       point->getCoord(X.data(),dim);
       Xc = XG_0[is_fsiid+is_slvid-1];  //TODO: see what's the correct XG_

@@ -135,14 +135,14 @@ void getProjectorMatrix(MatrixBase<Derived> & P, int n_nodes, int const* nodes, 
     {
       app.getNodeDofs(&*point, DH_MESH, VAR_M, dofs);
       VecGetValues(Vec_x_, dim, dofs, X.data());
-      P.block(i*dim,i*dim,dim,dim)  = feature_proj(X,t,tag);
+      P.block(i*dim,i*dim,dim,dim) = feature_proj(X,t,tag);
     }
     else if (is_in(tag,solid_tags) || is_in(tag, triple_tags))
     {
       app.getNodeDofs(&*point, DH_MESH, VAR_M, dofs);
       VecGetValues(Vec_x_, dim, dofs, X.data());
       normal = solid_normal(X,t,tag);
-      P.block(i*dim,i*dim,dim,dim)  = I - normal*normal.transpose();
+      P.block(i*dim,i*dim,dim,dim) = I - normal*normal.transpose();
       //P.block(i*dim,i*dim,dim,dim) = Z;
     }
     else if (is_in(tag,dirichlet_tags) || is_in(tag,slipvel_tags)) //solid motion and pure Dirichlet BC
@@ -154,6 +154,10 @@ void getProjectorMatrix(MatrixBase<Derived> & P, int n_nodes, int const* nodes, 
       app.getNodeDofs(&*point, DH_MESH, VAR_M, dofs);
       VecGetValues(Vec_normal, dim, dofs, normal.data());
       P.block(i*dim,i*dim,dim,dim) = I - normal*normal.transpose(); //cout << endl << P << endl << endl << dofs[0] << ", " << dofs[1] << endl;
+      if (app.is_axis && mesh->inBoundary(&*point)){
+        VecGetValues(Vec_x_, dim, dofs, X.data());
+        P.block(i*dim,i*dim,dim,dim) = feature_proj(X,t,tag)*P.block(i*dim,i*dim,dim,dim);
+      }
     }
   } // end nodes
 
@@ -905,7 +909,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
           nod_is = is_in_id(tag_c,solidonly_tags);
           //nod_sv = is_in_id(tag_c,slipvel_tags);
-          nodsum = 1;//nod_is; //+nod_sv;
+          if (dup_press_nod){
+            nodsum = 1;//this enforces zero value for interf. internal pressure nodes in duplicated nodes case
+          }
+          else{
+            nodsum = nod_is;//this enforces zero value ONLY for strict internal solid nodes
+          }
           if (nodsum){
             mapP_t(i) = mapP_c(i);
             FPloc(i) = p_coefs_c_new(i) - 0.0; //set 0.0 pressure at interior solid only nodes
@@ -1232,9 +1241,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         inverseAndDet(F_c_mid,dim,invF_c_mid,J_mid);
         inverseAndDet(F_c_old,dim,invF_c_old,J_old);
         inverseAndDet(F_c_new,dim,invF_c_new,J_new);
-        invFT_c_mid= invF_c_mid.transpose();
-        invFT_c_old= invF_c_old.transpose();
-        invFT_c_new= invF_c_new.transpose();
+        invFT_c_mid = invF_c_mid.transpose();
+        invFT_c_old = invF_c_old.transpose();
+        invFT_c_new = invF_c_new.transpose();
 
         dxphi_c_new = dLphi_c[qp] * invF_c_new;
         dxphi_c     = dLphi_c[qp] * invF_c_mid;
@@ -1242,10 +1251,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dxpsi_c     = dLpsi_c[qp] * invF_c_mid;
         dxqsi_c     = dLqsi_c[qp] * invF_c_mid;
 
-        dxP_new  = dxpsi_c.transpose() * p_coefs_c_new;
         dxU      = u_coefs_c_mid_trans * dLphi_c[qp] * invF_c_mid; // n+utheta
         dxU_new  = u_coefs_c_new_trans * dLphi_c[qp] * invF_c_new; // n+1
         dxU_old  = u_coefs_c_old_trans * dLphi_c[qp] * invF_c_old; // n
+        dxP_new  = dxpsi_c.transpose() * p_coefs_c_new;
 
         Xqp      = x_coefs_c_mid_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
         Xqp_old  = x_coefs_c_old_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
@@ -2201,7 +2210,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       for (int qp = 0; qp < n_qpts_facet; ++qp)
       {
 
-        F_f_mid   = x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
+        F_f_mid    = x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
         fff_f_mid.resize(dim-1,dim-1);
         fff_f_mid  = F_f_mid.transpose()*F_f_mid;
         J_mid      = sqrt(fff_f_mid.determinant());
@@ -2795,6 +2804,7 @@ PetscErrorCode AppCtx::formJacobian_sqrm(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**
   PetscFunctionReturn(0);
 }
 
+
 // ******************************************************************************
 //                            FORM FUNCTION_FD
 // ******************************************************************************
@@ -3029,10 +3039,10 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         dxpsi_c     = dLpsi_c[qp] * invF_c_mid;
         dxqsi_c     = dLqsi_c[qp] * invF_c_mid;
 
-        dxP_new  = dxpsi_c.transpose() * p_coefs_c_new;
         dxU      = u_coefs_c_mid_trans * dLphi_c[qp] * invF_c_mid; // n+utheta
         dxU_new  = u_coefs_c_new_trans * dLphi_c[qp] * invF_c_new; // n+1
         dxU_old  = u_coefs_c_old_trans * dLphi_c[qp] * invF_c_old; // n
+        dxP_new  = dxpsi_c.transpose() * p_coefs_c_new;
 
         Xqp      = x_coefs_c_mid_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
         Xqp_old  = x_coefs_c_old_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
@@ -3290,13 +3300,16 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
   Assembly(Vec_fun);
   Assembly(*JJ);
 
-  if(true /*print_to_matlab*/)
+  if(print_to_matlab)
   {
     static bool ja_foi=false;
     if (!ja_foi)
     {
-      View(Vec_fun, "matrizes/forcd/rhs.m","Res");
-      View(*JJ,"matrizes/forcd/jacob.m","Jac");
+      char resi[PETSC_MAX_PATH_LEN], jaco[PETSC_MAX_PATH_LEN];
+      sprintf(resi,"%s/matrices/rhs_fd.m",filehist_out.c_str());
+      sprintf(jaco,"%s/matrices/jacob_fd.m",filehist_out.c_str());
+      View(Vec_fun, resi,"ResFd"); //View(Vec_fun, "matrizes/forcd/rhs.m","Res");
+      View(*JJ, jaco,"JacFd"); //View(*JJ,"matrizes/forcd/jacob.m","Jac");
     }
     ja_foi = true;
 

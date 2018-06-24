@@ -2051,9 +2051,9 @@ PetscErrorCode AppCtx::solveTimeProblem()
     printMatlabLoader();
 
   if (is_sfip){
-    if (false && !is_axis){
+    if (true && !is_axis){
       getSolidVolume();
-      getSolidCentroid();
+      //getSolidCentroid();
     }
     getSolidInertiaTensor();
   }
@@ -2803,7 +2803,7 @@ void AppCtx::getSolidVolume()
 
       if(is_curvt){
         //find good orientation for nodes in case of curved border element
-        tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
+        tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();  cout << cell_nodes.transpose();
         tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
         tag_pt2 = mesh->getNodePtr(cell_nodes(2))->getTag();
         bcell = is_in(tag_pt0,solidonly_tags)
@@ -2820,11 +2820,11 @@ void AppCtx::getSolidVolume()
             //cell_nodes(3) = cell_nodes_tmp(4);
             //cell_nodes(4) = cell_nodes_tmp(5);
             //cell_nodes(5) = cell_nodes_tmp(3);
-            cell_nodes = PerM3*cell_nodes;
+            cell_nodes = PerM3*cell_nodes;  cout << " permuted to " << cell_nodes.transpose();
             tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
           }
         }
-      }
+      }  cout << endl;
 
       mesh->getNodesCoords(cell_nodes.begin(), cell_nodes.end(), x_coefs_c.data());
       x_coefs_c_trans = x_coefs_c.transpose();
@@ -2832,10 +2832,13 @@ void AppCtx::getSolidVolume()
       if (curvf){
         X0(0) = x_coefs_c_trans(0,0);  X0(1) = x_coefs_c_trans(1,0);
         X2(0) = x_coefs_c_trans(0,2);  X2(1) = x_coefs_c_trans(1,2);
-        Xc << 8.0, 8.0, 0.0; //cout << cell_nodes.transpose() << endl << x_coefs_c << endl << endl;
-        T0 = exact_tangent_ellipse(X0,Xc,0.0,1.20,1.2,dim);  //cout << X0.transpose() << endl;
-        T2 = exact_tangent_ellipse(X2,Xc,0.0,1.20,1.2,dim);  //cout << X2.transpose() << endl;
-        Vdat << 1.20, 1.20, 0.0;
+        //Xc << 8.0, 8.0, 0.0; //cout << cell_nodes.transpose() << endl << x_coefs_c << endl << endl;
+        Xc = XG_0[nod_id-1];
+        T0 = exact_tangent_ellipse(X0,Xc,0.0,RV[nod_id-1](0),RV[nod_id-1](1),dim);
+        //T0 = exact_tangent_ellipse(X0,Xc,0.0,1.20,1.2,dim);  //cout << X0.transpose() << endl;
+        T2 = exact_tangent_ellipse(X2,Xc,0.0,RV[nod_id-1](0),RV[nod_id-1](1),dim);
+        //T2 = exact_tangent_ellipse(X2,Xc,0.0,1.20,1.2,dim);  //cout << X2.transpose() << endl;
+        Vdat << RV[nod_id-1](0),RV[nod_id-1](1), 0.0; //container for R1, R2, theta
       }
       //tvol = 0.0;
       for (int qp = 0; qp < n_qpts_err; ++qp)
@@ -2862,14 +2865,14 @@ void AppCtx::getSolidVolume()
         Jx     = F_c.determinant();
         if (is_axis){
           Xqp = x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
-          Jx = Jx*2*pi*Xqp(0);
+          Jx = Jx*2.0*pi*Xqp(0);
         }
         VV[nod_id-1] += Jx * quadr_err->weight(qp); //cout << VV[nod_id-1] << endl;
         //tvol = tvol + Jx * quadr_err->weight(qp);
       } // fim quadratura
       //cout << mesh->getCellId(&*cell) << "   " << tvol << endl;
     }
-  } //cout << "area difference = " << abs(VV[0]-3.141592654*1.2*1.2) << endl << endl; // end elementos
+  } cout << "area difference = " << abs(VV[0]-pi*4.0/3.0) << endl << endl; // end elementos
   }
 }
 

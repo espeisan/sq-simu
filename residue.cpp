@@ -2827,7 +2827,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
   {
     VectorXd            FUloc(n_dofs_u_per_cell);  // U subvector part of F
     VectorXd            FPloc(n_dofs_p_per_cell);
-    VectorXd            FZloc(n_dofs_z_per_cell);
+    //VectorXd            FZloc(n_dofs_z_per_cell);
 
     /* local data */
     int                 tag, tag_c, nod_is, nodsum;
@@ -3012,7 +3012,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       //initialization as zero of the residuals//////////////////////////////////////////////////
       FUloc.setZero();
       FPloc.setZero();
-      FZloc.setZero();
+      //FZloc.setZero();
       //initialization as zero of the elemental matrices//////////////////////////////////////////////////
       Aloc.setZero();
       //Gloc.setZero();
@@ -3089,7 +3089,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         //
         //  --------------- //////////////////////////////////////////////////
 
-        for (int i = 0; i < n_dofs_v_per_cell/dim; ++i)
+        for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
         {
           for (int c = 0; c < dim; ++c)
           {
@@ -3169,8 +3169,8 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
     MatrixXd            f_coefs_f_new(n_dofs_v_per_facet/dim, dim);       // n+1
     MatrixXd            f_coefs_f_new_trans(dim, n_dofs_v_per_facet/dim); // n+1
 
-    MatrixXd            noi_coefs_f_new(n_dofs_v_per_facet/dim, dim);  // normal interpolada em n+1
-    MatrixXd            noi_coefs_f_new_trans(dim, n_dofs_v_per_facet/dim);  // normal interpolada em n+1
+    //MatrixXd            noi_coefs_f_new(n_dofs_v_per_facet/dim, dim);  // normal interpolada em n+1
+    //MatrixXd            noi_coefs_f_new_trans(dim, n_dofs_v_per_facet/dim);  // normal interpolada em n+1
 
     Tensor              F_f_mid(dim,dim-1);       // n+utheta
     Tensor              invF_f_mid(dim-1,dim);    // n+utheta
@@ -3196,7 +3196,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
 
       dof_handler[DH_MESH].getVariable(VAR_M).getFacetDofs(mapM_f.data(), &*facet);  //cout << mapM_f << endl;
 
-      VecGetValues(Vec_normal,  mapM_f.size(), mapM_f.data(), noi_coefs_f_new.data());
+      //VecGetValues(Vec_normal,  mapM_f.size(), mapM_f.data(), noi_coefs_f_new.data());
       VecGetValues(Vec_x_0,     mapM_f.size(), mapM_f.data(), x_coefs_f_old.data());
       VecGetValues(Vec_x_1,     mapM_f.size(), mapM_f.data(), x_coefs_f_new.data());
       VecGetValues(Vec_fd,      mapM_f.size(), mapM_f.data(), f_coefs_f_new.data());  //cout << x_coefs_c_new << endl << endl;
@@ -3268,11 +3268,11 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         }//end is_neumann //////////////////////////////////////////////////
 
         if (is_fsi || is_slipvel){
-          for (int i = 0; i < n_dofs_v_per_facet/dim; ++i){
+          for (int i = 0; i < n_dofs_u_per_facet/dim; ++i){
             for (int c = 0; c < dim; ++c){
               FUloc_f(i*dim + c) += JxW_mid * Fdqp(c) * qsi_f[qp][i];
             }
-            for (int j = 0; j < n_dofs_v_per_facet/dim; ++j){
+            for (int j = 0; j < n_dofs_u_per_facet/dim; ++j){
               for (int c = 0; c < dim; ++c){
                 Aloc_f(i*dim + c, j*dim + c) += JxW_mid * qsi_f[qp][i]*qsi_f[qp][j];
               }

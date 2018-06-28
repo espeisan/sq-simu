@@ -311,7 +311,7 @@ void getProjectorFD(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
   Tensor Z(dim,dim);
   Vector X(dim);
   Vector normal(dim);
-  int    dofs[dim];
+  //int    dofs[dim];
   int    tag;
   Point const* point;
 
@@ -710,15 +710,15 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
     Tensor              F_c_mid(dim,dim);       // n+utheta
     Tensor              invF_c_mid(dim,dim);    // n+utheta
-    Tensor              invFT_c_mid(dim,dim);   // n+utheta
+    //Tensor              invFT_c_mid(dim,dim);   // n+utheta
 
     Tensor              F_c_old(dim,dim);       // n
     Tensor              invF_c_old(dim,dim);    // n
-    Tensor              invFT_c_old(dim,dim);   // n
+    //Tensor              invFT_c_old(dim,dim);   // n
 
     Tensor              F_c_new(dim,dim);       // n+1
     Tensor              invF_c_new(dim,dim);    // n+1
-    Tensor              invFT_c_new(dim,dim);   // n+1
+    //Tensor              invFT_c_new(dim,dim);   // n+1
 
     /* All variables are in (n+utheta) by default */
     MatrixXd            dxphi_c(n_dofs_u_per_cell/dim, dim);
@@ -841,13 +841,17 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     VectorXi            cell_nodes_tmp(nodes_per_cell);
     Tensor              F_c_curv(dim,dim);
     int                 tag_pt0, tag_pt1, tag_pt2, bcell, nPer, ccell;
-    //double const*       Xqpb;  //coordonates at the master element \hat{X}
-    Vector              Phi(dim), DPhi(dim), Dphi(dim), X0(dim), X2(dim), T0(dim), T2(dim), Xcc(3), Vdat(3);
+    double const*       Xqpb;  //coordonates at the master element \hat{X}
+    Vector              Phi(dim), DPhi(dim), X0(dim), X2(dim), T0(dim), T2(dim), Xcc(3), Vdat(3);
     bool                curvf = false;
     //Permutation matrices
     TensorXi            PerM3(TensorXi::Zero(3,3)), PerM6(TensorXi::Zero(6,6));
+    MatrixXi            PerM12(MatrixXi::Zero(12,12));
     PerM3(0,1) = 1; PerM3(1,2) = 1; PerM3(2,0) = 1;
     PerM6(0,2) = 1; PerM6(1,3) = 1; PerM6(2,4) = 1; PerM6(3,5) = 1; PerM6(4,0) = 1; PerM6(5,1) = 1;
+    PerM12.block(0,0,6,6) = PerM6; PerM12.block(6,6,6,6) = PerM6;
+    double              areas = 0.0;
+    Tensor              Lcil(Tensor::Zero(dim,dim));  //diagonal matrix with cylindrical laplacian
 
     ////////////////////////////////////////////////// STARTING CELL ITERATION //////////////////////////////////////////////////
     const int tid = omp_get_thread_num();
@@ -1197,12 +1201,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           tauk = 4.*visc/hk2 + 2.*rho*uconv/sqrt(hk2);
           tauk = 1./tauk;
         }
-        else{tauk = hk2/(1*visc);}
+        else{tauk = hk2/(100*visc);}
         if (dim==3)
           tauk *= 0.1;
 
         //delk = 4.*visc + 2.*rho*uconv*sqrt(hk2);
-        delk = 0;
+        delk = 0*4*visc;
 
         Eloc.setZero();
         //Cloc.setZero();
@@ -1241,9 +1245,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         inverseAndDet(F_c_mid,dim,invF_c_mid,J_mid);
         inverseAndDet(F_c_old,dim,invF_c_old,J_old);
         inverseAndDet(F_c_new,dim,invF_c_new,J_new);
-        invFT_c_mid = invF_c_mid.transpose();
-        invFT_c_old = invF_c_old.transpose();
-        invFT_c_new = invF_c_new.transpose();
+        //invFT_c_mid = invF_c_mid.transpose();
+        //invFT_c_old = invF_c_old.transpose();
+        //invFT_c_new = invF_c_new.transpose();
 
         dxphi_c_new = dLphi_c[qp] * invF_c_new;
         dxphi_c     = dLphi_c[qp] * invF_c_mid;
@@ -1432,52 +1436,80 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         if(behaviors & BH_GLS)
         {
-          Res = rho*( dUdt * unsteady + has_convec*dxU*Uconv_qp) + dxP_new - force_at_mid;
-
-          for (int j = 0; j < n_dofs_u_per_cell/dim; ++j)
-          {
-            dResdu = unsteady*(ddt_factor*rho*phi_c[qp][j]/dt)*Id + has_convec*rho*utheta*( phi_c[qp][j]*dxU + Uconv_qp.dot(dxphi_c.row(j))*Id );
-
-            for (int i = 0; i < n_dofs_p_per_cell; ++i)
-            {
-              vec = -JxW_mid*tauk* dResdu.transpose()*dxpsi_c.row(i).transpose();  //why minus in front of JxW_mid?
-              for (int d = 0; d < dim; d++)
-                Dloc(i, j*dim + d) += vec(d);
-
-              // atençao nos indices
-              vec = JxW_mid*tauk* has_convec*rho*Uconv_qp.dot(dxphi_c.row(j))* dxpsi_c.row(i).transpose();
-              for (int d = 0; d < dim; d++)
-                Gloc(j*dim + d,i) += vec(d);  //Cloc(j*dim + d,i) += vec(d);
-            }
-
-            for (int i = 0; i < n_dofs_u_per_cell/dim; ++i)
-            {
-              // supg term
-              Ten = JxW_mid*tauk* has_convec*( utheta*rho*phi_c[qp][j]*Res*dxphi_c.row(i) + rho*Uconv_qp.dot(dxphi_c.row(i))*dResdu );
-              // divergence term
-              Ten+= JxW_mid*delk*utheta*dxphi_c.row(i).transpose()*dxphi_c.row(j);
-              for (int c = 0; c < dim; ++c)
-                for (int d = 0; d < dim; ++d)
-                  Aloc(i*dim + c, j*dim + d) += Ten(c,d);
-            }
+          int st_met = 1;  //-1 for Douglas and Wang, +1 for Hughes and Franca
+          bool test_st = true;
+          //Residual
+          Res = rho*(unsteady*dUdt + has_convec*dxU*Uconv_qp) + dxP_new - force_at_mid;
+          if (is_axis && test_st){//complementing the cylindrical laplacian
+            Res(0) += -utheta*visc*( dxU(0,0)/Xqp(0) - Uqp(0)/(Xqp(0)*Xqp(0)) );
+            Res(1) += -utheta*visc*( dxU(1,0)/Xqp(0)                          );
           }
-
-          for (int i = 0; i < n_dofs_p_per_cell; ++i)
-            for (int j = 0; j < n_dofs_p_per_cell; ++j)
-              Eloc(i,j) -= tauk*JxW_mid * dxpsi_c.row(i).dot(dxpsi_c.row(j));  //minus?
 
           for (int i = 0; i < n_dofs_u_per_cell/dim; i++)
           {
-            vec = JxW_mid*( has_convec*tauk* rho* Uconv_qp.dot(dxphi_c.row(i)) * Res + delk*dxU.trace()*dxphi_c.row(i).transpose() );
+            //supg term tauk
+            vec  = JxW_mid*(-has_convec)*tauk*rho*Uconv_qp.dot(dxphi_c.row(i))*Res;  //the minus in has_convec term is in doubt
+            //divergence term delk
+            vec += JxW_mid*delk*dxU.trace()*dxphi_c.row(i).transpose();
+            if (is_axis && test_st){
+              //supg term tauk
+              vec(0) += st_met*JxW_mid*tauk*utheta*Res(0)*visc*( dxphi_c(i,0)/Xqp(0) - phi_c[qp][i]/(Xqp(0)*Xqp(0)) );
+              vec(1) += st_met*JxW_mid*tauk*utheta*Res(1)*visc*( dxphi_c(i,0)/Xqp(0)                                );
+              //divergence term delk
+              vec(0) += JxW_mid*delk*utheta*Res(0)*dxU.trace()*phi_c[qp][i]/Xqp(0);
+            }
             for (int c = 0; c < dim; c++)
               FUloc(i*dim + c) += vec(c);
-
           }
 
+          for (int i = 0; i < n_dofs_p_per_cell; i++)
+            FPloc(i) -= JxW_mid*tauk*dxpsi_c.row(i).dot(Res);
+
+          //Gradient of Residual
+          for (int j = 0; j < n_dofs_u_per_cell/dim; j++)
+          {
+            dResdu = unsteady*ddt_factor*rho*phi_c[qp][j]/dt*Id + has_convec*utheta*rho*( phi_c[qp][j]*dxU + Uconv_qp.dot(dxphi_c.row(j))*Id );
+            if (is_axis && test_st){
+              dResdu(0,0) += -utheta*visc*( dxphi_c(j,0)/Xqp(0) - phi_c[qp][j]/(Xqp(0)*Xqp(0)) );
+              dResdu(1,1) += -utheta*visc*( dxphi_c(j,0)/Xqp(0)                                );
+            }
+
+            for (int i = 0; i < n_dofs_u_per_cell/dim; i++)
+            {
+              //supg term tauk
+              Ten  = JxW_mid*(-has_convec)*tauk*( utheta*rho*phi_c[qp][j]*Res*dxphi_c.row(i) + rho*Uconv_qp.dot(dxphi_c.row(i))*dResdu ); //the minus in has_convec term is in doubt
+              // divergence term
+              Ten += JxW_mid*delk*utheta*dxphi_c.row(i).transpose()*dxphi_c.row(j);
+              if (is_axis && test_st){
+                Ten.row(0) += st_met*JxW_mid*tauk*utheta*visc*( dxphi_c(i,0)/Xqp(0) - phi_c[qp][i]/(Xqp(0)*Xqp(0)) )*dResdu.row(0);
+                Ten.row(1) += st_met*JxW_mid*tauk*utheta*visc*( dxphi_c(i,0)/Xqp(0)                                )*dResdu.row(1);
+              }
+              for (int c = 0; c < dim; ++c)
+                for (int d = 0; d < dim; ++d)
+                  Aloc(i*dim + c, j*dim + d) += Ten(c,d);
+            }//end for i
+
+            for (int i = 0; i < n_dofs_p_per_cell; ++i)
+            {
+              vec = -JxW_mid*tauk*dResdu.transpose()*dxpsi_c.row(i).transpose();
+              for (int d = 0; d < dim; d++)
+                Dloc(i, j*dim + d) += vec(d);
+
+              vec = JxW_mid*tauk*(-has_convec)*rho*Uconv_qp.dot(dxphi_c.row(j))*dxpsi_c.row(i).transpose();
+              if (is_axis && test_st){
+                vec(0) += st_met*JxW_mid*tauk*utheta*visc*dxpsi_c(i,0)*( dxphi_c(j,0)/Xqp(0) - phi_c[qp][j]/(Xqp(0)*Xqp(0)) );
+                vec(1) += st_met*JxW_mid*tauk*utheta*visc*dxpsi_c(i,1)*( dxphi_c(j,0)/Xqp(0)                                );
+              }
+              for (int d = 0; d < dim; d++)
+                Gloc(j*dim + d,i) += vec(d);
+            }//end for i
+          }//end for j
+
           for (int i = 0; i < n_dofs_p_per_cell; ++i)
-            FPloc(i) -= JxW_mid *tauk* dxpsi_c.row(i).dot(Res);
-            //FPloc(i) -= JxW_mid *tauk* dxpsi_c.row(i).dot(dxP_new - force_at_mid); // somente laplaciano da pressao
-        } //end if(behaviors & BH_GLS)
+            for (int j = 0; j < n_dofs_p_per_cell; ++j)
+              Eloc(i,j) -= JxW_mid*tauk*dxpsi_c.row(i).dot(dxpsi_c.row(j));
+
+        }//end if behaviors
 
       }
       ////////////////////////////////////////////////// ENDING QUADRATURE //////////////////////////////////////////////////

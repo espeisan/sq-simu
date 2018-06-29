@@ -968,7 +968,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       }
       //nodes at the interface are considered for cells outside the solids //////////////////////////////////////////////////
 
-      // get nodal coordinates of the old and new cell //////////////////////////////////////////////////
+      //get nodal coordinates of the old and (permuted) new cell//////////////////////////////////////////////////
       mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
       if(is_curvt){
         //find good orientation for nodes in case of curved border element
@@ -976,20 +976,22 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
         tag_pt2 = mesh->getNodePtr(cell_nodes(2))->getTag();
         //test if the cell is acceptable (one curved side)
-        bcell = is_in(tag_pt0,fluidonly_tags)+is_in(tag_pt1,fluidonly_tags)+is_in(tag_pt2,fluidonly_tags);
+        //bcell = is_in(tag_pt0,fluidonly_tags)+is_in(tag_pt1,fluidonly_tags)+is_in(tag_pt2,fluidonly_tags);
         ccell = is_in(tag_pt0,flusoli_tags)+is_in(tag_pt1,flusoli_tags)+is_in(tag_pt2,flusoli_tags)
-               +is_in(tag_pt0,slipvel_tags)+is_in(tag_pt1,slipvel_tags)+is_in(tag_pt2,slipvel_tags);
-        curvf = bcell==1 && ccell==2;  nPer = 0;
+               +is_in(tag_pt0,slipvel_tags)+is_in(tag_pt1,slipvel_tags)+is_in(tag_pt2,slipvel_tags)
+               +is_in(tag_pt0,interface_tags)+is_in(tag_pt1,interface_tags)+is_in(tag_pt2,interface_tags);
+        curvf = /*bcell==1 &&*/ ccell==2;  nPer = 0;
         if (curvf){
-          while (!is_in(tag_pt1, fluidonly_tags)){
-            cell_nodes = PerM3*cell_nodes; nPer++;  //counts how many permutations
+          while ( !(is_in(tag_pt1, fluidonly_tags) || is_in(tag_pt1, feature_tags)
+                 || is_in(tag_pt1, dirichlet_tags) || is_in(tag_pt1, neumann_tags)) ){
+            cell_nodes = PerM3*cell_nodes; nPer++;  //counts how many permutations are performed
             tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
           }
         }
       }
       ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-      // mapeamento do local para o global //////////////////////////////////////////////////
+      //mapeamento do local para o global//////////////////////////////////////////////////
       dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);  //cout << mapM_c.transpose() << endl;  //unk. global ID's
       dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);  //cout << mapU_c.transpose() << endl;
       dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);  //cout << mapP_c.transpose() << endl;
@@ -1001,7 +1003,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         ///if (is_unksv){mapUs_c = -(mapU_c + n_unknowns_ups*VectorXi::Ones(n_dofs_u_per_cell))/*VectorXi::Ones(n_dofs_u_per_cell)*/;}
         SVI = false; VSF = false;
         for (int j = 0; j < n_dofs_u_per_cell/dim; ++j){
-          tag_c = mesh->getNodePtr(cell->getNodeId(j))->getTag();
+          tag_c = mesh->getNodePtr(cell_nodes(j)/*cell->getNodeId(j)*/)->getTag();
           nod_id = is_in_id(tag_c,flusoli_tags);
           //nod_is = 0;//is_in_id(tag_c,solidonly_tags);  //always zero: look the previous is_in(tag,solidonly_tags) condition
           nod_sv = is_in_id(tag_c,slipvel_tags);
@@ -1025,7 +1027,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       //  mapUs_c = mapU_c + n_unknowns_ups*VectorXi::Ones(n_dofs_u_per_cell);
       //}
       }
-
+      //if cell is permuted, this corrects the maps; mapZ is alreday corrected by hand in the previous if conditional
       if (curvf){
         for (int l = 0; l < nPer; l++){
           mapM_c = PerM6*mapM_c;  //cout << mapM_c.transpose() << endl;
@@ -1039,7 +1041,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       //identify if the cell has at least one Pure Dirichlet node at the fluid region //////////////////////////////////////////////////
       PDN = false; FTN = false;
       for (int j = 0; j < n_dofs_u_per_cell/dim; ++j){
-        tag_c = mesh->getNodePtr(cell->getNodeId(j))->getTag();
+        tag_c = mesh->getNodePtr(cell_nodes(j)/*cell->getNodeId(j)*/)->getTag();
         if (is_in(tag_c,dirichlet_tags)){
           PDN = true;
         }
@@ -1143,6 +1145,15 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         vs_coefs_c_mid_trans = utheta*vs_coefs_c_new_trans + (1.-utheta)*vs_coefs_c_old_trans;
       }
+
+      if (curvf){
+        tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
+        nod_id = is_in_id(tag_pt0,flusoli_tags)+is_in_id(tag_pt0,slipvel_tags);
+        Xcc = XG_0[nod_id-1];
+        X0(0) = x_coefs_c_mid_trans(0,0);  X0(1) = x_coefs_c_mid_trans(1,0);
+        X2(0) = x_coefs_c_mid_trans(0,2);  X2(1) = x_coefs_c_mid_trans(1,2);
+        Vdat << RV[nod_id-1](0),RV[nod_id-1](1), 0.0; //theta_0[nod_id-1]; //container for R1, R2, theta
+      }
       ////////////////////////////////////////////////////////////////////////////////////////////////////
 
       //viscosity and density at the cell//////////////////////////////////////////////////
@@ -1176,7 +1187,16 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       {
         cell_volume = 0;
         for (int qp = 0; qp < n_qpts_cell; ++qp) {
-          F_c_mid = x_coefs_c_mid_trans * dLqsi_c[qp];
+          F_c_mid = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+          if (curvf){//F_c_curv.setZero();
+            Xqpb = quadr_cell->point(qp);
+            Phi = curved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+            DPhi = Dcurved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+            F_c_curv.col(0) = -Phi;
+            F_c_curv.col(1) = -Phi + (1.0-Xqpb[0]-Xqpb[1])*DPhi;
+            F_c_mid = F_c_curv;
+          }
+          F_c_mid += x_coefs_c_mid_trans * dLqsi_c[qp];
           J_mid = determinant(F_c_mid,dim);
           if (is_axis && false){
             J_mid = J_mid*2*pi*Xqp(0);
@@ -1239,9 +1259,27 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       for (int qp = 0; qp < n_qpts_cell; ++qp)
       {
 
-        F_c_mid = x_coefs_c_mid_trans * dLqsi_c[qp];  // (dim x nodes_per_cell) (nodes_per_cell x dim)
-        F_c_old = x_coefs_c_old_trans * dLqsi_c[qp];
-        F_c_new = x_coefs_c_new_trans * dLqsi_c[qp];
+        F_c_mid = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+        F_c_old = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+        F_c_new = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+        Xqp     = Vector::Zero(dim);// coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp_old = Vector::Zero(dim); // coordenada espacial (x,y,z) do ponto de quadratura
+        if (curvf){//F_c_curv.setZero();
+          Xqpb = quadr_cell->point(qp);
+          Phi = curved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+          DPhi = Dcurved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+          F_c_curv.col(0) = -Phi;
+          F_c_curv.col(1) = -Phi + (1.0-Xqpb[0]-Xqpb[1])*DPhi;
+          F_c_mid = F_c_curv;
+          F_c_old = F_c_curv;
+          F_c_new = F_c_curv;
+          Xqp     = (1.0-Xqpb[0]-Xqpb[1])*Phi;
+          Xqp_old = (1.0-Xqpb[0]-Xqpb[1])*Phi;
+        }
+
+        F_c_mid += x_coefs_c_mid_trans * dLqsi_c[qp];  // (dim x nodes_per_cell) (nodes_per_cell x dim)
+        F_c_old += x_coefs_c_old_trans * dLqsi_c[qp];
+        F_c_new += x_coefs_c_new_trans * dLqsi_c[qp];
         inverseAndDet(F_c_mid,dim,invF_c_mid,J_mid);
         inverseAndDet(F_c_old,dim,invF_c_old,J_old);
         inverseAndDet(F_c_new,dim,invF_c_new,J_new);
@@ -1260,8 +1298,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dxU_old  = u_coefs_c_old_trans * dLphi_c[qp] * invF_c_old; // n
         dxP_new  = dxpsi_c.transpose() * p_coefs_c_new;
 
-        Xqp      = x_coefs_c_mid_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
-        Xqp_old  = x_coefs_c_old_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp      += x_coefs_c_mid_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp_old  += x_coefs_c_old_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
         Uqp      = u_coefs_c_mid_trans * phi_c[qp]; //n+utheta
         Uqp_new  = u_coefs_c_new_trans * phi_c[qp]; //n+1
         Uqp_old  = u_coefs_c_old_trans * phi_c[qp]; //n
@@ -1312,7 +1350,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           }
           for (int J = 0; J < nodes_per_cell; J++){
             if (SV_c[J]){
-              //mesh->getNodePtr(cell->getNodeId(J))->getCoord(XIp.data(),dim);
+              //mesh->getNodePtr(cell_nodes(j)/*cell->getNodeId(J)*/)->getCoord(XIp.data(),dim);
               XJp_old = x_coefs_c_old_trans.col(J);
               XJp_new = x_coefs_c_new_trans.col(J);
               XJp     = x_coefs_c_mid_trans.col(J);
@@ -1450,7 +1488,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           for (int i = 0; i < n_dofs_u_per_cell/dim; i++)
           {
             //supg term tauk
-            vec  = JxW_mid*(has_convec)*tauk*rho*Uconv_qp.dot(dxphi_c.row(i))*Res;  //the minus in has_convec term is in doubt
+            vec  = JxW_mid*(has_convec)*tauk*rho*Uconv_qp.dot(dxphi_c.row(i))*Res;
             //divergence term delk
             divu = dxU.trace();
             if (is_axis){
@@ -1483,7 +1521,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             for (int i = 0; i < n_dofs_u_per_cell/dim; i++)
             {
               //supg term tauk
-              Ten  = JxW_mid*(has_convec)*tauk*( utheta*rho*phi_c[qp][j]*Res*dxphi_c.row(i) + rho*Uconv_qp.dot(dxphi_c.row(i))*dResdu ); //the minus in has_convec term is in doubt
+              Ten  = JxW_mid*(has_convec)*tauk*( utheta*rho*phi_c[qp][j]*Res*dxphi_c.row(i) + rho*Uconv_qp.dot(dxphi_c.row(i))*dResdu );
               // divergence term
               Ten += JxW_mid*delk*utheta*dxphi_c.row(i).transpose()*dxphi_c.row(j);
               if (is_axis && test_st){
@@ -1536,7 +1574,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         //Asloc.setZero();
         //Dsloc.setZero();
 
-        mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
+        //mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
         getProjectorMatrix(Prj, nodes_per_cell, cell_nodes.data(), Vec_x_1, current_time+dt, *this);
         FUloc = Prj*FUloc;  //if feature_proj case, vanishes the cartesian component contribution you want to impose (non penetration or slip velocity)
         Aloc = Prj*Aloc; //Prj*Aloc*Prj;//if feature_proj case, vanishes the line and column of the component you want to impose
@@ -1648,7 +1686,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         }
       }
     }  //end for cell
-    //Assembly(Vec_fun_fs);  Assembly(*JJ);
+    //if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-(10.0*10.0*pi*10-4.0*pi/3.0) << endl;} //Assembly(Vec_fun_fs);  Assembly(*JJ);
+    //else        {cout << "Area = " << areas << ", Area dif = "<< areas-(10*10-pi/2.0) << endl;}
     //View(Vec_fun_fs, "matrizes/rhs.m","res"); View(*JJ,"matrizes/jacob.m","Jac");
   }
   // end LOOP NAS CÉLULAS Parallel (uncomment it) //////////////////////////////////////////////////
@@ -2136,7 +2175,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     Vector              Xqp(dim), Xqpc(3), maxw(3);
     Vector              Uqp(dim), Eqp(dim), Usqp(dim);
     Vector              noi(dim); // normal interpolada
-    double              J_mid = 0, JxW_mid, delta_ij, DFtau;
+    double              J_mid = 0, JxW_mid, DFtau; //delta_ij,
     double              weight = 0, perE = 0;
 
     Vector3d            Xg, XIg;
@@ -2144,7 +2183,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     TensorZ const       IdZ(Tensor::Identity(LZ,LZ));
     MatrixXd            HqT(TensorZ::Zero(LZ,dim));
     VectorXd            Ftau(dim);
-
+    double const*       Xqpb;  //coordonates at the master element \hat{X}
+    Vector              Phi(dim), DPhi(dim), X0(dim), X2(dim), Xcc(3), Vdat(3);
+    Tensor              F_f_curv(dim,dim-1);
+    bool                curvf = false;
+    double              ybar = 0.0, areas = 0.0;
 
     facet_iterator facet = mesh->facetBegin();
     facet_iterator facet_end = mesh->facetEnd();  // the next if controls the for that follows
@@ -2197,6 +2240,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           mapZ_s(C) = n_unknowns_u + n_unknowns_p + LZ*(is_fsi-1) + C;
         }// works with any SV_f[j]+VS_f[j] because all nodes of the facet are in the same body
       }
+
+      if (is_curvt){
+        if (is_fsi || is_slipvel){curvf = true;}
+        else {curvf = false;}
+      }
       ////////////////////////////////////////////////////////////////////////////////////////////////////
 
       //get the value for the variables//////////////////////////////////////////////////
@@ -2226,6 +2274,13 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         //  vs_coefs_f_mid_trans = vs_coefs_f_new.transpose();
         //}
       }
+
+      if (curvf){
+        Xcc = XG_0[is_fsi+is_slipvel-1];
+        X0(0) = x_coefs_f_mid_trans(0,0);  X0(1) = x_coefs_f_mid_trans(1,0);
+        X2(0) = x_coefs_f_mid_trans(0,1);  X2(1) = x_coefs_f_mid_trans(1,1);  //cout << Xcc.transpose() << "   " << X0.transpose() << " " << X2.transpose() << endl;
+        Vdat << RV[is_fsi+is_slipvel-1](0),RV[is_fsi+is_slipvel-1](1), 0.0; //theta_0[nod_id-1]; //container for R1, R2, theta
+      }
       ////////////////////////////////////////////////////////////////////////////////////////////////////
 
       //initialization as zero of the residuals and elemental matrices////////////////////////////////////////
@@ -2250,13 +2305,28 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       for (int qp = 0; qp < n_qpts_facet; ++qp)
       {
 
-        F_f_mid    = x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
+        F_f_mid = Tensor::Zero(dim,dim-1);  //Zero(dim,dim);
+        //F_c_old = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+        //F_c_new = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+        Xqp     = Vector::Zero(dim);// coordenada espacial (x,y,z) do ponto de quadratura
+        if (curvf){//F_c_curv.setZero();
+          Xqpb = quadr_facet->point(qp);  //cout << Xqpb[0] << " " << Xqpb[1] << endl;
+          ybar = (1.0+Xqpb[0])/2.0;
+          Phi = curved_Phi(ybar,X0,X2,Xcc,Vdat,dim);
+          DPhi = Dcurved_Phi(ybar,X0,X2,Xcc,Vdat,dim);
+          //F_f_curv.col(0) = -Phi;
+          F_f_curv.col(0) = -Phi/2.0 + (1.0-ybar)*DPhi/2.0;
+          F_f_mid = F_f_curv;
+          Xqp     = (1.0-ybar)*Phi;
+        }
+
+        F_f_mid    += x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
         fff_f_mid.resize(dim-1,dim-1);
         fff_f_mid  = F_f_mid.transpose()*F_f_mid;
         J_mid      = sqrt(fff_f_mid.determinant());
         invF_f_mid = fff_f_mid.inverse()*F_f_mid.transpose();
 
-        Xqp     = x_coefs_f_mid_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp     += x_coefs_f_mid_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
         weight  = quadr_facet->weight(qp);
         JxW_mid = J_mid*weight;
         if (is_axis){
@@ -2276,12 +2346,20 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         //calculating normal to the facet//////////////////////////////////////////////////
         if (dim==2)
-        {//originally this normal points INTO the body (CHECKED!)...
-          normal(0) = +F_f_mid(1,0);
-          normal(1) = -F_f_mid(0,0);
-          normal.normalize();  //cout << normal.transpose() << endl;
-          normal = -normal;  //... now this normal points OUT the body
-          tangent(0) = -normal(1); tangent(1) = normal(0);
+        {
+          if (curvf){
+            int K = is_fsi + is_slipvel;
+            normal = exact_normal_ellipse(Xqp,XG_0[K-1],0.0,RV[K-1](0),RV[K-1](1),dim); //theta_ini[is_fsiid+is_slvid-1]
+            //normal = -normal; //there is no need to do this because normal is alreday OUT the body
+            tangent(0) = -normal(1); tangent(1) = normal(0);
+          }
+          else{//originally this normal points INTO the body (CHECKED!)...
+            normal(0) = +F_f_mid(1,0);
+            normal(1) = -F_f_mid(0,0);
+            normal.normalize();  //cout << normal.transpose() << endl;
+            normal = -normal;  //... now this normal points OUT the body
+            tangent(0) = -normal(1); tangent(1) = normal(0);
+          }
         }
         else
         {
@@ -2398,6 +2476,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         }// end Neumann on the body //////////////////////////////////////////////////
 
+        if (is_fsi || is_slipvel){areas += JxW_mid;}
       }
       ////////////////////////////////////////////////// ENDING QUADRATURE //////////////////////////////////////////////////
 
@@ -2486,7 +2565,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         }
       }
     }// end for facet
-
+    //if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-4.0*pi << endl;}
+    //else        {cout << "Area = " << areas << ", Area dif = "<< areas-pi << endl;}
   }
   // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
 
@@ -2499,13 +2579,16 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
   Assembly(Vec_fun_fs);
   Assembly(*JJ);
 
-  if(true /*print_to_matlab*/)
+  if(print_to_matlab)
   {
     static bool ja_foi=false;
     if (!ja_foi)
     {
-      View(Vec_fun_fs, "matrizes/rhs.m","Res");
-      View(*JJ,"matrizes/jacob.m","Jac");
+      char resi[PETSC_MAX_PATH_LEN], jaco[PETSC_MAX_PATH_LEN];
+      sprintf(resi,"%s/matrices/rhs.m",filehist_out.c_str());
+      sprintf(jaco,"%s/matrices/jacob.m",filehist_out.c_str());
+      View(Vec_fun_fs,resi,"Res");
+      View(*JJ,jaco,"Jac");
     }
     ja_foi = true;
 
@@ -2895,15 +2978,15 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
 
     Tensor              F_c_mid(dim,dim);       // n+utheta
     Tensor              invF_c_mid(dim,dim);    // n+utheta
-    Tensor              invFT_c_mid(dim,dim);   // n+utheta
+    //Tensor              invFT_c_mid(dim,dim);   // n+utheta
 
     Tensor              F_c_old(dim,dim);       // n
     Tensor              invF_c_old(dim,dim);    // n
-    Tensor              invFT_c_old(dim,dim);   // n
+    //Tensor              invFT_c_old(dim,dim);   // n
 
     Tensor              F_c_new(dim,dim);       // n+1
     Tensor              invF_c_new(dim,dim);    // n+1
-    Tensor              invFT_c_new(dim,dim);   // n+1
+    //Tensor              invFT_c_new(dim,dim);   // n+1
 
     VectorXi            mapU_c(n_dofs_u_per_cell);
     VectorXi            mapP_c(n_dofs_p_per_cell);
@@ -3069,9 +3152,9 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         inverseAndDet(F_c_mid,dim,invF_c_mid,J_mid);
         inverseAndDet(F_c_old,dim,invF_c_old,J_old);
         inverseAndDet(F_c_new,dim,invF_c_new,J_new);
-        invFT_c_mid= invF_c_mid.transpose();
-        invFT_c_old= invF_c_old.transpose();
-        invFT_c_new= invF_c_new.transpose();
+        //invFT_c_mid= invF_c_mid.transpose();
+        //invFT_c_old= invF_c_old.transpose();
+        //invFT_c_new= invF_c_new.transpose();
 
         dxphi_c_new = dLphi_c[qp] * invF_c_new;
         dxphi_c     = dLphi_c[qp] * invF_c_mid;
@@ -3348,8 +3431,8 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       char resi[PETSC_MAX_PATH_LEN], jaco[PETSC_MAX_PATH_LEN];
       sprintf(resi,"%s/matrices/rhs_fd.m",filehist_out.c_str());
       sprintf(jaco,"%s/matrices/jacob_fd.m",filehist_out.c_str());
-      View(Vec_fun, resi,"ResFd"); //View(Vec_fun, "matrizes/forcd/rhs.m","Res");
-      View(*JJ, jaco,"JacFd"); //View(*JJ,"matrizes/forcd/jacob.m","Jac");
+      View(Vec_fun,resi,"ResFd"); //View(Vec_fun, "matrizes/forcd/rhs.m","Res");
+      View(*JJ,jaco,"JacFd"); //View(*JJ,"matrizes/forcd/jacob.m","Jac");
     }
     ja_foi = true;
 

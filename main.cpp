@@ -2406,10 +2406,14 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
   PerM3(0,1) = 1; PerM3(1,2) = 1; PerM3(2,0) = 1;
   PerM6(0,2) = 1; PerM6(1,3) = 1; PerM6(2,4) = 1; PerM6(3,5) = 1; PerM6(4,0) = 1; PerM6(5,1) = 1;
   PerM12.block(0,0,6,6) = PerM6; PerM12.block(6,6,6,6) = PerM6;
+  int                 is_slipvel, is_fsi;
+  Tensor              F_f_curv(dim,dim-1);
+  double              ybar = 0.0;
 
 
   VecSetOption(Vec_up, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE); //?
 
+  ////////////////////////////////////////////////// STARTING CELL ITERATION //////////////////////////////////////////////////
   cell_iterator cell = mesh->cellBegin();
   cell_iterator cell_end = mesh->cellEnd();
   for (; cell != cell_end; ++cell)
@@ -2443,7 +2447,7 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
     }
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    // mapeamento do local para o global:
+    //mapeamento do local para o global//////////////////////////////////////////////////
     dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);
     dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);
     dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);
@@ -2519,53 +2523,78 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       //NORMS//////////////////////////////////////////////////
       //cout << Xqp.transpose() << "   " << u_exacta(Xqp, tt, tag).transpose() << "   " << Uqp.transpose() << endl;
       //  note: norm(u, H1)^2 = norm(u, L2)^2 + norm(gradLphi_c, L2)^2
-      //u_L2_norm        += (u_exact(Xqp, tt, tag) - Uqp).squaredNorm()*JxW;      //cambiar a u_exact
       u_L2_norm        += (u_exacta(Xqp, tt, tag) - Uqp).squaredNorm()*JxW;      //cambiar a u_exact
       p_L2_norm        += sqr(p_exact(Xqp, tt, tag) - Pqp)*JxW;
-      grad_u_L2_norm   += (grad_u_exact(Xqp, tt, tag) - dxU).squaredNorm()*JxW;
+      grad_u_L2_norm   += (grad_u_exacta(Xqp, tt, tag) - dxU).squaredNorm()*JxW;
       grad_p_L2_norm   += (grad_p_exact(Xqp, tt, tag) - dxP).squaredNorm()*JxW;
-      //u_inf_norm       = max(u_inf_norm, (u_exact(Xqp, tt, tag) - Uqp).norm()); //cambiar a u_exact
-      u_inf_norm       = max(u_inf_norm, (u_exacta(Xqp, tt, tag) - Uqp).norm()); //cambiar a u_exact
-      p_inf_norm       = max(p_inf_norm, fabs(p_exact(Xqp, tt, tag) - Pqp));
+      u_inf_norm        = max(u_inf_norm, (u_exacta(Xqp, tt, tag) - Uqp).norm()); //cambiar a u_exact
+      p_inf_norm        = max(p_inf_norm, fabs(p_exact(Xqp, tt, tag) - Pqp));
 
       volume += JxW;
     } // fim quadratura //////////////////////////////////////////////////
   } // end elementos //////////////////////////////////////////////////
+  ////////////////////////////////////////////////// ENDING CELL ITERATION //////////////////////////////////////////////////
 
-#if (true)
+  ////////////////////////////////////////////////// STARTING FACET ITERATION //////////////////////////////////////////////////
   facet_iterator facet = mesh->facetBegin();
   facet_iterator facet_end = mesh->facetEnd();
   for (; facet != facet_end; ++facet)
   {
     tag = facet->getTag();
 
-    if (!(is_in(tag, dirichlet_tags) || is_in(tag, neumann_tags) || is_in(tag, interface_tags) ||
-          is_in(tag, solid_tags) || is_in(tag, periodic_tags) || is_in(tag, feature_tags)))
+    if ( !(is_in(tag, dirichlet_tags) || is_in(tag, neumann_tags) || is_in(tag, interface_tags) ||
+          is_in(tag, solid_tags) || is_in(tag, periodic_tags) || is_in(tag, feature_tags) ||
+          is_in(tag, flusoli_tags) || is_in(tag, slipvel_tags)) )
       continue;
 
-    if (!is_in(tag, flusoli_tags))
-      continue;
+    is_slipvel = is_in_id(tag, slipvel_tags);
+    is_fsi     = is_in_id(tag, flusoli_tags);
 
-    // mapeamento do local para o global:
-    //
+    // mapeamento do local para o global//////////////////////////////////////////////////
     dof_handler[DH_UNKM].getVariable(VAR_U).getFacetDofs(mapU_f.data(), &*facet);
     dof_handler[DH_MESH].getVariable(VAR_M).getFacetDofs(mapM_f.data(), &*facet);
 
-    /*  Pega os valores das variáveis nos graus de liberdade */
+    if (is_curvt){
+      if (is_fsi || is_slipvel){curvf = true;}
+      else {curvf = false;}
+    }
+    //////////////////////////////////////////////////
+
+    //get the value for the variables//////////////////////////////////////////////////
     VecGetValues(Vec_up, mapU_f.size(), mapU_f.data(), u_coefs_f.data());
     VecGetValues(Vec_x,  mapM_f.size(), mapM_f.data(), x_coefs_f.data());
 
     u_coefs_f_trans = u_coefs_f.transpose();
     x_coefs_f_trans = x_coefs_f.transpose();
 
+    if (curvf){
+      Xcc = XG_0[is_fsi+is_slipvel-1];
+      X0(0) = x_coefs_f_trans(0,0);  X0(1) = x_coefs_f_trans(1,0);
+      X2(0) = x_coefs_f_trans(0,1);  X2(1) = x_coefs_f_trans(1,1);  //cout << Xcc.transpose() << "   " << X0.transpose() << " " << X2.transpose() << endl;
+      Vdat << RV[is_fsi+is_slipvel-1](0),RV[is_fsi+is_slipvel-1](1), 0.0; //theta_0[nod_id-1]; //container for R1, R2, theta
+    }
+    //////////////////////////////////////////////////
+
+    ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
     for (int qp = 0; qp < n_qpts_facet; ++qp)
     {
-      F_f   = x_coefs_f_trans * dLqsi_f[qp];
+      F_f = Tensor::Zero(dim,dim-1);  //Zero(dim,dim);
+      Xqp = Vector::Zero(dim);// coordenada espacial (x,y,z) do ponto de quadratura
+      if (curvf){//F_c_curv.setZero();
+        Xqpb = quadr_facet->point(qp);  //cout << Xqpb[0] << " " << Xqpb[1] << endl;
+        ybar = (1.0+Xqpb[0])/2.0;
+        Phi = curved_Phi(ybar,X0,X2,Xcc,Vdat,dim);
+        DPhi = Dcurved_Phi(ybar,X0,X2,Xcc,Vdat,dim);
+        F_f_curv.col(0) = -Phi/2.0 + (1.0-ybar)*DPhi/2.0;
+        F_f = F_f_curv;
+        Xqp = (1.0-ybar)*Phi;
+      }
 
-      fff    = F_f.transpose()*F_f;
-      J      = sqrt(fff.determinant());
+      F_f += x_coefs_f_trans * dLqsi_f[qp];
+      fff  = F_f.transpose()*F_f;
+      J    = sqrt(fff.determinant());
 
-      Xqp  = x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+      Xqp += x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
       Uqp  = u_coefs_f_trans * phi_f[qp];
 
       //quadrature weight//////////////////////////////////////////////////
@@ -2577,20 +2606,16 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       //////////////////////////////////////////////////
 
       Vector U_exact = u_exacta(Xqp, tt, tag);
-
       u_L2_facet_norm += (U_exact - Uqp).squaredNorm()*JxW;
       //u_L2_facet_norm += JxW;
 
       double const diff = (U_exact - Uqp).norm();
-
       if (diff > u_inf_facet_norm)
         u_inf_facet_norm = diff;
 
-
     } // fim quadratura
-
   }
-#endif
+  ////////////////////////////////////////////////// ENDING FACET ITERATION //////////////////////////////////////////////////
 
   u_L2_norm      = sqrt(u_L2_norm     );
   p_L2_norm      = sqrt(p_L2_norm     );
@@ -2599,8 +2624,6 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
   u_L2_facet_norm = sqrt(u_L2_facet_norm);
 
   // ASSUME QUE SÓ POSSA TER NO MÁXIMO 1 NÓ POR ARESTA
-
-
   VectorXi edge_nodes(3);
   Vector Xa(dim), Xb(dim);
   int n_edges=0;
@@ -2653,10 +2676,10 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
   //if (time_step==maxts)
   {
     cout << endl;
-    //cout << "errors computed at last time step: "<< endl;
-    //cout << "# hmean               u_L2_norm         p_L2_norm         grad_u_L2_norm    grad_p_L2_norm   u_L2_facet_norm    u_inf_facet_norm" << endl;
-    printf("%-21s %-21s %-21s %-21s %-21s %-21s %s\n", "# hmean", "u_L2_norm", "p_L2_norm", "grad_u_L2_norm", "grad_p_L2_norm", "u_L2_facet_norm", "u_inf_facet_norm" );
-    printf("%.15e %.15e %.15e %.15e %.15e %.15e %.15e\n\n", hmean, u_L2_norm, p_L2_norm, grad_u_L2_norm, grad_p_L2_norm, u_L2_facet_norm, u_inf_facet_norm);
+    printf("%-21s %-21s %-21s %-21s %-21s %-21s %-21s %-21s %-21s\n",
+              "# hmean","u_L2_norm","p_L2_norm","u_inf_norm","p_inf_norm","u_L2_facet_norm","u_inf_facet_norm","grad_u_L2_norm","grad_p_L2_norm");
+    printf("%.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e\n\n",
+                 hmean,  u_L2_norm,  p_L2_norm,  u_inf_norm,  p_inf_norm,  u_L2_facet_norm,  u_inf_facet_norm,  grad_u_L2_norm,  grad_p_L2_norm);
     //printf("%-21s %-21s %-21s \n", "# hmean", "u_L2_norm", "u_inf_facet_norm", "p_L2_norm", );
     //printf("%.15e %.15e %.15e \n\n", hmean, u_L2_norm, u_inf_norm);
   }
@@ -3693,16 +3716,54 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
   if (true)
   {
     Vector Xc(2), Y(2);
+    double rb, thetab;
     Xc << XG_0[0](0), XG_0[0](1);
     Y = X - Xc;
     x = Y(0); y = Y(1);
-    r  = sqrt(x*x+y*y);
-    nor = -Y/r; tau(0) = -nor(1); tau(1) = nor(0);
-    theta = atan2(Y(1),Y(0))+pi/2.0;
-    v = cos(theta)/(3.0*r*r*r)*nor + sin(theta)/(6.0*r*r*r)*tau;
+    rb  = sqrt(x*x+y*y);
+    nor = -Y/rb; tau(0) = -nor(1); tau(1) = nor(0);
+    thetab = atan2(Y(1),Y(0))+pi/2.0;
+    v = cos(thetab)/(3.0*rb*rb*rb)*nor + sin(thetab)/(6.0*rb*rb*rb)*tau;
   }
 
   return v;
+}
+
+Tensor AppCtx::grad_u_exacta(Vector const& X, double t, int tag)
+{
+  double r, z, rb, thetab;
+  Tensor dxU(Tensor::Zero(dim,dim));
+  Vector Xc(2), Y(2);
+  Xc << XG_0[0](0), XG_0[0](1);
+  Y = X - Xc;
+  r = Y(0); z = Y(1);
+  rb  = sqrt(r*r+z*z);
+  thetab = atan2(Y(1),Y(0))+pi/2.0;
+  dxU(0,0) = -(1.0/3.0)*sin(thetab) * (-z)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
+             +(1.0/3.0)*cos(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*r) * (-r)
+             +(1.0/3.0)*cos(thetab) *                          pow(r*r + z*z,-2) *                (-1)
+             +(1.0/6.0)*cos(thetab) * (-z)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (z)
+             +(1.0/6.0)*sin(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*r) * (z);
+
+  dxU(1,0) = -(1.0/3.0)*sin(thetab) * (-z)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-z)
+             +(1.0/3.0)*cos(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*r) * (-z)
+             +(1.0/6.0)*cos(thetab) * (-z)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
+             +(1.0/6.0)*sin(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*r) * (-r)
+             +(1.0/6.0)*sin(thetab) *                          pow(r*r + z*z,-2) *                (-1);
+
+  dxU(0,1) = -(1.0/3.0)*sin(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
+             +(1.0/3.0)*cos(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-r)
+             +(1.0/6.0)*cos(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (z)
+             +(1.0/6.0)*sin(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (z)
+             +(1.0/6.0)*sin(thetab) *                         pow(r*r + z*z,-2) *                (1);
+
+  dxU(1,1) = -(1.0/3.0)*sin(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-z)
+             +(1.0/3.0)*cos(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-z)
+             +(1.0/3.0)*cos(thetab) *                         pow(r*r + z*z,-2) *                (-1)
+             +(1.0/6.0)*cos(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
+             +(1.0/6.0)*sin(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-r);
+
+  return dxU;
 }
 
 PetscErrorCode AppCtx::calcSlipVelocity(Vec const& Vec_x_1_, Vec& Vec_slipv){

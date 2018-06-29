@@ -543,6 +543,7 @@ public:
   PetscErrorCode extractFdForce();
   Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);
+  Tensor grad_u_exacta(Vector const& X, double t, int tag);
   void computeForces(Vec const& Vec_x, Vec &Vec_up);
   //void printContactAngle(bool _print);
 

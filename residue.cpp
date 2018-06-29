@@ -1474,8 +1474,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
         if(behaviors & BH_GLS)
         {
-          int st_met = 0;  //-1 for Douglas and Wang, +1 for Hughes and Franca
-          int st_vis = 0; //1 for including visc term in the residual
+          //int st_met = 0;  //-1 for Douglas and Wang, +1 for Hughes and Franca
+          //int st_vis = 0; //1 for including visc term in the residual
           bool test_st = true;
           double divu = 0;
           //Residual

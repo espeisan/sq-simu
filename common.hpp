@@ -582,6 +582,9 @@ public:
   int         quadr_degree_corner;
   int         quadr_degree_err;
   int         temporal_solver;
+  int         stabilization_method;
+  int         st_met;
+  int         st_vis;
   //double      Re;
   PetscBool   has_convec;
   PetscBool   unsteady;

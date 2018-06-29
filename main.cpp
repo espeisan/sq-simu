@@ -292,6 +292,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-picard_iter_init_cond", "picard iteration for initial conditions", "main.cpp", PI, &PI, PETSC_NULL);
   PetscOptionsInt("-picard_iter_solver", "picard iteration for solver", "main.cpp", PIs, &PIs, PETSC_NULL);
   PetscOptionsInt("-temporal_solver", "choose timporal solver", "main.cpp", temporal_solver, &temporal_solver, PETSC_NULL);
+  PetscOptionsInt("-stabilization_method", "choose stabilization method", "main.cpp", stabilization_method, &stabilization_method, PETSC_NULL);
 //PetscOptionsScalar("-Re", "Reynolds number", "main.cpp", Re, &Re, PETSC_NULL);
   PetscOptionsScalar("-dt", "time step", "main.cpp", dt, &dt, PETSC_NULL);
   PetscOptionsScalar("-utheta", "utheta value", "main.cpp", utheta, &utheta, PETSC_NULL);
@@ -683,6 +684,16 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
       quadr_degree_err = 8;
     }
   }
+
+  switch (stabilization_method)
+  {// st_met = -1 for Douglas and Wang, +1 for Hughes and Franca, 0 for neither
+    case 0:{st_met =  0; st_vis = 0; break;}
+    case 1:{st_met =  1; st_vis = 0; break;}
+    case 2:{st_met = -1; st_vis = 0; break;}
+    case 3:{st_met =  0; st_vis = 1; break;}
+    case 4:{st_met =  1; st_vis = 1; break;}
+    case 5:{st_met = -1; st_vis = 1; break;}
+  }//st_vis = 1 for including visc term in the residual, 0 for not including
 
   return false;
 }
@@ -2072,7 +2083,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   printf("Initial volume: %.15lf\n", initial_volume);
   printf("Initial quality mesh: %.15lf\n", Qmesh);
   printf("Num. of time iterations (maxts): %d\n",maxts);
-  printf("Starting time loop ... \n\n");
+  printf("Starting time loop... \n\n");
 
   current_time = 0;
   time_step = 0;
@@ -2208,9 +2219,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     //copyVec2Mesh(Vec_x_1);
 
     //Saving and printing data
-    if (family_files){
-      plotFiles();
-    }
+    if (family_files){plotFiles();}
     saveDOFSinfo();
 
     if ((is_basic || is_mr) && !unsteady && time_step > 0 && maxts == 2){
@@ -2333,8 +2342,14 @@ PetscErrorCode AppCtx::solveTimeProblem()
   SNESGetLinearSolveIterations(snes_fs,&lits); //SNESGetLinearSolveIterations(snes,&lits);
 
   cout << "Greatest error reached during the simulation:" << endl;
-  printf("%-21s %-21s %-21s %-21s %-21s %-21s %-21s %-21s %s\n", "# hmean", "u_L2_norm", "p_L2_norm", "grad_u_L2_norm", "grad_p_L2_norm", "u_L2_facet_norm", "u_inf_facet_norm", "u_inf_norm", "p_inf_norm" );
-  printf("%.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e\n\n",Stats.hmean, Stats.u_L2_norm, Stats.p_L2_norm, Stats.grad_u_L2_norm, Stats.grad_p_L2_norm, Stats.u_L2_facet_norm,  Stats.u_inf_facet_norm, Stats.u_inf_norm, Stats.p_inf_norm);
+  //printf("%-21s %-21s %-21s %-21s %-21s %-21s %-21s %-21s %s\n",
+  //         "# hmean", "u_L2_norm", "p_L2_norm", "grad_u_L2_norm", "grad_p_L2_norm", "u_L2_facet_norm", "u_inf_facet_norm", "u_inf_norm", "p_inf_norm" );
+  //printf("%.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e\n\n",
+  //         Stats.hmean, Stats.u_L2_norm, Stats.p_L2_norm, Stats.grad_u_L2_norm, Stats.grad_p_L2_norm, Stats.u_L2_facet_norm,  Stats.u_inf_facet_norm, Stats.u_inf_norm, Stats.p_inf_norm);
+  printf("%-21s %-21s %-21s %-21s %-21s %-21s %-21s %-21s %-21s\n",
+            "# hmean","u_L2_norm","p_L2_norm","u_inf_norm","p_inf_norm","u_L2_facet_norm","u_inf_facet_norm","grad_u_L2_norm","grad_p_L2_norm");
+  printf("%.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e %.15e\n\n",
+      Stats.hmean,  Stats.u_L2_norm,  Stats.p_L2_norm,  Stats.u_inf_norm,  Stats.p_inf_norm,  Stats.u_L2_facet_norm,  Stats.u_inf_facet_norm,  Stats.grad_u_L2_norm,  Stats.grad_p_L2_norm);
 
   ////if (unsteady)
   //{
@@ -3751,17 +3766,17 @@ Tensor AppCtx::grad_u_exacta(Vector const& X, double t, int tag)
              +(1.0/6.0)*sin(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*r) * (-r)
              +(1.0/6.0)*sin(thetab) *                          pow(r*r + z*z,-2) *                (-1);
 
-  dxU(0,1) = -(1.0/3.0)*sin(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
-             +(1.0/3.0)*cos(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-r)
-             +(1.0/6.0)*cos(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (z)
-             +(1.0/6.0)*sin(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (z)
-             +(1.0/6.0)*sin(thetab) *                         pow(r*r + z*z,-2) *                (1);
+  dxU(0,1) = -(1.0/3.0)*sin(thetab) * ( r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
+             +(1.0/3.0)*cos(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-r)
+             +(1.0/6.0)*cos(thetab) * ( r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (z)
+             +(1.0/6.0)*sin(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (z)
+             +(1.0/6.0)*sin(thetab) *                          pow(r*r + z*z,-2) *                (1);
 
-  dxU(1,1) = -(1.0/3.0)*sin(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-z)
-             +(1.0/3.0)*cos(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-z)
-             +(1.0/3.0)*cos(thetab) *                         pow(r*r + z*z,-2) *                (-1)
-             +(1.0/6.0)*cos(thetab) * (r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
-             +(1.0/6.0)*sin(thetab) *                         (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-r);
+  dxU(1,1) = -(1.0/3.0)*sin(thetab) * ( r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-z)
+             +(1.0/3.0)*cos(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-z)
+             +(1.0/3.0)*cos(thetab) *                          pow(r*r + z*z,-2) *                (-1)
+             +(1.0/6.0)*cos(thetab) * ( r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
+             +(1.0/6.0)*sin(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-r);
 
   return dxU;
 }

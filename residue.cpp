@@ -1154,6 +1154,35 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         X2(0) = x_coefs_c_mid_trans(0,2);  X2(1) = x_coefs_c_mid_trans(1,2);
         Vdat << RV[nod_id-1](0),RV[nod_id-1](1), 0.0; //theta_0[nod_id-1]; //container for R1, R2, theta
       }
+
+      if (true && (function_space == P2P1)){
+        for (int j = 3; j < 6; ++j){
+          tag_c = mesh->getNodePtr(cell_nodes(j)/*cell->getNodeId(j)*/)->getTag();
+          if (is_in(tag_c,flusoli_tags) || is_in(tag_c,slipvel_tags)){
+            if (j == 3){
+              X0(0) = x_coefs_c_mid_trans(0,0);  X0(1) = x_coefs_c_mid_trans(1,0);
+              X2(0) = x_coefs_c_mid_trans(0,1);  X2(1) = x_coefs_c_mid_trans(1,1);
+            }
+            else if (j == 4){
+              X0(0) = x_coefs_c_mid_trans(0,1);  X0(1) = x_coefs_c_mid_trans(1,1);
+              X2(0) = x_coefs_c_mid_trans(0,2);  X2(1) = x_coefs_c_mid_trans(1,2);
+            }
+            else{
+              X0(0) = x_coefs_c_mid_trans(0,2);  X0(1) = x_coefs_c_mid_trans(1,2);
+              X2(0) = x_coefs_c_mid_trans(0,0);  X2(1) = x_coefs_c_mid_trans(1,0);
+            }
+            nod_id = is_in_id(tag_c,flusoli_tags)+is_in_id(tag_c,slipvel_tags);
+            Xcc = XG_0[nod_id-1];
+            Vdat << RV[nod_id-1](0),RV[nod_id-1](1), 0.0; //theta_0[nod_id-1]; //container for R1, R2, theta
+            Phi = curved_Phi(0.5,X0,X2,Xcc,Vdat,dim);
+            //cout << Phi.transpose() << endl; cout << x_coefs_c_mid_trans(0,j) << "," << x_coefs_c_mid_trans(1,j) << endl;
+            //correcting the components of the node that goes to the interface
+            x_coefs_c_mid_trans(0,j) += 0.5*Phi(0);
+            x_coefs_c_mid_trans(1,j) += 0.5*Phi(1); //cout << x_coefs_c_mid_trans(0,j) << "," << x_coefs_c_mid_trans(1,j) << endl;
+            break;
+          }
+        }
+      }
       ////////////////////////////////////////////////////////////////////////////////////////////////////
 
       //viscosity and density at the cell//////////////////////////////////////////////////
@@ -2320,13 +2349,13 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           Xqp     = (1.0-ybar)*Phi;
         }
 
-        F_f_mid    += x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
+        F_f_mid   += x_coefs_f_mid_trans * dLqsi_f[qp];  // (dim x nodes_per_facet) (nodes_per_facet x dim-1)
         fff_f_mid.resize(dim-1,dim-1);
         fff_f_mid  = F_f_mid.transpose()*F_f_mid;
         J_mid      = sqrt(fff_f_mid.determinant());
         invF_f_mid = fff_f_mid.inverse()*F_f_mid.transpose();
 
-        Xqp     += x_coefs_f_mid_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp    += x_coefs_f_mid_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
         weight  = quadr_facet->weight(qp);
         JxW_mid = J_mid*weight;
         if (is_axis){

@@ -2441,7 +2441,7 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
 
     //get nodal coordinates of the old and (permuted) new cell//////////////////////////////////////////////////
     mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
-    if(is_curvt){
+    if (is_curvt){
       //find good orientation for nodes in case of curved border element
       tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
       tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
@@ -2511,7 +2511,7 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
         Xqp = (1.0-Xqpb[0]-Xqpb[1])*Phi;
       }
 
-      F_c    += x_coefs_c_trans * dLqsi_err[qp];
+      F_c   += x_coefs_c_trans * dLqsi_err[qp];
       J      = F_c.determinant();
       invF_c = F_c.inverse();
       invFT_c= invF_c.transpose();
@@ -2523,7 +2523,7 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       dxU  = u_coefs_c_trans * dxphi_err;       // n+utheta
       dxP  = dxpsi_err.transpose() * p_coefs_c;
 
-      Xqp  += x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+      Xqp += x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
       Uqp  = u_coefs_c_trans * phi_err[qp];
       Pqp  = p_coefs_c.dot(psi_err[qp]);
 

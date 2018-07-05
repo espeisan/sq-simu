@@ -970,7 +970,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
       //get nodal coordinates of the old and (permuted) new cell//////////////////////////////////////////////////
       mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
-      if(is_curvt){
+      if (is_curvt){
         //find good orientation for nodes in case of curved border element
         tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
         tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
@@ -1027,7 +1027,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       //  mapUs_c = mapU_c + n_unknowns_ups*VectorXi::Ones(n_dofs_u_per_cell);
       //}
       }
-      //if cell is permuted, this corrects the maps; mapZ is alreday corrected by hand in the previous if conditional
+      //if cell is permuted, this corrects the maps; mapZ is already corrected by hand in the previous if conditional
       if (curvf){
         for (int l = 0; l < nPer; l++){
           mapM_c = PerM6*mapM_c;  //cout << mapM_c.transpose() << endl;
@@ -1155,7 +1155,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         Vdat << RV[nod_id-1](0),RV[nod_id-1](1), 0.0; //theta_0[nod_id-1]; //container for R1, R2, theta
       }
 
-      if (true && (function_space == P2P1)){
+      if (false && (function_space == P2P1)){
         for (int j = 3; j < 6; ++j){
           tag_c = mesh->getNodePtr(cell_nodes(j)/*cell->getNodeId(j)*/)->getTag();
           if (is_in(tag_c,flusoli_tags) || is_in(tag_c,slipvel_tags)){
@@ -1327,8 +1327,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dxU_old  = u_coefs_c_old_trans * dLphi_c[qp] * invF_c_old; // n
         dxP_new  = dxpsi_c.transpose() * p_coefs_c_new;
 
-        Xqp      += x_coefs_c_mid_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
-        Xqp_old  += x_coefs_c_old_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp     += x_coefs_c_mid_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+        Xqp_old += x_coefs_c_old_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
         Uqp      = u_coefs_c_mid_trans * phi_c[qp]; //n+utheta
         Uqp_new  = u_coefs_c_new_trans * phi_c[qp]; //n+1
         Uqp_old  = u_coefs_c_old_trans * phi_c[qp]; //n
@@ -1585,7 +1585,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
               Eloc(i,j) -= JxW_mid*tauk*dxpsi_c.row(i).dot(dxpsi_c.row(j));
 
         }//end if behaviors
-
+        areas += JxW_mid;
       }
       ////////////////////////////////////////////////// ENDING QUADRATURE //////////////////////////////////////////////////
 
@@ -1715,8 +1715,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         }
       }
     }  //end for cell
-    //if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-(10.0*10.0*pi*10-4.0*pi/3.0) << endl;} //Assembly(Vec_fun_fs);  Assembly(*JJ);
-    //else        {cout << "Area = " << areas << ", Area dif = "<< areas-(10*10-pi/2.0) << endl;}
+    if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-(300.0*300.0*pi*300-4.0*pi/3.0) << endl;} //Assembly(Vec_fun_fs);  Assembly(*JJ);
+    else        {cout << "Area = " << areas << ", Area dif = "<< areas-(10*10-pi/2.0) << endl;}
     //View(Vec_fun_fs, "matrizes/rhs.m","res"); View(*JJ,"matrizes/jacob.m","Jac");
   }
   // end LOOP NAS CÉLULAS Parallel (uncomment it) //////////////////////////////////////////////////
@@ -2594,8 +2594,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         }
       }
     }// end for facet
-    //if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-4.0*pi << endl;}
-    //else        {cout << "Area = " << areas << ", Area dif = "<< areas-pi << endl;}
+    if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-4.0*pi << endl;}
+    else        {cout << "Area = " << areas << ", Area dif = "<< areas-pi << endl;}
   }
   // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
 

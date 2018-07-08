@@ -144,14 +144,13 @@ void AppCtx::loadMesh()
   vtk_printer.setBinaryOutput(true);  //Initial true
 
   meshAliasesUpdate();
-
 }
 
 void AppCtx::loadDofs()
 {
   dofsCreate();
   timer.restart();
-  dofsUpdate();
+  dofsUpdate();  //defines the size of the problem, i.e, n_u, n_p, n_z
   timer.elapsed("CuthillMcKeeRenumber");
 
   n_dofs_u_per_cell   = dof_handler[DH_UNKM].getVariable(VAR_U).numDofsPerCell();
@@ -172,11 +171,6 @@ void AppCtx::loadDofs()
     n_dofs_s_per_cell   = dof_handler[DH_SLIP].getVariable(VAR_S).numDofsPerCell();
     n_dofs_s_per_facet  = dof_handler[DH_SLIP].getVariable(VAR_S).numDofsPerFacet();
     n_dofs_s_per_corner = dof_handler[DH_SLIP].getVariable(VAR_S).numDofsPerCorner();
-  }
-  else{
-    n_dofs_s_per_cell   = 1;
-    n_dofs_s_per_facet  = 1;
-    n_dofs_s_per_corner = 1;
   }
 }
 
@@ -200,11 +194,12 @@ void AppCtx::setUpDefaultOptions()
   quadr_degree_err       = 8;  // to compute error
   grow_factor            = 0.05;
   print_step             = 1;
-  n_modes                = 0;
   PI                     = 1;
   PIs                    = 1;
   temporal_solver        = 0;  //to choose a temporal solver, 0 for mr, stokes
   n_unknowns_ups         = 0;
+  n_modes                = 0;
+  n_links                = 0;
   family_files           = PETSC_TRUE;
   has_convec             = PETSC_TRUE;
   renumber_dofs          = PETSC_FALSE;
@@ -213,7 +208,9 @@ void AppCtx::setUpDefaultOptions()
   mesh_adapt             = PETSC_TRUE;
   time_adapt             = PETSC_TRUE;
   fprint_hgv             = PETSC_FALSE;
+  is_sslv                = PETSC_FALSE;
   is_sfim                = PETSC_FALSE;
+  is_sflp                = PETSC_FALSE;
   is_curvt               = PETSC_FALSE;
   is_unksv               = PETSC_FALSE;
   is_axis                = PETSC_FALSE;
@@ -223,7 +220,6 @@ void AppCtx::setUpDefaultOptions()
   force_dirichlet        = PETSC_TRUE;   // impõe cc ? (para debug)
   full_diriclet          = PETSC_TRUE;
   force_mesh_velocity    = PETSC_FALSE;
-  is_sslv                = PETSC_FALSE;
   plot_exact_sol         = PETSC_FALSE;
   unsteady               = PETSC_TRUE;
   boundary_smoothing     = PETSC_TRUE;
@@ -255,9 +251,10 @@ void AppCtx::setUpDefaultOptions()
 
   TOLad = 0.5;  //for meshAdapt_s()
 
-  n_unknowns_z = 0; n_unknowns_f = 0; n_unknowns_s = 0;
-  n_nodes_fsi  = 0; n_nodes_fo   = 0; n_nodes_so   = 0;
-  n_dofs_z_per_cell   = 0; n_dofs_z_per_facet  = 0; n_dofs_z_per_corner = 0;
+  n_unknowns_z      = 0; n_unknowns_f        = 0; n_unknowns_s        = 0;
+  n_nodes_fsi       = 0; n_nodes_fo          = 0; n_nodes_so          = 0;
+  n_dofs_z_per_cell = 0; n_dofs_z_per_facet  = 0; n_dofs_z_per_corner = 0;
+  n_dofs_s_per_cell = 1; n_dofs_s_per_facet  = 1; n_dofs_s_per_corner = 1;
 }
 
 bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
@@ -283,7 +280,6 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-mesh_type", "mesh type", "main.cpp", mesh_cell_type, &mesh_cell_type, PETSC_NULL);
   PetscOptionsInt("-function_space", "function_space", "main.cpp", 1, &function_space, PETSC_NULL);
   PetscOptionsInt("-maxts", "maximum number of time steps", "main.cpp", maxts, &maxts, PETSC_NULL);
-  PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
   PetscOptionsInt("-quadr_e", "quadrature degree (for calculating the error)", "main.cpp", quadr_degree_err, &quadr_degree_err, PETSC_NULL);
   PetscOptionsInt("-quadr_c", "quadrature degree", "main.cpp", quadr_degree_cell, &quadr_degree_cell, PETSC_NULL);
   PetscOptionsInt("-quadr_f", "quadrature degree (facet)", "main.cpp", quadr_degree_facet, &quadr_degree_facet, PETSC_NULL);
@@ -293,6 +289,8 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-picard_iter_solver", "picard iteration for solver", "main.cpp", PIs, &PIs, PETSC_NULL);
   PetscOptionsInt("-temporal_solver", "choose timporal solver", "main.cpp", temporal_solver, &temporal_solver, PETSC_NULL);
   PetscOptionsInt("-stabilization_method", "choose stabilization method", "main.cpp", stabilization_method, &stabilization_method, PETSC_NULL);
+  PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
+  PetscOptionsInt("-n_links", "number of links in swimmer", "main.cpp", n_links, &n_links, PETSC_NULL);
 //PetscOptionsScalar("-Re", "Reynolds number", "main.cpp", Re, &Re, PETSC_NULL);
   PetscOptionsScalar("-dt", "time step", "main.cpp", dt, &dt, PETSC_NULL);
   PetscOptionsScalar("-utheta", "utheta value", "main.cpp", utheta, &utheta, PETSC_NULL);
@@ -672,6 +670,10 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
     is_sfim = PETSC_TRUE;
   }
 
+  if (n_links > 0){
+    is_sflp = PETSC_TRUE;
+  }
+
   if (dim == 2){
     if (quadr_degree_err > 10){
       cout << ">>> Exceeded maximum quadrature error order, setting it to 10" << endl;
@@ -825,10 +827,10 @@ void AppCtx::meshAliasesUpdate()
   n_cells  = mesh->numCells();
   n_facets = mesh->numFacets();
   n_corners= mesh->numCorners();
-  n_nodes_total  = mesh->numNodesTotal();   // includes disableds
-  n_cells_total  = mesh->numCellsTotal();   // includes disableds
-  n_facets_total = mesh->numFacetsTotal();  // includes disableds
-  n_corners_total= mesh->numCornersTotal(); // includes disableds
+  n_nodes_total  = mesh->numNodesTotal();   // includes disables
+  n_cells_total  = mesh->numCellsTotal();   // includes disables
+  n_facets_total = mesh->numFacetsTotal();  // includes disables
+  n_corners_total= mesh->numCornersTotal(); // includes disables
   nodes_per_cell  = mesh->numNodesPerCell();
   nodes_per_facet = mesh->numNodesPerFacet();
   nodes_per_corner= mesh->numNodesPerCorner();
@@ -975,7 +977,7 @@ void AppCtx::dofsUpdate()
   dof_handler[DH_UNKM].linkDofs(dofs1.size(), dofs1.data(), dofs2.data());
   n_unknowns_u = dof_handler[DH_UNKM].getVariable(VAR_U).numPositiveDofs();
   n_unknowns_p = dof_handler[DH_UNKM].getVariable(VAR_P).numPositiveDofs();
-  n_unknowns_z = N_Solids*LZ;
+  n_unknowns_z = N_Solids*LZ + n_links;
   //cout << n_unknowns_z << "   " <<  dof_handler[DH_UNKM].getVariable(VAR_Z).numPositiveDofs();
 
 //    dof_handler[DH_FOON].SetUp();
@@ -1008,16 +1010,16 @@ PetscErrorCode AppCtx::allocPetscObjs()
   ierr = VecSetFromOptions(Vec_res_fs);                                CHKERRQ(ierr);
 
   //Vec Vec_uzp_0;
-  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_0);                      CHKERRQ(ierr);
-  ierr = VecSetSizes(Vec_uzp_0, PETSC_DECIDE, n_unknowns_fs);          CHKERRQ(ierr);
-  ierr = VecSetFromOptions(Vec_uzp_0);                                 CHKERRQ(ierr);
-  ierr = VecSetOption(Vec_uzp_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_0);                               CHKERRQ(ierr);
+  ierr = VecSetSizes(Vec_uzp_0, PETSC_DECIDE, n_unknowns_fs);               CHKERRQ(ierr);
+  ierr = VecSetFromOptions(Vec_uzp_0);                                      CHKERRQ(ierr);
+  ierr = VecSetOption(Vec_uzp_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);   CHKERRQ(ierr);
 
   //Vec Vec_uzp_1;
-  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_1);                       CHKERRQ(ierr);
-  ierr = VecSetSizes(Vec_uzp_1, PETSC_DECIDE, n_unknowns_fs);           CHKERRQ(ierr);
-  ierr = VecSetFromOptions(Vec_uzp_1);                                  CHKERRQ(ierr);
-  ierr = VecSetOption(Vec_uzp_1, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_1);                           CHKERRQ(ierr);
+  ierr = VecSetSizes(Vec_uzp_1, PETSC_DECIDE, n_unknowns_fs);               CHKERRQ(ierr);
+  ierr = VecSetFromOptions(Vec_uzp_1);                                      CHKERRQ(ierr);
+  ierr = VecSetOption(Vec_uzp_1, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);   CHKERRQ(ierr);
 
   //Vec Vec_duzp;
   //ierr = VecCreate(PETSC_COMM_WORLD, &Vec_duzp);                       CHKERRQ(ierr);
@@ -1026,9 +1028,9 @@ PetscErrorCode AppCtx::allocPetscObjs()
   //ierr = VecSetOption(Vec_duzp, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
   //Vec Vec_uzp_m1;
-  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_m1);                       CHKERRQ(ierr);
-  ierr = VecSetSizes(Vec_uzp_m1, PETSC_DECIDE, n_unknowns_fs);           CHKERRQ(ierr);
-  ierr = VecSetFromOptions(Vec_uzp_m1);                                  CHKERRQ(ierr);
+  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_m1);                          CHKERRQ(ierr);
+  ierr = VecSetSizes(Vec_uzp_m1, PETSC_DECIDE, n_unknowns_fs);              CHKERRQ(ierr);
+  ierr = VecSetFromOptions(Vec_uzp_m1);                                     CHKERRQ(ierr);
   ierr = VecSetOption(Vec_uzp_m1, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
   if (is_bdf3)
@@ -1107,30 +1109,30 @@ PetscErrorCode AppCtx::allocPetscObjs()
   if (is_slipv)
   {
     //Vec Vec_slipvel_0;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_0);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_slipv_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_slipv_0);                          CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_slipv_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_0);                           CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_slipv_0, PETSC_DECIDE, n_dofs_v_mesh);               CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_slipv_0);                                      CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_slipv_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);   CHKERRQ(ierr);
 
     //Vec Vec_slipvel_1;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_1);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_slipv_1, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_slipv_1);                          CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_slipv_1, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_1);                           CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_slipv_1, PETSC_DECIDE, n_dofs_v_mesh);               CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_slipv_1);                                      CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_slipv_1, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);   CHKERRQ(ierr);
 
     //Vec Vec_slipvel_m1;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_m1);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_slipv_m1, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_slipv_m1);                          CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_m1);                          CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_slipv_m1, PETSC_DECIDE, n_dofs_v_mesh);              CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_slipv_m1);                                     CHKERRQ(ierr);
     ierr = VecSetOption(Vec_slipv_m1, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
     if (is_bdf3)
     {
       //Vec Vec_slipvel_m2;
-      ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_m2);               CHKERRQ(ierr);
-      ierr = VecSetSizes(Vec_slipv_m2, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-      ierr = VecSetFromOptions(Vec_slipv_m2);                          CHKERRQ(ierr);
-      ierr = VecSetOption(Vec_slipv_m2, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+      ierr = VecCreate(PETSC_COMM_WORLD, &Vec_slipv_m2);                        CHKERRQ(ierr);
+      ierr = VecSetSizes(Vec_slipv_m2, PETSC_DECIDE, n_dofs_v_mesh);            CHKERRQ(ierr);
+      ierr = VecSetFromOptions(Vec_slipv_m2);                                   CHKERRQ(ierr);
+      ierr = VecSetOption(Vec_slipv_m2, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);CHKERRQ(ierr);
     }
 
     //Vec Vec_uzp_1;
@@ -1142,9 +1144,9 @@ PetscErrorCode AppCtx::allocPetscObjs()
 
   if (time_adapt)
   {
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_time_aux);                      CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_uzp_time_aux, PETSC_DECIDE, n_unknowns_fs);          CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_uzp_time_aux);                                 CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_uzp_time_aux);                          CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_uzp_time_aux, PETSC_DECIDE, n_unknowns_fs);              CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_uzp_time_aux);                                     CHKERRQ(ierr);
     ierr = VecSetOption(Vec_uzp_time_aux, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
     ierr = VecCreate(PETSC_COMM_WORLD, &Vec_x_time_aux);                  CHKERRQ(ierr);
@@ -1225,19 +1227,19 @@ PetscErrorCode AppCtx::allocPetscObjs()
         nnz[i] = tabla[i].size();
   }
 
-    ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_fs);                                      CHKERRQ(ierr);
+    ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_fs);                                            CHKERRQ(ierr);
     ierr = MatSetSizes(Mat_Jac_fs, PETSC_DECIDE, PETSC_DECIDE, n_unknowns_fs, n_unknowns_fs);   CHKERRQ(ierr);
-    ierr = MatSetFromOptions(Mat_Jac_fs);                                                 CHKERRQ(ierr);
-    ierr = MatSeqAIJSetPreallocation(Mat_Jac_fs, 0, nnz.data());                          CHKERRQ(ierr);
-    ierr = MatSetOption(Mat_Jac_fs,MAT_NEW_NONZERO_ALLOCATION_ERR,PETSC_FALSE);           CHKERRQ(ierr);
+    ierr = MatSetFromOptions(Mat_Jac_fs);                                                       CHKERRQ(ierr);
+    ierr = MatSeqAIJSetPreallocation(Mat_Jac_fs, 0, nnz.data());                                CHKERRQ(ierr);
+    ierr = MatSetOption(Mat_Jac_fs,MAT_NEW_NONZERO_ALLOCATION_ERR,PETSC_FALSE);                 CHKERRQ(ierr);
 
-    ierr = SNESCreate(PETSC_COMM_WORLD, &snes_fs);                                        CHKERRQ(ierr);
-    ierr = SNESSetFunction(snes_fs, Vec_res_fs, FormFunction_fs, this);                   CHKERRQ(ierr);
-    ierr = SNESSetJacobian(snes_fs, Mat_Jac_fs, Mat_Jac_fs, FormJacobian_fs, this);       CHKERRQ(ierr);
-    ierr = SNESSetConvergenceTest(snes_fs,CheckSnesConvergence,this,PETSC_NULL);          CHKERRQ(ierr);
-    ierr = SNESGetKSP(snes_fs,&ksp_fs);                                                   CHKERRQ(ierr);
-    ierr = KSPGetPC(ksp_fs,&pc_fs);                                                       CHKERRQ(ierr);
-    ierr = KSPSetOperators(ksp_fs,Mat_Jac_fs,Mat_Jac_fs,SAME_NONZERO_PATTERN);            CHKERRQ(ierr);
+    ierr = SNESCreate(PETSC_COMM_WORLD, &snes_fs);                                              CHKERRQ(ierr);
+    ierr = SNESSetFunction(snes_fs, Vec_res_fs, FormFunction_fs, this);                         CHKERRQ(ierr);
+    ierr = SNESSetJacobian(snes_fs, Mat_Jac_fs, Mat_Jac_fs, FormJacobian_fs, this);             CHKERRQ(ierr);
+    ierr = SNESSetConvergenceTest(snes_fs,CheckSnesConvergence,this,PETSC_NULL);                CHKERRQ(ierr);
+    ierr = SNESGetKSP(snes_fs,&ksp_fs);                                                         CHKERRQ(ierr);
+    ierr = KSPGetPC(ksp_fs,&pc_fs);                                                             CHKERRQ(ierr);
+    ierr = KSPSetOperators(ksp_fs,Mat_Jac_fs,Mat_Jac_fs,SAME_NONZERO_PATTERN);                  CHKERRQ(ierr);
     ierr = SNESSetFromOptions(snes_fs); CHKERRQ(ierr);
     //cout << endl; ierr = SNESView(snes_fs, PETSC_VIEWER_STDOUT_WORLD);
 
@@ -1277,28 +1279,28 @@ PetscErrorCode AppCtx::allocPetscObjs()
         {nnz[i] = tabli[i].size();}  //cout << nnz[i] << " ";} //cout << endl;
     }
 
-    ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_s);                                     CHKERRQ(ierr);
-    ierr = MatSetType(Mat_Jac_s, MATSEQAIJ);                                            CHKERRQ(ierr);
-    ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, n_pho_dofs, n_pho_dofs);  CHKERRQ(ierr);
+    ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_s);                                         CHKERRQ(ierr);
+    ierr = MatSetType(Mat_Jac_s, MATSEQAIJ);                                                CHKERRQ(ierr);
+    ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, n_pho_dofs, n_pho_dofs);      CHKERRQ(ierr);
     //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*N_Solids, 2*dim*N_Solids);     CHKERRQ(ierr);
-    ierr = MatSeqAIJSetPreallocation(Mat_Jac_s,  0, nnz.data());                        CHKERRQ(ierr);
+    ierr = MatSeqAIJSetPreallocation(Mat_Jac_s,  0, nnz.data());                            CHKERRQ(ierr);
     //ierr = MatSetFromOptions(Mat_Jac_s);                                                CHKERRQ(ierr);
     //ierr = MatSeqAIJSetPreallocation(Mat_Jac_s, PETSC_DEFAULT, NULL);                   CHKERRQ(ierr);
-    ierr = MatSetOption(Mat_Jac_s,MAT_NEW_NONZERO_ALLOCATION_ERR,PETSC_FALSE);             CHKERRQ(ierr);
-    ierr = MatSetOption(Mat_Jac_s,MAT_SYMMETRIC,PETSC_TRUE);                               CHKERRQ(ierr);
+    ierr = MatSetOption(Mat_Jac_s,MAT_NEW_NONZERO_ALLOCATION_ERR,PETSC_FALSE);              CHKERRQ(ierr);
+    ierr = MatSetOption(Mat_Jac_s,MAT_SYMMETRIC,PETSC_TRUE);                                CHKERRQ(ierr);
 
-    ierr = SNESCreate(PETSC_COMM_WORLD, &snes_s);                                          CHKERRQ(ierr);
-    ierr = SNESSetFunction(snes_s, Vec_res_s, FormFunction_sqrm, this);                    CHKERRQ(ierr);
-    ierr = SNESSetJacobian(snes_s, Mat_Jac_s, Mat_Jac_s, FormJacobian_sqrm, this);         CHKERRQ(ierr);
+    ierr = SNESCreate(PETSC_COMM_WORLD, &snes_s);                                           CHKERRQ(ierr);
+    ierr = SNESSetFunction(snes_s, Vec_res_s, FormFunction_sqrm, this);                     CHKERRQ(ierr);
+    ierr = SNESSetJacobian(snes_s, Mat_Jac_s, Mat_Jac_s, FormJacobian_sqrm, this);          CHKERRQ(ierr);
     ierr = SNESGetLineSearch(snes_s,&linesearch_s);
     ierr = SNESLineSearchSetType(linesearch_s,SNESLINESEARCHBASIC);
-    ierr = SNESGetKSP(snes_s,&ksp_s);                                                   CHKERRQ(ierr);
-    ierr = KSPGetPC(ksp_s,&pc_s);                                                       CHKERRQ(ierr);
-    ierr = KSPSetOperators(ksp_s,Mat_Jac_s,Mat_Jac_s,SAME_NONZERO_PATTERN);             CHKERRQ(ierr);
-    ierr = KSPSetType(ksp_s,KSPPREONLY);                                                CHKERRQ(ierr);
-    ierr = PCSetType(pc_s,PCLU);                                                        CHKERRQ(ierr);
+    ierr = SNESGetKSP(snes_s,&ksp_s);                                                       CHKERRQ(ierr);
+    ierr = KSPGetPC(ksp_s,&pc_s);                                                           CHKERRQ(ierr);
+    ierr = KSPSetOperators(ksp_s,Mat_Jac_s,Mat_Jac_s,SAME_NONZERO_PATTERN);                 CHKERRQ(ierr);
+    ierr = KSPSetType(ksp_s,KSPPREONLY);                                                    CHKERRQ(ierr);
+    ierr = PCSetType(pc_s,PCLU);                                                            CHKERRQ(ierr);
     //ierr = SNESSetFromOptions(snes_s);                                                  CHKERRQ(ierr);
-    ierr = SNESSetType(snes_s, SNESKSPONLY);                                            CHKERRQ(ierr);
+    ierr = SNESSetType(snes_s, SNESKSPONLY);                                                CHKERRQ(ierr);
     //cout << endl; ierr = SNESView(snes_s, PETSC_VIEWER_STDOUT_WORLD);
     }
 
@@ -1308,19 +1310,19 @@ PetscErrorCode AppCtx::allocPetscObjs()
     //  ------------------------------------------------------------------
 
     //Vec Vec_Fdis_0;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_Fdis_0);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_Fdis_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_Fdis_0);                          CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_Fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_Fdis_0);                            CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_Fdis_0, PETSC_DECIDE, n_dofs_v_mesh);                CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_Fdis_0);                                       CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_Fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);    CHKERRQ(ierr);
 
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_Fdis);                CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_res_Fdis, PETSC_DECIDE, n_dofs_v_mesh);    CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_res_Fdis);                           CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_Fdis);                          CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_res_Fdis, PETSC_DECIDE, n_dofs_v_mesh);              CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_res_Fdis);                                     CHKERRQ(ierr);
 
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_ftau_0);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_ftau_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_ftau_0);                          CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_ftau_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_ftau_0);                            CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_ftau_0, PETSC_DECIDE, n_dofs_v_mesh);                CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_ftau_0);                                       CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_ftau_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);    CHKERRQ(ierr);
 
     nnz.clear();
     int n_fd_dofs = dof_handler[DH_MESH].numDofs();;
@@ -1745,6 +1747,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   Vector3d  Xg, XG_temp, Us;
   int       nod_id, nod_is, tag, nod_vs, nodsum;
   double    p_in;
+  vector<bool>   SV(N_Solids,false);  //solid visited history
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
   VecZeroEntries(Vec_v_1);
@@ -1787,12 +1790,11 @@ PetscErrorCode AppCtx::setInitialConditions()
   // compute mesh sizes
   getMeshSizes();
 
-  vector<bool>   SV(N_Solids,false);  //solid visited history
-
   if (is_sslv){
     calcSlipVelocity(Vec_x_1, Vec_slipv_0);
     //View(Vec_slipv_0,"matrizes/slv0.m","sl0");
   }
+
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // velocidade inicial e pressao inicial, guardados em Vec_uzp_0 //////////////////////////////////////////////////
   point_iterator point = mesh->pointBegin();
@@ -1877,14 +1879,16 @@ PetscErrorCode AppCtx::setInitialConditions()
       VecSetValues(Vec_uzp_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);  //cout << dofs.transpose() << endl;
       //VecSetValues(Vec_uzp_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
     }
-  } // end point loop //////////////////////////////////////////////////
+  }// end point loop //////////////////////////////////////////////////
 
-  View(Vec_x_0,"matrizes/xv0.m","x0");
-  if (is_sfip){View(Vec_slipv_0,"matrizes/sv0.m","s0");}
-  View(Vec_tangent,"matrizes/tv0.m","t0");
-  View(Vec_normal,"matrizes/nr0.m","n0");
-  if (true) {getFromBSV();}  //to calculate the analytical squirmer velocity
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  if (false){//saving matlab matrices
+    View(Vec_x_0,"matrizes/xv0.m","x0");
+    if (is_sfip){View(Vec_slipv_0,"matrizes/sv0.m","s0");}
+    View(Vec_tangent,"matrizes/tv0.m","t0");
+    View(Vec_normal,"matrizes/nr0.m","n0");
+    if (true) {getFromBSV();}  //to calculate the analytical squirmer velocity
+  }
+  //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   //Assembly(Vec_uzp_0);  View(Vec_uzp_0,"matrizes/vuzp0.m","vuzp0m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
   //Assembly(Vec_slipv_0);  View(Vec_slipv_0,"matrizes/slip0.m","slipm");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
@@ -1892,7 +1896,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   //VecCopy(Vec_uzp_0,Vec_uzp_m1); //This to save the uzp_0 temporarily in uzp_m1
   VecCopy(Vec_slipv_0, Vec_slipv_1);
 
-  //Plot initial conditions, initial mesh velocity = 0, initial slip velocity distribution
+  //Plot initial conditions, initial mesh velocity = 0, initial slip velocity distribution//////////////////////////////////////////////////
   if (family_files){plotFiles();}
   //Print mech. dofs info
   sprintf(gravc,"%s/HistGrav.txt",filehist_out.c_str());
@@ -1904,8 +1908,10 @@ PetscErrorCode AppCtx::setInitialConditions()
     filv.close();
   }
   saveDOFSinfo();
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  for (int pic = 0; pic < PI; pic++) // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
+  // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
+  for (int pic = 0; pic < PI; pic++)
   {
     printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
 
@@ -3746,13 +3752,13 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
 
 Tensor AppCtx::grad_u_exacta(Vector const& X, double t, int tag)
 {
-  double r, z, rb, thetab;
+  double r, z, /*rb,*/ thetab;
   Tensor dxU(Tensor::Zero(dim,dim));
   Vector Xc(2), Y(2);
   Xc << XG_0[0](0), XG_0[0](1);
   Y = X - Xc;
   r = Y(0); z = Y(1);
-  rb  = sqrt(r*r+z*z);
+  //rb  = sqrt(r*r+z*z);
   thetab = atan2(Y(1),Y(0))+pi/2.0;
   dxU(0,0) = -(1.0/3.0)*sin(thetab) * (-z)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
              +(1.0/3.0)*cos(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*r) * (-r)
@@ -4190,6 +4196,46 @@ Vector AppCtx::BFields_from_file(int pID, int opt)
   return VR;
 }
 
+void AppCtx::printProblemInfo(){
+  cout << endl; cout << "mesh: " << filename << endl;
+  if (is_curvt) {cout << "\n2D curved triangle\n";}
+  mesh->printInfo();
+  cout << "\n# velocity unknowns: " << n_unknowns_u;
+  cout << "\n# pressure unknowns: " << n_unknowns_p << " = "
+                                    << mesh->numVertices() << " + " << n_unknowns_p-mesh->numVertices();
+//  cout << "\n# total unknowns: " << n_unknowns << end;
+  if (N_Solids){
+    cout << "\n# velocity fluid only unknowns: " << n_unknowns_u - dim*(n_nodes_so+n_nodes_fsi+n_nodes_sv);
+    cout << "\n# velocity solid only unknowns: " << n_nodes_so*dim;
+    cout << "\n# velocity solid intf unknowns: " << n_unknowns_z << " (" <<
+                                                   (n_nodes_fsi+n_nodes_sv) << ") = " <<
+                                                   n_unknowns_z*(n_nodes_fsi+n_nodes_sv);
+    cout << "\n# total unknowns: " << n_unknowns_fs << " = " << n_unknowns_fs - dim*(n_nodes_fsi+n_nodes_sv)
+                                                         << " + " << dim*(n_nodes_fsi+n_nodes_sv);
+    cout << "\n# solids: " << N_Solids << endl;
+    cout << "  unknowns distribution: " << 0 << "-" << n_unknowns_u-1 <<
+            ", " << n_unknowns_u << "-" << n_unknowns_u + n_unknowns_p - 1 <<
+            ", " << n_unknowns_u + n_unknowns_p << "-"  << n_unknowns_u + n_unknowns_p +
+                                                                     n_unknowns_z - 1;
+    //if (is_unksv){
+    //cout << ", " << n_unknowns_ups << "-"  << n_unknowns_ups + n_unknowns_u - 1;
+    //}
+  }
+  cout << endl;
+  mesh->printStatistics();
+  mesh->timer.printTimes();
+  cout << endl;
+  if (N_Solids){
+    cout << "flusoli_tags (body Neumann tags) = ";
+    if ((int)flusoli_tags.size() > 0){cout << flusoli_tags[0] << " - " << flusoli_tags[(int)flusoli_tags.size()-1] << endl;}
+    else {cout << "No tags" << endl;}
+    cout << "slipvel_tags (body Dirichlet tags) = ";
+    if ((int)slipvel_tags.size() > 0){cout << slipvel_tags[0] << " - " << slipvel_tags[(int)slipvel_tags.size()-1] << endl;}
+    else {cout << "No tags" << endl;}
+    cout << endl;
+  }
+}
+
 void AppCtx::freePetscObjs()
 {
   Destroy(Mat_Jac_fs); //Destroy(Mat_Jac);
@@ -4352,19 +4398,18 @@ double GetDataSlipVel::get_data_r(int nodeid) const
 
 int main(int argc, char **argv)
 {
-
+  // initialization treatment //////////////////////////////////////////////////
+  printf("FEPICpp version...\n");
   PetscInitialize(&argc,&argv,PETSC_NULL,PETSC_NULL);
 
-  bool help_return;
-  bool erro;
+  bool help_return, erro;
   AppCtx user(argc, argv, help_return, erro);
-
   if (help_return)
     return 0;
-
   if (erro)
     return 1;
 
+  // if parallel //////////////////////////////////////////////////
 #ifdef FEP_HAS_OPENMP
   {
     int nthreads = 0;
@@ -4382,59 +4427,17 @@ int main(int argc, char **argv)
   }
 #endif
 
+  // mesh and dofs treatment //////////////////////////////////////////////////
   user.loadMesh();
   user.loadDofs();  //counts dofs for U,P,V in cell, facet, corner
   user.evaluateQuadraturePts();
-
   erro = user.err_checks(); if (erro) return 1;
 
-  // print info
-  cout << endl; cout << "mesh: " << user.filename << endl;
-  if (user.is_curvt) {cout << "\n2D curved triangle\n";}
-  user.mesh->printInfo();
-  cout << "\n# velocity unknowns: " << user.n_unknowns_u;
-  cout << "\n# pressure unknowns: " << user.n_unknowns_p << " = "
-                                    << user.mesh->numVertices() << " + " << user.n_unknowns_p-user.mesh->numVertices();
-//  cout << "\n# total unknowns: " << user.n_unknowns << end;
-  if (user.N_Solids){
-    cout << "\n# velocity fluid only unknowns: " << user.n_unknowns_u - user.dim*(user.n_nodes_so+user.n_nodes_fsi+user.n_nodes_sv);
-    cout << "\n# velocity solid only unknowns: " << user.n_nodes_so*user.dim;
-    cout << "\n# velocity solid intf unknowns: " << user.n_unknowns_z << " (" <<
-    		                                       (user.n_nodes_fsi+user.n_nodes_sv) << ") = " <<
-    		                                       user.n_unknowns_z*(user.n_nodes_fsi+user.n_nodes_sv);
-    cout << "\n# total unknowns: " << user.n_unknowns_fs << " = " << user.n_unknowns_fs - user.dim*(user.n_nodes_fsi+user.n_nodes_sv)
-                                                         << " + " << user.dim*(user.n_nodes_fsi+user.n_nodes_sv);
-    cout << "\n# solids: " << user.N_Solids << endl;
-    cout << "  unknowns distribution: " << 0 << "-" << user.n_unknowns_u-1 <<
-    		", " << user.n_unknowns_u << "-" << user.n_unknowns_u + user.n_unknowns_p - 1 <<
-			", " << user.n_unknowns_u + user.n_unknowns_p << "-"  << user.n_unknowns_u + user.n_unknowns_p +
-			                                                         user.n_unknowns_z - 1;
-    //if (user.is_unksv){
-    //cout << ", " << user.n_unknowns_ups << "-"  << user.n_unknowns_ups + user.n_unknowns_u - 1;
-    //}
-  }
-  cout << endl;
-  user.mesh->printStatistics();
-  user.mesh->timer.printTimes();
+  // print info //////////////////////////////////////////////////
+  user.printProblemInfo();
+  user.onUpdateMesh();  //allocates Petsc objects as well as the matrix (jacobian) of the system (coloring)
 
-  cout << endl;
-  if (user.N_Solids){
-    cout << "flusoli_tags (body Neumann tags) = ";
-    if ((int)user.flusoli_tags.size() > 0){cout << user.flusoli_tags[0] << " - " << user.flusoli_tags[(int)user.flusoli_tags.size()-1] << endl;}
-    else {cout << "No tags" << endl;}
-    cout << "slipvel_tags (body Dirichlet tags) = ";
-    if ((int)user.slipvel_tags.size() > 0){cout << user.slipvel_tags[0] << " - " << user.slipvel_tags[(int)user.slipvel_tags.size()-1] << endl;}
-    else {cout << "No tags" << endl;}
-    //for (int i = 0; i < (int)user.flusoli_tags.size(); ++i)
-    //{
-    //  cout << user.flusoli_tags[i] << " ";
-    //}
-  cout << endl;
-  }
-
-  //printf("on update mesh\n");
-  user.onUpdateMesh();
-
+  // solve time problem //////////////////////////////////////////////////
   user.solveTimeProblem();
 
   cout << "\n";

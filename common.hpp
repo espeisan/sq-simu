@@ -545,6 +545,7 @@ public:
   Vector u_exacta(Vector const& X, double t, int tag);
   Tensor grad_u_exacta(Vector const& X, double t, int tag);
   void computeForces(Vec const& Vec_x, Vec &Vec_up);
+  void printProblemInfo();
   //void printContactAngle(bool _print);
 
   void computeError(Vec const& Vec_x, Vec &Vec_up_1, double tt);
@@ -574,7 +575,6 @@ public:
   int         mesh_cell_type;   // ECellType
   int         function_space;  // P1P1, P2P1, P2P0, etc ...
   int         behaviors;
-  int         n_modes;
   int         converged_times, PI, PIs;
   int         maxts;
   int         quadr_degree_cell;
@@ -585,6 +585,8 @@ public:
   int         stabilization_method;
   int         st_met;
   int         st_vis;
+  int         n_modes;
+  int         n_links;
   //double      Re;
   PetscBool   has_convec;
   PetscBool   unsteady;
@@ -611,9 +613,10 @@ public:
   PetscBool   is_bdf_extrap_cte;
   PetscBool   is_basic;
   PetscBool   is_slipv;
-  PetscBool   is_sslv;
-  PetscBool   is_sfip;
-  PetscBool   is_sfim;
+  PetscBool   is_sslv;              //is solve slip velocity problem from phoresis
+  PetscBool   is_sfip;              //is SFI problem
+  PetscBool   is_sfim;              //is SFI modes problem
+  PetscBool   is_sflp;              //is SFI links problem
   PetscBool   is_curvt;
   PetscBool   is_mr;
   PetscBool   is_axis;

@@ -960,8 +960,8 @@ PetscErrorCode AppCtx::meshAdapt()
 
     int n_solid_nodes_0 = dof_handler_tmp[DH_UNKM].getVariable(VAR_Z).numPositiveDofs()/3;
     int n_solid_nodes_1 = dof_handler    [DH_UNKM].getVariable(VAR_Z).numPositiveDofs()/3;
-    int p_id_cor_0 = 3*(n_solid_nodes_0-N_Solids);
-    int p_id_cor_1 = 3*(n_solid_nodes_1-N_Solids);
+    int p_id_cor_0 = 3*(n_solid_nodes_0-n_solids);
+    int p_id_cor_1 = 3*(n_solid_nodes_1-n_solids);
     //cout << n_solid_nodes_0 << " " << n_solid_nodes_1 << endl;
 
     Vec *petsc_vecs[] = {&Vec_uzp_0, &Vec_uzp_1, &Vec_x_0, &Vec_x_1}; //Vec *petsc_vecs[] = {&Vec_up_0, &Vec_up_1, &Vec_x_0, &Vec_x_1};
@@ -1369,7 +1369,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
     Vector      tmp(dim), tmp_fs(LZ), tmp_n(dim);
     Vector      k1(dim),k2(dim),k3(dim),k4(dim); //  RK4
 
-    std::vector<bool>   SV(N_Solids,false);  //solid visited history
+    std::vector<bool>   SV(n_solids,false);  //solid visited history
 
     point_iterator point = mesh->pointBegin();
     point_iterator point_end = mesh->pointEnd();
@@ -1569,7 +1569,7 @@ PetscErrorCode AppCtx::updateSolidMesh()
   VectorXi  dofs(dim), dofs_fs(LZ), dofs_U(dim);
   Vector3d  X0(Vector3d::Zero(3)), Vs(Vector3d::Zero(3));
   Vector    Zf(Vector::Zero(LZ)), Uf(dim), U(dim), VS(dim);
-  vector<bool>   SV(N_Solids,false);  //solid visited history
+  vector<bool>   SV(n_solids,false);  //solid visited history
   Vector3d  Xg, XG_temp, Us;
 
   point_iterator point = mesh->pointBegin();
@@ -1854,7 +1854,7 @@ double AppCtx::sizeField(double *coords)
 {
   double Lc = 0, dist = 1.0, L_range = 10*h_star;
   Vector3d Xg;
-  for(int i = 0; i < N_Solids; i++)
+  for(int i = 0; i < n_solids; i++)
   {
     Xg = XG_1[i];
     double d = sqrt(pow(coords[0]-Xg(0), 2.0)+pow(coords[1]-Xg(1), 2.0));
@@ -1886,7 +1886,7 @@ double AppCtx::sizeField_s(Vector coords)
 {
   double Lc = 0, dist = 1.0, L_range = 10*h_star;
   Vector3d Xg, C(Vector3d::Zero(3));
-  for(int i = 0; i < N_Solids; i++)
+  for(int i = 0; i < n_solids; i++)
   {
     Xg = XG_1[i];
     C(0) = coords(0); C(1) = coords(1);
@@ -2158,7 +2158,7 @@ PetscErrorCode AppCtx::meshAdapt_l()
         ierr = VecSetOption(*petsc_vecs[v],VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
       }
 
-      std::vector<bool>   SV(N_Solids,false);  //solid visited history
+      std::vector<bool>   SV(n_solids,false);  //solid visited history
       int tagP, nod_id, dofs_fs_0, dofs_fs_1, nod_vs, nodsum;
 
       int dofs_0[64]; // old
@@ -2316,11 +2316,11 @@ PetscErrorCode AppCtx::meshAdapt_l()
   std::vector<int> nnz;
 
   {
-    nnz.resize(dof_handler[DH_UNKM].numDofs()+N_Solids*LZ,0);
+    nnz.resize(dof_handler[DH_UNKM].numDofs()+n_solids*LZ,0);
     std::vector<SetVector<int> > tabla;
     dof_handler[DH_UNKM].getSparsityTable(tabla); // TODO: melhorar desempenho, função mt lenta
     //FEP_PRAGMA_OMP(parallel for)
-     for (int i = 0; i < n_unknowns_fs - N_Solids*LZ; ++i)
+     for (int i = 0; i < n_unknowns_fs - n_solids*LZ; ++i)
        nnz[i] = tabla[i].size();
   }
 
@@ -2966,7 +2966,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
         ierr = VecSetOption(*petsc_vecs[v],VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
       }
 
-      std::vector<bool>   SV(N_Solids,false);  //solid visited history
+      std::vector<bool>   SV(n_solids,false);  //solid visited history
       int tagP, nod_id, dofs_fs_0, dofs_fs_1, nod_vs, nodsum;
 
       int dofs_0[64]; // old
@@ -3124,11 +3124,11 @@ PetscErrorCode AppCtx::meshAdapt_s()
   std::vector<int> nnz;
 
   {
-    nnz.resize(dof_handler[DH_UNKM].numDofs()+N_Solids*LZ,0);
+    nnz.resize(dof_handler[DH_UNKM].numDofs()+n_solids*LZ,0);
     std::vector<SetVector<int> > tabla;
     dof_handler[DH_UNKM].getSparsityTable(tabla); // TODO: melhorar desempenho, função mt lenta
     //FEP_PRAGMA_OMP(parallel for)
-      for (int i = 0; i < n_unknowns_fs - N_Solids*LZ; ++i)
+      for (int i = 0; i < n_unknowns_fs - n_solids*LZ; ++i)
         nnz[i] = tabla[i].size();
   }
 
@@ -3271,7 +3271,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_fd);                                     CHKERRQ(ierr);
     ierr = MatSetType(Mat_Jac_fd, MATSEQAIJ);                                            CHKERRQ(ierr);
     ierr = MatSetSizes(Mat_Jac_fd, PETSC_DECIDE, PETSC_DECIDE, n_fd_dofs, n_fd_dofs);    CHKERRQ(ierr);
-    //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*N_Solids, 2*dim*N_Solids);     CHKERRQ(ierr);
+    //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*n_solids, 2*dim*n_solids);     CHKERRQ(ierr);
     ierr = MatSeqAIJSetPreallocation(Mat_Jac_fd,  0, nnz.data());                        CHKERRQ(ierr);
     //ierr = MatSetFromOptions(Mat_Jac_s);                                                CHKERRQ(ierr);
     //ierr = MatSeqAIJSetPreallocation(Mat_Jac_s, PETSC_DEFAULT, NULL);                   CHKERRQ(ierr);

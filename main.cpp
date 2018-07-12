@@ -200,6 +200,7 @@ void AppCtx::setUpDefaultOptions()
   n_unknowns_ups         = 0;
   n_modes                = 0;
   n_links                = 0;
+  n_groups               = 0;
   family_files           = PETSC_TRUE;
   has_convec             = PETSC_TRUE;
   renumber_dofs          = PETSC_FALSE;
@@ -223,7 +224,8 @@ void AppCtx::setUpDefaultOptions()
   plot_exact_sol         = PETSC_FALSE;
   unsteady               = PETSC_TRUE;
   boundary_smoothing     = PETSC_TRUE;
-  dup_press_nod          = PETSC_TRUE;
+  dup_press_nod          = PETSC_FALSE;
+  s_dofs_elim            = PETSC_FALSE;
 
   is_mr_ab           = PETSC_FALSE;
   is_bdf3            = PETSC_FALSE;
@@ -291,6 +293,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-stabilization_method", "choose stabilization method", "main.cpp", stabilization_method, &stabilization_method, PETSC_NULL);
   PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
   PetscOptionsInt("-n_links", "number of links in swimmer", "main.cpp", n_links, &n_links, PETSC_NULL);
+  PetscOptionsInt("-n_groups", "number of groups swimmers", "main.cpp", n_groups, &n_groups, PETSC_NULL);
 //PetscOptionsScalar("-Re", "Reynolds number", "main.cpp", Re, &Re, PETSC_NULL);
   PetscOptionsScalar("-dt", "time step", "main.cpp", dt, &dt, PETSC_NULL);
   PetscOptionsScalar("-utheta", "utheta value", "main.cpp", utheta, &utheta, PETSC_NULL);
@@ -319,6 +322,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsBool("-curved_trian", "enable curved elements", "main.cpp", is_curvt, &is_curvt, PETSC_NULL);
   PetscOptionsBool("-solve_coupled_slip_velocity", "solve the slip velocity coupled with the UPS problem", "main.cpp", is_unksv, &is_unksv, PETSC_NULL);
   PetscOptionsBool("-use_exact_normal", "use exact solid normal", "main.cpp", exact_normal, &exact_normal, PETSC_NULL);
+  PetscOptionsBool("-solid_dofs_elimination", "eliminate solid dofs controlled by a condition function", "main.cpp", s_dofs_elim, &s_dofs_elim, PETSC_NULL);
   PetscOptionsBool("-ale", "mesh movement", "main.cpp", ale, &ale, PETSC_NULL);
   PetscOptionsGetString(PETSC_NULL,"-fin",finaux,PETSC_MAX_PATH_LEN-1,&flg_fin);
   PetscOptionsGetString(PETSC_NULL,"-fout",foutaux,PETSC_MAX_PATH_LEN-1,&flg_fout);
@@ -451,7 +455,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
     {solidonly_tags.resize(nmax); is_sfip = PETSC_TRUE; is_slipv = PETSC_TRUE;}
   else
     {solidonly_tags.clear(); is_sfip = PETSC_FALSE; is_slipv = PETSC_FALSE;}
-  N_Solids = solidonly_tags.size();
+  n_solids = solidonly_tags.size();
   LZ = dim*(dim+1)/2 + n_modes; //3*(dim-1);
 
   flusoli_tags.resize(1e8);  //cout << flusol_tags.max_size() << endl;
@@ -547,27 +551,41 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
 
   if (flg_min){
     filemass.assign(minaux);
-    int N = N_Solids;
-    double mass = 0.0, rad1 = 0.0, rad2 = 0.0, rad3 = 0.0, vol = 0.0, the = 0.0, xg = 0.0, yg = 0.0, zg = 0.0;
+    int N = n_solids;
+    double mass = 0.0, rad1 = 0.0, rad2 = 0.0, rad3 = 0.0, vol = 0.0, the = 0.0, xg = 0.0, yg = 0.0, zg = 0.0, llin = 0.0;
     Vector3d Xg, rad;
     ifstream is;
     is.open(filemass.c_str(),ifstream::in);
     if (!is.good()) {cout << "mass file not found" << endl; throw;}
-    else {cout << "mass file format: mass volume radius(ellipsoidal case 2D or 3D) init.angle init.center" << endl;}
+    else {
+      cout << "mass file format: mass volume radius(ellipsoidal case 2D or 3D) init.angle init.center";
+      if (n_modes > 0) {cout << " modes";}
+      if (n_links > 0) {cout << " max_link_length";}
+      cout << endl;
+    }
     for (; N > 0; N--){
-      is >> mass; is >> vol;
-      is >> rad1; is >> rad2; if(dim == 3){is >> rad3;} is >> the;
+      is >> mass;
+      is >> vol;
+      is >> rad1; is >> rad2; if(dim == 3){is >> rad3;}
+      is >> the;
       is >> xg; is >> yg; if(dim == 3){is >> zg;}
+      if(n_modes > 0){
+        for (int nm = 0; nm < n_modes; nm++){}//TODO: modes
+      }
+      if(n_links > 0){is >> llin;}
       rad << rad1, rad2, rad3;
       Xg << xg, yg, zg;
       MV.push_back(mass); RV.push_back(rad); VV.push_back(vol);
-      XG_1.push_back(Xg); XG_0.push_back(Xg); XG_aux.push_back(Xg); XG_ini.push_back(Xg);
-      theta_1.push_back(the); theta_0.push_back(the); theta_aux.push_back(the); theta_ini.push_back(the); //(rand()%6);
+      XG_0.push_back(Xg);      XG_1.push_back(Xg);      XG_aux.push_back(Xg);      XG_ini.push_back(Xg);
+      theta_0.push_back(the);  theta_1.push_back(the);  theta_aux.push_back(the);  theta_ini.push_back(the); //(rand()%6);
+      llink_0.push_back(llin); llink_1.push_back(llin); llink_aux.push_back(llin); llink_ini.push_back(llin); //(rand()%6);
+      //LV.push_back(linkmax);
     }
     is.close();
-    MV.resize(N_Solids); RV.resize(N_Solids); VV.resize(N_Solids);
-    XG_1.resize(N_Solids); XG_0.resize(N_Solids); XG_aux.resize(N_Solids); XG_ini.resize(N_Solids);
-    theta_1.resize(N_Solids); theta_0.resize(N_Solids); theta_aux.resize(N_Solids); theta_ini.resize(N_Solids);
+    MV.resize(n_solids); RV.resize(n_solids); VV.resize(n_solids);
+    XG_0.resize(n_solids);    XG_1.resize(n_solids);    XG_aux.resize(n_solids);    XG_ini.resize(n_solids);
+    theta_0.resize(n_solids); theta_1.resize(n_solids); theta_aux.resize(n_solids); theta_ini.resize(n_solids);
+    llink_0.resize(n_solids); llink_1.resize(n_solids); llink_aux.resize(n_solids); llink_ini.resize(n_solids);
   }
 
   if (flg_sin){
@@ -672,6 +690,9 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
 
   if (n_links > 0){
     is_sflp = PETSC_TRUE;
+    if (n_groups > 0){
+      ebref.resize(n_groups);
+    }
   }
 
   if (dim == 2){
@@ -904,7 +925,7 @@ void AppCtx::dofsUpdate()
   n_nodes_fsi = 0; n_nodes_fo = 0; n_nodes_so = 0; n_nodes_sv = 0;
   std::vector<int> dofs1;
   std::vector<int> dofs2;
-  NN_Solids.assign(N_Solids,0);
+  NN_Solids.assign(n_solids,0);
   int tag, nod_id;
 
   int dofs_a[10];
@@ -977,14 +998,14 @@ void AppCtx::dofsUpdate()
   dof_handler[DH_UNKM].linkDofs(dofs1.size(), dofs1.data(), dofs2.data());
   n_unknowns_u = dof_handler[DH_UNKM].getVariable(VAR_U).numPositiveDofs();
   n_unknowns_p = dof_handler[DH_UNKM].getVariable(VAR_P).numPositiveDofs();
-  n_unknowns_z = N_Solids*LZ + n_links;
+  n_unknowns_z = n_solids*LZ;
   //cout << n_unknowns_z << "   " <<  dof_handler[DH_UNKM].getVariable(VAR_Z).numPositiveDofs();
 
 //    dof_handler[DH_FOON].SetUp();
 //    n_unknowns_f = dof_handler[DH_FOON].getVariable(VAR_F).numPositiveDofs();
 //    n_unknowns_s = dof_handler[DH_FOON].getVariable(VAR_S).numPositiveDofs();
 
-  n_unknowns_fs = n_unknowns_u + n_unknowns_p + n_unknowns_z; //- dim*n_nodes_fsi;
+  n_unknowns_fs = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + n_links; //- dim*n_nodes_fsi;
   //if (is_unksv){
   //  n_unknowns_ups = n_unknowns_fs;
   //  n_unknowns_fs += n_unknowns_u;
@@ -1219,11 +1240,11 @@ PetscErrorCode AppCtx::allocPetscObjs()
 
   nnz.clear();
   {
-    nnz.resize(n_unknowns_fs /*dof_handler[DH_UNKM].numDofs()+N_Solids*LZ*/,0);
+    nnz.resize(n_unknowns_fs /*dof_handler[DH_UNKM].numDofs()+n_solids*LZ*/,0);
     std::vector<SetVector<int> > tabla;
     dof_handler[DH_UNKM].getSparsityTable(tabla); // TODO: melhorar desempenho, função mt lenta
     //FEP_PRAGMA_OMP(parallel for)
-      for (int i = 0; i < n_unknowns_u + n_unknowns_p /*n_unknowns_fs - N_Solids*LZ*/; ++i)
+      for (int i = 0; i < n_unknowns_u + n_unknowns_p /*n_unknowns_fs - n_solids*LZ*/; ++i)
         nnz[i] = tabla[i].size();
   }
 
@@ -1282,7 +1303,7 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_s);                                         CHKERRQ(ierr);
     ierr = MatSetType(Mat_Jac_s, MATSEQAIJ);                                                CHKERRQ(ierr);
     ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, n_pho_dofs, n_pho_dofs);      CHKERRQ(ierr);
-    //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*N_Solids, 2*dim*N_Solids);     CHKERRQ(ierr);
+    //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*n_solids, 2*dim*n_solids);     CHKERRQ(ierr);
     ierr = MatSeqAIJSetPreallocation(Mat_Jac_s,  0, nnz.data());                            CHKERRQ(ierr);
     //ierr = MatSetFromOptions(Mat_Jac_s);                                                CHKERRQ(ierr);
     //ierr = MatSeqAIJSetPreallocation(Mat_Jac_s, PETSC_DEFAULT, NULL);                   CHKERRQ(ierr);
@@ -1340,7 +1361,7 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = MatCreate(PETSC_COMM_WORLD, &Mat_Jac_fd);                                     CHKERRQ(ierr);
     ierr = MatSetType(Mat_Jac_fd, MATSEQAIJ);                                            CHKERRQ(ierr);
     ierr = MatSetSizes(Mat_Jac_fd, PETSC_DECIDE, PETSC_DECIDE, n_fd_dofs, n_fd_dofs);    CHKERRQ(ierr);
-    //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*N_Solids, 2*dim*N_Solids);     CHKERRQ(ierr);
+    //ierr = MatSetSizes(Mat_Jac_s, PETSC_DECIDE, PETSC_DECIDE, 2*dim*n_solids, 2*dim*n_solids);     CHKERRQ(ierr);
     ierr = MatSeqAIJSetPreallocation(Mat_Jac_fd,  0, nnz.data());                        CHKERRQ(ierr);
     //ierr = MatSetFromOptions(Mat_Jac_s);                                                CHKERRQ(ierr);
     //ierr = MatSeqAIJSetPreallocation(Mat_Jac_s, PETSC_DEFAULT, NULL);                   CHKERRQ(ierr);
@@ -1392,7 +1413,7 @@ void AppCtx::matrixColoring()
   MatrixXd Z4fsloc = MatrixXd::Zero(nodes_per_cell*LZ,n_dofs_p_per_cell);
   MatrixXd Z5fsloc = MatrixXd::Zero(n_dofs_p_per_cell,nodes_per_cell*LZ);
 
-  std::vector<bool>   SV(N_Solids,false);  //solid visited history
+  std::vector<bool>   SV(n_solids,false);  //solid visited history
   bool                SFI = false;         //solid-fluid interception
 
   cell_iterator cell = mesh->cellBegin();
@@ -1744,10 +1765,11 @@ PetscErrorCode AppCtx::setInitialConditions()
   Tensor    R(dim,dim);
   VectorXi  dofs(dim), dofs_mesh(dim);  //global components unknowns enumeration from point dofs
   VectorXi  dofs_fs(LZ);
-  Vector3d  Xg, XG_temp, Us;
-  int       nod_id, nod_is, tag, nod_vs, nodsum;
-  double    p_in;
-  vector<bool>   SV(N_Solids,false);  //solid visited history
+  Vector3d  Xg, XG_temp, Us, eref;
+  int       nod_id, nod_is, tag, nod_vs, nodsum, dofs_sl;
+  double    p_in, link_vel;
+  vector<bool>        SV(n_solids,false);  //solid visited history
+  std::vector<double> dllink;
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
   VecZeroEntries(Vec_v_1);
@@ -1794,9 +1816,23 @@ PetscErrorCode AppCtx::setInitialConditions()
     calcSlipVelocity(Vec_x_1, Vec_slipv_0);
     //View(Vec_slipv_0,"matrizes/slv0.m","sl0");
   }
+  if (is_sflp){
+    //eref(0) = XG_ini[1](0) - XG_ini[0](0);
+    //eref(1) = XG_ini[1](1) - XG_ini[0](1);
+    eref = XG_0[1] - XG_0[0];
+    eref.normalize();  cout << eref.transpose() << endl;
+    ebref[0] = eref;
+
+    for (int nl = 0; nl < n_links; nl++){
+      link_vel = DFlink(current_time, nl);
+      dllink.push_back(link_vel);
+      cout << Flink(current_time, nl) << "   " << DFlink(current_time, nl) << endl;
+    }
+    dllink.resize(n_links);
+  }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // velocidade inicial e pressao inicial, guardados em Vec_uzp_0 //////////////////////////////////////////////////
+  // initial velocity and initial pressure, saved in Vec_uzp_0 //////////////////////////////////////////////////
   point_iterator point = mesh->pointBegin();
   point_iterator point_end = mesh->pointEnd();
   for (; point != point_end; ++point)
@@ -1818,8 +1854,8 @@ PetscErrorCode AppCtx::setInitialConditions()
     nod_vs = is_in_id(tag,slipvel_tags);
     nodsum = nod_id+nod_is+nod_vs;
     if (nodsum){//initial conditions coming from solid bodies
-      Zf = z_initial(X, tag);
-      Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);
+      Zf = z_initial(X, tag);  //first part of dofs vector q
+      Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
       //VecSetValues(Vec_uzp_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
       if (nod_vs+nod_id){  //ojo antes solo nod_vs
         getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
@@ -1881,16 +1917,24 @@ PetscErrorCode AppCtx::setInitialConditions()
     }
   }// end point loop //////////////////////////////////////////////////
 
+  if (is_sflp){
+    for (int nl = 0; nl < n_links; nl++){
+      dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
+      link_vel = DFlink(current_time,nl);
+      VecSetValue(Vec_uzp_0, dofs_sl, link_vel, INSERT_VALUES);
+    }
+  }
+
   if (false){//saving matlab matrices
     View(Vec_x_0,"matrizes/xv0.m","x0");
     if (is_sfip){View(Vec_slipv_0,"matrizes/sv0.m","s0");}
     View(Vec_tangent,"matrizes/tv0.m","t0");
     View(Vec_normal,"matrizes/nr0.m","n0");
+    Assembly(Vec_uzp_0);  View(Vec_uzp_0,"matrizes/vuzp0.m","vuzp0m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
     if (true) {getFromBSV();}  //to calculate the analytical squirmer velocity
   }
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  //Assembly(Vec_uzp_0);  View(Vec_uzp_0,"matrizes/vuzp0.m","vuzp0m");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
   //Assembly(Vec_slipv_0);  View(Vec_slipv_0,"matrizes/slip0.m","slipm");//VecView(Vec_uzp_0,PETSC_VIEWER_STDOUT_WORLD);
   VecCopy(Vec_uzp_0,Vec_uzp_1);  //PetscInt size1; //u_unk+z_unk+p_unk //VecGetSize(Vec_up_0,&size1);
   //VecCopy(Vec_uzp_0,Vec_uzp_m1); //This to save the uzp_0 temporarily in uzp_m1
@@ -2076,7 +2120,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   }
   cout << endl;
   cout.precision(15);
-  for (int K = 0; K < N_Solids; K++){
+  for (int K = 0; K < n_solids; K++){
     cout << K+1 << ": volume = " << VV[K] <<  "; center of mass = " << XG_0[K].transpose() << "; inertia tensor = " << endl;
     cout << InTen[K] << endl;
   }
@@ -2198,8 +2242,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
   //print solid's center information
   //ofstream filg, filv;
   //Vector3d Xgg;
-  //VectorXd v_coeffs_s(LZ*N_Solids);
-  //VectorXi mapvs(LZ*N_Solids);
+  //VectorXd v_coeffs_s(LZ*n_solids);
+  //VectorXi mapvs(LZ*n_solids);
   //int TT = 0;
   //char gravc[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN];
 
@@ -2882,7 +2926,7 @@ double AppCtx::getMeshVolume()
 
 void AppCtx::getSolidVolume()
 {
-  VV.assign(N_Solids,0.0);
+  VV.assign(n_solids,0.0);
 
 //#ifdef FEP_HAS_OPENMP
 //  FEP_PRAGMA_OMP(parallel default(none))
@@ -2992,7 +3036,7 @@ void AppCtx::getSolidVolume()
 void AppCtx::getSolidCentroid()
 {
   Vector XG(Vector::Zero(3));
-  XG_0.assign(N_Solids,XG);
+  XG_0.assign(n_solids,XG);
 
 //#ifdef FEP_HAS_OPENMP
 //  FEP_PRAGMA_OMP(parallel default(none))
@@ -3212,11 +3256,11 @@ void AppCtx::calcHmean(double &hmean, double &hmin, double &hmax){
 }
 
 bool AppCtx::proxTest(MatrixXd &ContP, MatrixXd &ContW, double const INF){
-  ContP = MatrixXd::Constant(N_Solids,N_Solids,INF);
-  ContW = MatrixXd::Constant(N_Solids,5,INF);  //5 tags for dirichlet
+  ContP = MatrixXd::Constant(n_solids,n_solids,INF);
+  ContW = MatrixXd::Constant(n_solids,5,INF);  //5 tags for dirichlet
 
-//  std::vector<bool> Contact(N_Solids+1,false);
-//  std::vector<double> Hmin(N_Solids+1,0.0);
+//  std::vector<bool> Contact(n_solids+1,false);
+//  std::vector<double> Hmin(n_solids+1,0.0);
   VectorXi edge_nodes(3); // 3 nodes at most
   Vector Xa(dim), Xb(dim);
   const int n_edges_total = mesh->numFacetsTotal();
@@ -3321,7 +3365,7 @@ PetscErrorCode AppCtx::updateSolidVel()
   Vector3d  Xg;
   int       nod_id, nod_is, nod_vs, nodsum;
   int       tag;
-  vector<bool>   SV(N_Solids,false);  //solid visited history
+  vector<bool>   SV(n_solids,false);  //solid visited history
 
   point_iterator point = mesh->pointBegin();
   point_iterator point_end = mesh->pointEnd();
@@ -3362,7 +3406,7 @@ PetscErrorCode AppCtx::moveCenterMass(double const vtheta)
   Vector      U0(Vector::Zero(3)), U1(Vector::Zero(3)), XG_temp(Vector::Zero(3)), omega0(1), omega1(1);
   double      theta_temp;
 
-  for (int s = 0; s < N_Solids; s++){
+  for (int s = 0; s < n_solids; s++){
 
     for (int l = 0; l < dim; l++){
       dofs(l) = n_unknowns_u + n_unknowns_p + LZ*s + l;
@@ -3503,7 +3547,7 @@ void AppCtx::getSolidInertiaTensor()
 {
   Tensor Z(3,3);
   Z.setZero();
-  InTen.assign(N_Solids,Z);
+  InTen.assign(n_solids,Z);
 
 //#ifdef FEP_HAS_OPENMP
 //  FEP_PRAGMA_OMP(parallel default(none))
@@ -4045,15 +4089,15 @@ PetscErrorCode AppCtx::timeAdapt(){
 }
 
 PetscErrorCode AppCtx::saveDOFSinfo(){
-  VectorXd v_coeffs_s(LZ*N_Solids);
-  VectorXi mapvs(LZ*N_Solids);
+  VectorXd v_coeffs_s(LZ*n_solids);
+  VectorXi mapvs(LZ*n_solids);
   Vector3d Xgg;
 
   // Printing mech. dofs information //////////////////////////////////////////////////
   if (fprint_hgv && is_sfip){
     if ((time_step%print_step)==0 || time_step == (maxts-1)){
       getSolidVolume();
-      for (int S = 0; S < LZ*N_Solids; S++){
+      for (int S = 0; S < LZ*n_solids; S++){
         mapvs[S] = n_unknowns_u + n_unknowns_p + S;
       }
       VecGetValues(Vec_uzp_0,mapvs.size(),mapvs.data(),v_coeffs_s.data());
@@ -4065,18 +4109,18 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
       filv.setf(iostream::fixed, iostream::floatfield);
       filg << current_time << " ";
       filv << current_time << " ";
-      for (int S = 0; S < (N_Solids-1); S++){
+      for (int S = 0; S < (n_solids-1); S++){
         Xgg = XG_0[S];
         filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[S] << " ";// << VV[S] << " ";
         filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1) << " " << v_coeffs_s(LZ*S+2) << " ";
       }
-      Xgg = XG_0[N_Solids-1];
-      filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[N_Solids-1] << endl;//" " << VV[N_Solids-1] << endl;
-      filv << v_coeffs_s(LZ*(N_Solids-1)) << " " << v_coeffs_s(LZ*(N_Solids-1)+1) << " "
-           << v_coeffs_s(LZ*(N_Solids-1)+2);
+      Xgg = XG_0[n_solids-1];
+      filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[n_solids-1] << endl;//" " << VV[n_solids-1] << endl;
+      filv << v_coeffs_s(LZ*(n_solids-1)) << " " << v_coeffs_s(LZ*(n_solids-1)+1) << " "
+           << v_coeffs_s(LZ*(n_solids-1)+2);
       if (dim == 3){
-        filv << " " << v_coeffs_s(LZ*(N_Solids-1)+3) << " " << v_coeffs_s(LZ*(N_Solids-1)+4) << " "
-            << v_coeffs_s(LZ*(N_Solids-1)+5);
+        filv << " " << v_coeffs_s(LZ*(n_solids-1)+3) << " " << v_coeffs_s(LZ*(n_solids-1)+4) << " "
+            << v_coeffs_s(LZ*(n_solids-1)+5);
       }
       filv << endl;
       filg.close();  //TT++;
@@ -4204,7 +4248,7 @@ void AppCtx::printProblemInfo(){
   cout << "\n# pressure unknowns: " << n_unknowns_p << " = "
                                     << mesh->numVertices() << " + " << n_unknowns_p-mesh->numVertices();
 //  cout << "\n# total unknowns: " << n_unknowns << end;
-  if (N_Solids){
+  if (n_solids){
     cout << "\n# velocity fluid only unknowns: " << n_unknowns_u - dim*(n_nodes_so+n_nodes_fsi+n_nodes_sv);
     cout << "\n# velocity solid only unknowns: " << n_nodes_so*dim;
     cout << "\n# velocity solid intf unknowns: " << n_unknowns_z << " (" <<
@@ -4212,7 +4256,7 @@ void AppCtx::printProblemInfo(){
                                                    n_unknowns_z*(n_nodes_fsi+n_nodes_sv);
     cout << "\n# total unknowns: " << n_unknowns_fs << " = " << n_unknowns_fs - dim*(n_nodes_fsi+n_nodes_sv)
                                                          << " + " << dim*(n_nodes_fsi+n_nodes_sv);
-    cout << "\n# solids: " << N_Solids << endl;
+    cout << "\n# solids: " << n_solids << endl;
     cout << "  unknowns distribution: " << 0 << "-" << n_unknowns_u-1 <<
             ", " << n_unknowns_u << "-" << n_unknowns_u + n_unknowns_p - 1 <<
             ", " << n_unknowns_u + n_unknowns_p << "-"  << n_unknowns_u + n_unknowns_p +
@@ -4225,7 +4269,7 @@ void AppCtx::printProblemInfo(){
   mesh->printStatistics();
   mesh->timer.printTimes();
   cout << endl;
-  if (N_Solids){
+  if (n_solids){
     cout << "flusoli_tags (body Neumann tags) = ";
     if ((int)flusoli_tags.size() > 0){cout << flusoli_tags[0] << " - " << flusoli_tags[(int)flusoli_tags.size()-1] << endl;}
     else {cout << "No tags" << endl;}
@@ -4447,7 +4491,7 @@ int main(int argc, char **argv)
   PetscFinalize();
 
   cout << "\a" << endl;
-  return 0.;
+  return 0;
 }
 
 /* ------------------------------------------------------------------- */

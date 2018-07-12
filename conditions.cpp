@@ -67,6 +67,8 @@ Vector exact_ellipse(double yb, Vector const& X0, Vector const& X2,
                      Vector const& Xc, double theta, double R1, double R2, int dim);
 Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
                      Vector const& Xc, double theta, double R1, double R2, int dim);
+double Flink(double t, int Nl);
+double DFlink(double t, int Nl);
 
 // gota estática 2d/////////////////////////////////////////////////////////////
 #if (false)
@@ -2262,7 +2264,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
     }
   }
 
-  if (true && dim == 2)
+  if (false && dim == 2)
   {
     double B1 = -0.5, B2 = 0.0;
     //theta = pi/2;
@@ -2553,4 +2555,20 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
   DPhib(0) = X30(0); DPhib(1) = X30(1);  //cout << "b." << DPhib.transpose() << endl;
 
   return DPhib;
+}
+
+double Flink(double t, int Nl){
+  double ome = pi/2.0;
+  double pha = pi/2.0;
+  double alp = 0.5;
+  double lmax = 1.0;
+  return lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + Nl*pha) + 1.0));
+}
+
+double DFlink(double t, int Nl){
+  double ome = pi/2.0;
+  double pha = pi/2.0;
+  double alp = 0.5;
+  double lmax = 1.0;
+  return -lmax*((1-alp)/2.0)*ome*sin(ome*t + Nl*pha);
 }

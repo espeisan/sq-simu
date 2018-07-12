@@ -161,6 +161,8 @@ Vector exact_ellipse(double yb, Vector const& X0, Vector const& X2,
                      Vector const& Xc, double theta, double R1, double R2, int dim);
 Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
                      Vector const& Xc, double theta, double R1, double R2, int dim);
+double Flink(double t, int Nl);
+double DFlink(double t, int Nl);
 
 inline double sqr(double v) {return v*v;}
 
@@ -293,6 +295,30 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
   if (dim == 2){
     R(0) = Z(0) - Z(2)*(X(1)-Xg(1));
     R(1) = Z(1) + Z(2)*(X(0)-Xg(0));
+  }
+  else if(dim == 3){
+    R = Z.head(3) + cross(Z.tail(3),X-Xg);
+  }
+  return R;
+}
+
+inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int dim,
+                       bool is_sflp, double theta, std::vector<double> const& dllink, int K, Vector const& ebref){
+  Vector R(dim);
+  if (dim == 2){
+    R(0) = Z(0) - Z(2)*(X(1)-Xg(1));
+    R(1) = Z(1) + Z(2)*(X(0)-Xg(0));
+    if (is_sflp && K > 1){
+      Vector eb(dim);
+      eb(0) = ebref(0); eb(1) = ebref(1);
+      Matrix2d Q(Matrix2d::Zero(2,2));
+      Q(0,0) = cos(theta); Q(0,1) = -sin(theta);
+      Q(1,0) = sin(theta); Q(1,1) =  cos(theta);
+
+      for (int m = 1; m < K; m++){
+        R += dllink[m-1]*Q*eb;
+      }
+    }
   }
   else if(dim == 3){
     R = Z.head(3) + cross(Z.tail(3),X-Xg);
@@ -587,6 +613,7 @@ public:
   int         st_vis;
   int         n_modes;
   int         n_links;
+  int         n_groups;
   //double      Re;
   PetscBool   has_convec;
   PetscBool   unsteady;
@@ -625,6 +652,7 @@ public:
   PetscBool   is_unksv;
   PetscBool   force_pressure;
   PetscBool   dup_press_nod;
+  PetscBool   s_dofs_elim;
   double      dt;
   double      steady_tol;
   double      utheta;
@@ -755,14 +783,17 @@ public:
   int           n_nodes_so;
   int           n_nodes_sv;
   
-  int                    N_Solids, LZ;
+  int                    n_solids, LZ;
   std::vector<int>       NN_Solids, pIDs;
-  std::vector<double>    MV, VV;  //mass vector, radius vector, area vector
-  std::vector<Vector3d>  XG_0, XG_1, XG_aux, XG_ini, RV, SV_file, FD_file, FT_file, NR_file, TG_file;
-  double                 hme, hmn, hmx;
+  std::vector<double>    MV, VV, LV;  //mass vector, radius vector, link vector
+  std::vector<Vector3d>  RV, SV_file, FD_file, FT_file, NR_file, TG_file;
+  std::vector<Vector3d>  XG_0,    XG_1,    XG_aux,    XG_ini;
   std::vector<double>    theta_0, theta_1, theta_aux, theta_ini;
+  std::vector<double>    llink_0, llink_1, llink_aux, llink_ini;
+  double                 hme, hmn, hmx;
   std::vector<Tensor3>   InTen;
   std::vector<double>    RR, UU;
+  std::vector<Vector3d>  ebref;
   //bool                   casevar = true, casevarc = true; //case variable or const to H solid vel functional
 
   // mesh alias

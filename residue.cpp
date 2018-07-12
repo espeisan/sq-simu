@@ -590,7 +590,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
   VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
   VecSetOption(Vec_uzp_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
 
-  std::vector<Vector3d> XG_mid = midGP(XG_1, XG_0, utheta, N_Solids);
+  std::vector<Vector3d> XG_mid = midGP(XG_1, XG_0, utheta, n_solids);
 
   int null_space_press_dof = -1;
 
@@ -691,6 +691,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     MatrixXd            z_coefs_c_new(n_dofs_z_per_cell/LZ, LZ);        // n+1
     MatrixXd            z_coefs_c_new_trans(LZ,n_dofs_z_per_cell/LZ);   // n+1
     MatrixXd            z_coefs_c_auo(dim, nodes_per_cell), z_coefs_c_aun(dim, nodes_per_cell);
+
+    VectorXd            l_coefs_new(n_links);  // n+1
 
     MatrixXd            vs_coefs_c_mid_trans(dim, n_dofs_u_per_cell/dim);  // n+utheta  // trans = transpost
     MatrixXd            vs_coefs_c_old(n_dofs_u_per_cell/dim, dim);        // n
@@ -806,6 +808,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     VectorXi            mapZ_c(n_dofs_z_per_cell);
     VectorXi            mapZ_f(n_dofs_z_per_facet);
     VectorXi            mapZ_s(LZ);
+    VectorXi            mapL_l(n_links);
     // mesh velocity
     VectorXi            mapM_c(dim*nodes_per_cell);
     //VectorXi            mapM_f(dim*nodes_per_facet);
@@ -819,11 +822,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     VectorXi            mapU_t(n_dofs_u_per_cell), mapP_t(n_dofs_p_per_cell);
     VectorXi            mapUs_c(n_dofs_u_per_cell), mapUs_t(n_dofs_u_per_cell);
 
-    //std::vector<bool>   SV(N_Solids,false);       //slip velocity node history (Dirichlet BC)
+    //std::vector<bool>   SV(n_solids,false);       //slip velocity node history (Dirichlet BC)
     std::vector<int>    SV_c(nodes_per_cell,0);   //maximum nodes in slip visited saving the solid tag
     bool                SVI = false;              //slip velocity interaction, body pure Dirichlet node detected
 
-    //std::vector<bool>   VS(N_Solids,false);       //visited solid node history (Neumann BC)
+    //std::vector<bool>   VS(n_solids,false);       //visited solid node history (Neumann BC)
     std::vector<int>    VS_c(nodes_per_cell,0);   //maximum nodes in visited solid saving the solid tag
     bool                VSF = false;              //visited solid-fluid, body mixed Neumann node detected
     bool                PDN = false;              //Pure Dirichlet Node at the fluid region found
@@ -837,11 +840,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     Vector   auxRotvI(dim), auxRotvJ(dim);
     Tensor   auxTenf(dim,dim), auxTenv(dim,dim);
     Tensor   auxTenfI(dim,dim), auxTenfJ(dim,dim), auxTenvI(dim,dim), auxTenvJ(dim,dim);
+    double   thetaI = 0.0;
 
     VectorXi            cell_nodes_tmp(nodes_per_cell);
     Tensor              F_c_curv(dim,dim);
     int                 tag_pt0, tag_pt1, tag_pt2, bcell, nPer, ccell;
-    double const*       Xqpb;  //coordonates at the master element \hat{X}
+    double const*       Xqpb;  //coordinates at the master element \hat{X}
     Vector              Phi(dim), DPhi(dim), X0(dim), X2(dim), T0(dim), T2(dim), Xcc(3), Vdat(3);
     bool                curvf = false;
     //Permutation matrices
@@ -928,6 +932,13 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());
         z_coefs_c_new_trans = z_coefs_c_new.transpose();  //cout << z_coefs_c_new.transpose() << endl << endl;
 
+        if (is_sflp){
+          for (int nl = 0; nl < n_links; nl++){
+            mapL_l(nl) = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
+          }
+          VecGetValue(Vec_uzp_k, mapL_l.size(), mapL_l.data(), l_coefs_new.data());
+        }
+
         for (int i = 0; i < n_dofs_u_per_cell/dim; ++i){
           tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
           nod_is = is_in_id(tag_c,solidonly_tags);
@@ -938,6 +949,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           XIp    = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
           XIg    = XG_mid[nodsum-1];                //mass center, mid, _0, "new"
           RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);  //cout << RotfI << endl;
+
+          if (is_sflp){
+            thetaI = theta_1[nodsum-1]; //TODO theta method
+            RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim, is_sflp, thetaI, dllink, nodsum, ebref[0]);
+          }
           //if (nod_sv){
           //  VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); //cout << vs_coefs_c_new << endl << endl;
           //}
@@ -1749,7 +1765,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
     visc = muu(0);
 
-    for (int K = 0; K < N_Solids; K++){
+    for (int K = 0; K < n_solids; K++){
 
       Fpp  = Vector::Zero(LZ);     Fpw  = Vector::Zero(LZ);
       dFpp = TensorZ::Zero(LZ,LZ); dFpw = TensorZ::Zero(LZ,LZ);
@@ -1770,7 +1786,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       //Rep force Wang
 #if (false)
       hme = zet;
-      for (int L = 0; L < N_Solids; L++){
+      for (int L = 0; L < n_solids; L++){
         if (L != K){
           Fpp += force_pp(XG_mid[K], XG_mid[L], RV[K](0), RV[L](0),
                           ep, ep, hme);
@@ -1778,7 +1794,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       }
       {
         Vector coor(dim);
-        Vector3d   Xj;  int widp = 2*N_Solids;
+        Vector3d   Xj;  int widp = 2*n_solids;
         mesh->getNodePtr(widp)->getCoord(coor.data(),dim);  //cout << coor.transpose() << "   ";
         Xj << 2*coor[0]-XG_mid[K](0), XG_mid[K](1), 0.0;   //cout << Xj.transpose() << endl;
         Fpw += force_pw(XG_mid[K], Xj, RV[K](0), ep, ep*ep, hme);  //cout << Fpw.transpose() << endl;
@@ -1801,18 +1817,18 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       //Rep force Luzia
 #if (false)
       double INF = 1.0e5;
-      MatrixXd ContP(MatrixXd::Zero(N_Solids,N_Solids)), ContW(MatrixXd::Zero(N_Solids,5));
+      MatrixXd ContP(MatrixXd::Zero(n_solids,n_solids)), ContW(MatrixXd::Zero(n_solids,5));
       bool RepF = proxTest(ContP, ContW, INF);
       if (RepF){
         //Point to Point
-        for (int L = 0; L < N_Solids; L++){
+        for (int L = 0; L < n_solids; L++){
           ep = ContP(K,L);  zet = 0.92;//zet = 0.92;
           if ((L != K) && (ep < INF)){
             Fpp += force_ppl(XG_mid[K], XG_mid[L], ep, zet);
           }
         }
         Vector coor(dim);
-        Vector3d   Xj;  int widp = 2*N_Solids;
+        Vector3d   Xj;  int widp = 2*n_solids;
         //Point to wall
         mesh->getNodePtr(widp)->getCoord(coor.data(),dim);  //left-inf corner
         ep = ContW(K,0);  zet = 0.92;
@@ -1845,7 +1861,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 #endif
       //Rep force Glowinski
 #if (false)
-      for (int L = 0; L < N_Solids; L++){
+      for (int L = 0; L < n_solids; L++){
         if (L != K){
           //if (RepF){zet = ContP(K,L); ep = zet*zet;}
           Fpp += force_rga(XG_mid[K], XG_mid[L], RV[K](0), RV[L],
@@ -1854,7 +1870,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       }
       {
         Vector coor(dim);
-        Vector3d   Xj;  int widp = 2*N_Solids; //6*N_Solids;
+        Vector3d   Xj;  int widp = 2*n_solids; //6*n_solids;
         mesh->getNodePtr(widp)->getCoord(coor.data(),dim);  //cout << coor.transpose() << "   ";
         Xj << 2*coor[0]-XG_mid[K](0), XG_mid[K](1), 0.0;   //cout << Xj.transpose() << endl;
         Fpw += force_rga(XG_mid[K], Xj, RV[K](0), RV[K](0), Grav, MV[K], ep, zet);
@@ -1876,15 +1892,15 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 #endif
       //Rep force Glowinski
 #if (false)
-      for (int L = 0; L < N_Solids; L++){
+      for (int L = 0; L < n_solids; L++){
         if (L != K){
           //if (RepF){zet = ContP(K,L); ep = zet*zet;}
           Fpp += force_rgc(XG_mid[K], XG_mid[L], RV[K](0), RV[L], ep, zet);
         }
       }
-      { //This part is sensibly: the 3*N_Solids part depends on the gmsh structure box corner creation
+      { //This part is sensibly: the 3*n_solids part depends on the gmsh structure box corner creation
         Vector coor(dim);
-        Vector3d   Xj;  int widp = 0; //6*N_Solids;//0; //3*N_Solids
+        Vector3d   Xj;  int widp = 0; //6*n_solids;//0; //3*n_solids
         mesh->getNodePtr(widp)->getCoord(coor.data(),dim);  //cout << coor.transpose() << endl;
         Xj << 2*coor[0]-XG_mid[K](0), XG_mid[K](1), 0.0;   //cout << Xj.transpose() << endl;
         Fpw += force_rgc(XG_mid[K], Xj, RV[K](0), RV[K](0), epw, zet);
@@ -1907,7 +1923,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       //Rep force Buscaglia
 #if (false)
       zet = 0.01;
-      for (int J = 0; J < N_Solids; J++){
+      for (int J = 0; J < n_solids; J++){
         if (J != K){
           eJK = XG_mid[K]-XG_mid[J];
           dJK = eJK.norm();
@@ -1927,9 +1943,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           }
         }
       }
-      for (int L = 0; L < N_Solids; L++){
+      for (int L = 0; L < n_solids; L++){
         deltaLK = L==K;
-        for (int J = 0; J < N_Solids; J++){
+        for (int J = 0; J < n_solids; J++){
           deltaLJ = L==J;
           if (J != K){
             eJK = XG_mid[K]-XG_mid[J];
@@ -1962,10 +1978,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_J.size(), mapZ_J.data(), dFpp.data(), ADD_VALUES);
       }
 
-      { //This part is sensibly: the 3*N_Solids part depends on the gmsh structure box corner creation
+      { //This part is sensibly: the 3*n_solids part depends on the gmsh structure box corner creation
         zet = 0.02;
         Vector   coor(dim), coor1(dim), coor2(dim);
-        Vector3d Xkaux; int widp = 2*N_Solids;// 6*N_Solids;//9; //0 2*N_Solids; //choose the left-inferior corner as reference
+        Vector3d Xkaux; int widp = 2*n_solids;// 6*n_solids;//9; //0 2*n_solids; //choose the left-inferior corner as reference
         // bottom wall
         mesh->getNodePtr(widp)->getCoord(coor.data(),dim);  //cout << coor.transpose() << "   ";
         Xkaux << XG_mid[K](0), 2*coor[1]-XG_mid[K](1), 0.0;
@@ -1978,7 +1994,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep))*2*(z_coefs_mid.head(dim)).norm();
           Fpw.head(3) += gap * eJK/dJK; //(-z_coefs_mid.head(dim)/z_coefs_mid.head(dim).norm())
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep));//*(z_coefs_mid.head(dim)).norm();
-          for (int L = 0; L < N_Solids; L++){
+          for (int L = 0; L < n_solids; L++){
             deltaLK = L==K;
             for (int C = 0; C < dim; C++){
               for (int D = 0; D < dim; D++){
@@ -2029,7 +2045,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep))*2*(z_coefs_mid).norm();
           Fpw.head(3) += gap*eJK/eJK.norm();//dJK;
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep));//*(z_coefs_mid).norm();
-          for (int L = 0; L < N_Solids; L++){
+          for (int L = 0; L < n_solids; L++){
             deltaLK = L==K;
             for (int C = 0; C < dim; C++){
               for (int D = 0; D < dim; D++){
@@ -2059,7 +2075,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep))*2*(z_coefs_mid).norm();
           Fpw.head(3) += gap*eJK/dJK;
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep));//*(z_coefs_mid).norm();
-          for (int L = 0; L < N_Solids; L++){
+          for (int L = 0; L < n_solids; L++){
             deltaLK = L==K;
             for (int C = 0; C < dim; C++){
               for (int D = 0; D < dim; D++){
@@ -2087,7 +2103,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep))*2*(z_coefs_mid).norm();
           Fpw.head(3) += gap*eJK/dJK;
           gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep));//*(z_coefs_mid).norm();
-          for (int L = 0; L < N_Solids; L++){
+          for (int L = 0; L < n_solids; L++){
             deltaLK = L==K;
             for (int C = 0; C < dim; C++){
               for (int D = 0; D < dim; D++){

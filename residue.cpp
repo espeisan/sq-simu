@@ -932,13 +932,6 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());
         z_coefs_c_new_trans = z_coefs_c_new.transpose();  //cout << z_coefs_c_new.transpose() << endl << endl;
 
-        if (is_sflp){
-          for (int nl = 0; nl < n_links; nl++){
-            mapL_l(nl) = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
-          }
-          VecGetValue(Vec_uzp_k, mapL_l.size(), mapL_l.data(), l_coefs_new.data());
-        }
-
         for (int i = 0; i < n_dofs_u_per_cell/dim; ++i){
           tag_c  = mesh->getNodePtr(cell->getNodeId(i))->getTag();
           nod_is = is_in_id(tag_c,solidonly_tags);
@@ -949,11 +942,6 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           XIp    = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
           XIg    = XG_mid[nodsum-1];                //mass center, mid, _0, "new"
           RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);  //cout << RotfI << endl;
-
-          if (is_sflp){
-            thetaI = theta_1[nodsum-1]; //TODO theta method
-            RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim, is_sflp, thetaI, dllink, nodsum, ebref[0]);
-          }
           //if (nod_sv){
           //  VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); //cout << vs_coefs_c_new << endl << endl;
           //}
@@ -1673,11 +1661,30 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
           MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
           VectorXi s_DOFS(LZ); s_DOFS = DOFS_elimination(LZ); //<< 0, 1, 0;
-          getProjectorDOFS(PrjDOFS, n_dofs_u_per_cell/dim, s_DOFS.data(), *this);
-          FZloc = PrjDOFS*FZloc;
-          Z2loc = PrjDOFS*Z2loc;
-          Z4loc = PrjDOFS*Z4loc;
-          Z3loc = Id_LZ - PrjDOFS;
+          if (is_sflp){
+            MatrixXd PrjDOFSlz(LZ,LZ);
+            PrjDOFS.setIdentity();
+            for (int i = 0; i < n_dofs_u_per_cell/dim; ++i){
+              int K = SV_c[i] + VS_c[i];
+              if (K == 1)
+                continue;
+
+              getProjectorDOFS(PrjDOFSlz, 1, s_DOFS.data(), *this);
+              PrjDOFS.block(i*LZ,i*LZ,LZ,LZ) = PrjDOFSlz;
+            }
+            FZloc = PrjDOFS*FZloc;
+            Z2loc = PrjDOFS*Z2loc;
+            Z4loc = PrjDOFS*Z4loc;
+            Z3loc = Id_LZ - PrjDOFS;
+          }
+          else{
+            getProjectorDOFS(PrjDOFS, n_dofs_u_per_cell/dim, s_DOFS.data(), *this);
+            FZloc = PrjDOFS*FZloc;
+            Z2loc = PrjDOFS*Z2loc;
+            Z4loc = PrjDOFS*Z4loc;
+            Z3loc.setZero(); //= Id_LZ - PrjDOFS;
+          }
+
         }
       }
       //////////////////////////////////////////////////
@@ -1731,8 +1738,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         }
       }
     }  //end for cell
-    if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-(300.0*300.0*pi*300-4.0*pi/3.0) << endl;} //Assembly(Vec_fun_fs);  Assembly(*JJ);
-    else        {cout << "Area = " << areas << ", Area dif = "<< areas-(10*10-pi/2.0) << endl;}
+    //if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-(300.0*300.0*pi*300-4.0*pi/3.0) << endl;} //Assembly(Vec_fun_fs);  Assembly(*JJ);
+    //else        {cout << "Area = " << areas << ", Area dif = "<< areas-(10*10-pi/2.0) << endl;}
     //View(Vec_fun_fs, "matrizes/rhs.m","res"); View(*JJ,"matrizes/jacob.m","Jac");
   }
   // end LOOP NAS CÉLULAS Parallel (uncomment it) //////////////////////////////////////////////////
@@ -2150,6 +2157,80 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     //View(Vec_fun_fs, "matrizes/rhs.m","res"); View(*JJ,"matrizes/jacob.m","Jac");
   }//cout << endl;
   // end LOOP FOR SOLID-ONLY CONTRIBUTION //////////////////////////////////////////////////
+
+
+  // LOOP FOR LINK PROBLEM CONTRIBUTION //////////////////////////////////////////////////
+  if (is_sflp){
+    VectorXi    mapL_l(n_links);
+    VectorXd    l_coefs_old(n_links), l_coefs_new(n_links), l_coefs_mid(n_links);
+    VectorXd    l_coefs_tmp(VectorXd::Ones(n_links));
+    Vector      FZsloc = Vector::Zero(LZ);
+    VectorXd    z_coefs_old(LZ), z_coefs_new(LZ), z_coefs_mid(LZ);
+    VectorXd    z_coefs_old_ref(LZ), z_coefs_new_ref(LZ), z_coefs_mid_ref(LZ);
+    VectorXi    mapZ_s(LZ), mapZ_J(LZ);
+    TensorZ     Z3sloc = TensorZ::Zero(LZ,LZ);
+    MatrixXd    Zlsloc(MatrixXd::Identity(n_links,n_links));
+    Vector      Lsloc = Vector::Zero(LZ);
+    VectorXd    z_coefs_tmp(VectorXd::Zero(LZ));
+
+
+
+    for (int nl = 0; nl < n_links; nl++){
+      mapL_l(nl) = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
+    }
+    VecGetValues(Vec_uzp_0, mapL_l.size(), mapL_l.data(), l_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
+    VecGetValues(Vec_uzp_k, mapL_l.size(), mapL_l.data(), l_coefs_new.data());
+    l_coefs_mid = utheta*l_coefs_new + (1-utheta)*l_coefs_old;
+    MatSetValues(*JJ, mapL_l.size(), mapL_l.data(), mapL_l.size(), mapL_l.data(), Zlsloc.data(), INSERT_VALUES);
+
+    for (int C = 0; C < LZ; C++){
+      mapZ_s(C) = n_unknowns_u + n_unknowns_p + C;
+    }
+    VecGetValues(Vec_uzp_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old_ref.data());  //cout << z_coefs_old.transpose() << endl;
+    VecGetValues(Vec_uzp_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new_ref.data());  //cout << z_coefs_new.transpose() << endl;
+    z_coefs_mid_ref = utheta*z_coefs_new_ref + (1-utheta)*z_coefs_old_ref;
+
+    Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], l_coefs_tmp, 2, ebref[0], dim, LZ);  //cout << Lsloc.transpose() << endl;
+
+    for (int K = 0; K < n_solids; K++){
+      if (K == 0)
+        continue;
+
+      for (int C = 0; C < LZ; C++){
+        mapZ_s(C) = n_unknowns_u + n_unknowns_p + LZ*K + C;
+      }
+      VecGetValues(Vec_uzp_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
+      VecGetValues(Vec_uzp_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
+      z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
+
+      FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], l_coefs_new, K+1, ebref[0], dim, LZ);
+      VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), INSERT_VALUES);
+
+      for (int nl = 0; nl < K; nl++){
+        MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), 1, &mapL_l(nl), Lsloc.data(), INSERT_VALUES);
+      }
+
+      for (int L = 0; L < n_solids; L++){
+        for (int C = 0; C < LZ; C++){
+          mapZ_J(C) = n_unknowns_u + n_unknowns_p + LZ*L + C;
+        }
+        if (L == 0){
+          Z3sloc = -TensorZ::Identity(LZ,LZ);
+          Vector Xgd = XG_mid[K] - XG_mid[0];
+          Z3sloc(0,LZ-1) = -(-Xgd(1));
+          Z3sloc(1,LZ-1) = -Xgd(0);
+        }
+        else if (L == K){
+          Z3sloc = TensorZ::Identity(LZ,LZ);
+        }
+        else{
+          Z3sloc = TensorZ::Zero(LZ,LZ);
+        }
+        MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_J.size(), mapZ_J.data(), Z3sloc.data(), INSERT_VALUES);
+      }
+    }
+  }
+  // LOOP FOR LINK PROBLEM CONTRIBUTION //////////////////////////////////////////////////
 
 
   // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol, NeumBody) //////////////////////////////////////////////////
@@ -2610,8 +2691,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         }
       }
     }// end for facet
-    if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-4.0*pi << endl;}
-    else        {cout << "Area = " << areas << ", Area dif = "<< areas-pi << endl;}
+    //if (is_axis){cout << "Area = " << areas << ", Area dif = "<< areas-4.0*pi << endl;}
+    //else        {cout << "Area = " << areas << ", Area dif = "<< areas-pi << endl;}
   }
   // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
 

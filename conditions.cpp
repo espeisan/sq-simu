@@ -2327,7 +2327,7 @@ double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int 
 VectorXi DOFS_elimination(int LZ)
 { //0 for component to eliminate, 1 for component to compute
   VectorXi s_DOFS(LZ);
-  s_DOFS << 0, 1, 0;
+  s_DOFS << 0, 0, 0;
   return s_DOFS;
 }
 
@@ -2562,7 +2562,7 @@ double Flink(double t, int Nl){
   double pha = pi/2.0;
   double alp = 0.5;
   double lmax = 1.0;
-  return lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + Nl*pha) + 1.0));
+  return lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl-2)*pha) + 1.0));
 }
 
 double DFlink(double t, int Nl){
@@ -2570,5 +2570,5 @@ double DFlink(double t, int Nl){
   double pha = pi/2.0;
   double alp = 0.5;
   double lmax = 1.0;
-  return -lmax*((1-alp)/2.0)*ome*sin(ome*t + Nl*pha);
+  return -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl-2)*pha);
 }

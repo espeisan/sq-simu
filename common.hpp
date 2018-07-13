@@ -302,13 +302,16 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
   return R;
 }
 
-inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int dim,
-                       bool is_sflp, double theta, std::vector<double> const& dllink, int K, Vector const& ebref){
-  Vector R(dim);
+inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref,
+                       double theta, VectorXd const& dllink/*std::vector<double> const& dllink*/,
+                       int K, Vector const& ebref, int dim, int LZ){
+  Vector R(Vector::Zero(dim));
+  Vector Z(Vector::Zero(LZ));
+
   if (dim == 2){
-    R(0) = Z(0) - Z(2)*(X(1)-Xg(1));
-    R(1) = Z(1) + Z(2)*(X(0)-Xg(0));
-    if (is_sflp && K > 1){
+    R(0) = Zref(0) - Zref(2)*(Xg(1)-Xgref(1));
+    R(1) = Zref(1) + Zref(2)*(Xg(0)-Xgref(0));
+    if (/*is_sflp && */K > 1){
       Vector eb(dim);
       eb(0) = ebref(0); eb(1) = ebref(1);
       Matrix2d Q(Matrix2d::Zero(2,2));
@@ -316,14 +319,13 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
       Q(1,0) = sin(theta); Q(1,1) =  cos(theta);
 
       for (int m = 1; m < K; m++){
-        R += dllink[m-1]*Q*eb;
+        R += dllink(m-1)*Q*eb;
       }
     }
+    Z(0) = R(0); Z(1) = R(1); Z(2) = Zref(2);
   }
-  else if(dim == 3){
-    R = Z.head(3) + cross(Z.tail(3),X-Xg);
-  }
-  return R;
+  else if(dim == 3){}
+  return Z;
 }
 
 inline TensorZ SkewMatrix(Vector const& X, int dim){

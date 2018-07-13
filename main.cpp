@@ -1769,7 +1769,8 @@ PetscErrorCode AppCtx::setInitialConditions()
   int       nod_id, nod_is, tag, nod_vs, nodsum, dofs_sl;
   double    p_in, link_vel;
   vector<bool>        SV(n_solids,false);  //solid visited history
-  std::vector<double> dllink;
+  //std::vector<double> dllink;
+  VectorXd  dllink(n_links);
 
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
   VecZeroEntries(Vec_v_1);
@@ -1825,10 +1826,11 @@ PetscErrorCode AppCtx::setInitialConditions()
 
     for (int nl = 0; nl < n_links; nl++){
       link_vel = DFlink(current_time, nl);
-      dllink.push_back(link_vel);
+      //dllink.push_back(link_vel);
+      dllink(nl) = link_vel;
       cout << Flink(current_time, nl) << "   " << DFlink(current_time, nl) << endl;
     }
-    dllink.resize(n_links);
+    //dllink.resize(n_links);
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1855,7 +1857,13 @@ PetscErrorCode AppCtx::setInitialConditions()
     nodsum = nod_id+nod_is+nod_vs;
     if (nodsum){//initial conditions coming from solid bodies
       Zf = z_initial(X, tag);  //first part of dofs vector q
-      Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
+      if (is_sflp){
+        Zf = LinksVel(XG_0[nodsum-1], XG_0[0], Zf, theta_0[0], dllink, nodsum, ebref[0], dim, LZ);
+      }
+      Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
+      //if (is_sflp){
+      //  Uf += LinksVel(theta_0[nodsum-1], dllink, nodsum, ebref[0], dim);
+      //}
       //VecSetValues(Vec_uzp_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
       if (nod_vs+nod_id){  //ojo antes solo nod_vs
         getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
@@ -2093,6 +2101,14 @@ PetscErrorCode AppCtx::setUPInitialGuess()
     }
 
   } // end for point
+
+  if (is_sflp){
+    for (int nl = 0; nl < n_links; nl++){
+      int dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
+      double link_vel = DFlink(current_time,nl);
+      VecSetValue(Vec_uzp_1, dofs_sl, link_vel, INSERT_VALUES);
+    }
+  }
 
   Assembly(Vec_uzp_1);
 

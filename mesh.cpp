@@ -2925,7 +2925,8 @@ PetscErrorCode AppCtx::meshAdapt_s()
     dof_handler_tmp[DH_UNKM].copy(dof_handler[DH_UNKM]);  //dof_handler_tmp[DH_UNKS].copy(dof_handler[DH_UNKS]);
 
     dofsUpdate();  //updates DH_ information: # variables u, z, p, mesh can change
-    cout << "#z=" << n_unknowns_z << " #u=" << n_unknowns_u << " #p=" << n_unknowns_p << " #v=" << n_dofs_v_mesh  << " #n_fsi=" << n_nodes_fsi << endl;
+    cout << " #u=" << n_unknowns_u << " #p=" << n_unknowns_p << " #z=" << n_unknowns_z << " #l=" << n_links << " #m=" << n_modes
+         << " #v=" << n_dofs_v_mesh  << " #n_fsi=" << n_nodes_fsi << endl;
 
     Vec *petsc_vecs[] = {&Vec_uzp_0,    &Vec_uzp_1,    &Vec_x_0,      &Vec_x_1,      &Vec_uzp_m1,   &Vec_x_aux,    &Vec_uzp_m2,   &Vec_slipv_0,  &Vec_slipv_1,  &Vec_slipv_m1, &Vec_slipv_m2};
     int DH_t[]        = {DH_UNKM,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_MESH,       DH_MESH      };
@@ -3124,11 +3125,11 @@ PetscErrorCode AppCtx::meshAdapt_s()
   std::vector<int> nnz;
 
   {
-    nnz.resize(dof_handler[DH_UNKM].numDofs()+n_solids*LZ,0);
+    nnz.resize(n_unknowns_fs /*dof_handler[DH_UNKM].numDofs()+n_solids*LZ*/,0);
     std::vector<SetVector<int> > tabla;
     dof_handler[DH_UNKM].getSparsityTable(tabla); // TODO: melhorar desempenho, função mt lenta
     //FEP_PRAGMA_OMP(parallel for)
-      for (int i = 0; i < n_unknowns_fs - n_solids*LZ; ++i)
+      for (int i = 0; i < n_unknowns_u + n_unknowns_p /*n_unknowns_fs - n_solids*LZ*/; ++i)
         nnz[i] = tabla[i].size();
   }
 
@@ -3256,7 +3257,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     ierr = VecSetFromOptions(Vec_res_Fdis);                           CHKERRQ(ierr);
 
     nnz.clear();
-    int n_fd_dofs = dof_handler[DH_MESH].numDofs();;
+    int n_fd_dofs = dof_handler[DH_MESH].numDofs();
     {
       std::vector<SetVector<int> > tablf;
       dof_handler[DH_MESH].getSparsityTable(tablf); // TODO: melhorar desempenho, função mt lenta

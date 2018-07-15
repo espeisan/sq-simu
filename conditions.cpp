@@ -2559,16 +2559,16 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
 
 double Flink(double t, int Nl){
   double ome = pi/2.0;
-  double pha = pi/2.0;
-  double alp = 0.5;
+  double pha = 90.0*pi/180.0;
+  double alp = 1.0;
   double lmax = 1.0;
-  return lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl-2)*pha) + 1.0));
+  return lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + Nl*pha) + 1.0));
 }
 
 double DFlink(double t, int Nl){
   double ome = pi/2.0;
-  double pha = pi/2.0;
-  double alp = 0.5;
+  double pha = 90.0*pi/180.0;
+  double alp = 1.0;
   double lmax = 1.0;
-  return -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl-2)*pha);
+  return -lmax*((1-alp)/2.0)*ome*sin(ome*t + Nl*pha);
 }

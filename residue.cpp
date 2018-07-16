@@ -440,7 +440,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
         weight = quadr_cell->weight(qp);
         JxW = J*weight;  //parece que no es necesario, ver 2141 (JxW/JxW)
-        MuE = -1*1.0/(pow(JxW,2.0));  LambE = -1*1.0/(pow(JxW,1.0));  ChiE = 0.0;  Jx0 = 1.0;
+        MuE = 1*1.0/(pow(JxW,1.0));  LambE = 1*1.0/(pow(JxW,1.0));  ChiE = 0.0;  Jx0 = 1.0;
 
         for (int i = 0; i < n_dofs_v_per_cell/dim; ++i)  //sobre cantidad de funciones de forma
         {
@@ -529,7 +529,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
   // boundary conditions on global Jacobian
     // solid & triple tags .. force normal
-  if (force_dirichlet)  //identify the contribution of points in *_tags
+  if (true && force_dirichlet)  //identify the contribution of points in *_tags
   {
     int      nodeid;
     int      v_dofs[dim];
@@ -614,7 +614,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     else
     {//imposes a pressure node (the first one in the mesh) at the Dirichlet region (or wherever you want)
       point_iterator point = mesh->pointBegin();
-      while (!( mesh->isVertex(&*point) && (point->getTag() == 7)/*is_in(point->getTag(),dirichlet_tags) */) ){/*point->getTag() == 3*/
+      while (!( mesh->isVertex(&*point) && (point->getTag() == 6)/*is_in(point->getTag(),dirichlet_tags) */) ){/*point->getTag() == 3*/
         ++point;
       }
       int x_dofs[3];
@@ -3499,7 +3499,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
         }
         //////////////////////////////////////////////////
 
-        if (is_neumann) //////////////////////////////////////////////////
+        if (false && is_neumann) //////////////////////////////////////////////////
         {
           //Vector no(Xqp);
           //no.normalize();

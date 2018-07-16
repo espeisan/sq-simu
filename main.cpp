@@ -1211,8 +1211,8 @@ PetscErrorCode AppCtx::allocPetscObjs()
   ierr = SNESGetKSP(snes_m,&ksp_m);                                                      CHKERRQ(ierr);
   ierr = KSPGetPC(ksp_m,&pc_m);                                                          CHKERRQ(ierr);
   ierr = KSPSetOperators(ksp_m,Mat_Jac_m,Mat_Jac_m,SAME_NONZERO_PATTERN);                CHKERRQ(ierr);
-  ierr = KSPSetType(ksp_m,KSPGMRES);                                                     CHKERRQ(ierr); //gmres iterative method for mesh
-  //ierr = KSPSetType(ksp_m,KSPPREONLY);                                               CHKERRQ(ierr); //non-iteratuve method for mesh
+  //ierr = KSPSetType(ksp_m,KSPGMRES);                                                     CHKERRQ(ierr); //gmres iterative method for mesh
+  ierr = KSPSetType(ksp_m,KSPPREONLY);                                               CHKERRQ(ierr); //non-iteratuve method for mesh
   ierr = PCSetType(pc_m,PCLU);                                                           CHKERRQ(ierr); //LU preconditioner for mesh
   //ierr = PCFactorSetMatOrderingType(pc_m, MATORDERINGNATURAL);                     CHKERRQ(ierr);
   //ierr = KSPSetTolerances(ksp_m,1.e-7,PETSC_DEFAULT,PETSC_DEFAULT,PETSC_DEFAULT);  CHKERRQ(ierr);
@@ -1376,7 +1376,7 @@ PetscErrorCode AppCtx::allocPetscObjs()
     ierr = SNESGetKSP(snes_fd,&ksp_fd);                                                  CHKERRQ(ierr);
     ierr = KSPGetPC(ksp_fd,&pc_fd);                                                      CHKERRQ(ierr);
     ierr = KSPSetOperators(ksp_fd,Mat_Jac_fd,Mat_Jac_fd,SAME_NONZERO_PATTERN);           CHKERRQ(ierr);
-    ierr = KSPSetType(ksp_fd,KSPPREONLY);                                                CHKERRQ(ierr);
+    ierr = KSPSetType(ksp_fd,KSPGMRES);                                                CHKERRQ(ierr); //KSPPREONLY
     ierr = PCSetType(pc_fd,PCLU);                                                        CHKERRQ(ierr);
     //ierr = SNESSetFromOptions(snes_fd);                                                  CHKERRQ(ierr);
     //ierr = SNESSetType(snes_fd, SNESKSPONLY);                                            CHKERRQ(ierr);
@@ -2351,6 +2351,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     VecNorm(Vec_res_fs, NORM_1, &steady_error); //VecNorm(Vec_res, NORM_1, &steady_error);
     steady_error /= (Qmax==0.?1.:Qmax);
     computeForces(Vec_x_0,Vec_uzp_0);
+    computeViscousDissipation(Vec_x_0,Vec_uzp_0);
     computeError(Vec_x_0,Vec_uzp_1,current_time);
 
     if(time_step >= maxts) {
@@ -2430,7 +2431,6 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
 void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
 {
-
   MatrixXd            u_coefs_c(n_dofs_u_per_cell/dim, dim);
   MatrixXd            u_coefs_c_trans(dim,n_dofs_u_per_cell/dim);
   MatrixXd            u_coefs_f(n_dofs_u_per_facet/dim, dim);
@@ -2827,6 +2827,7 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
         normal(0) = +F_f(1,0);
         normal(1) = -F_f(0,0);
         normal.normalize();
+        normal = -normal;  //... now this normal points OUT the body
       }
       else
       {
@@ -2848,7 +2849,190 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
     }
   }
 
-  cout << "\n Traction force: " << Traction_.transpose() << endl;
+  cout << "\n Traction Force = " << Traction_.transpose() << endl;
+}
+
+void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
+{
+  MatrixXd            u_coefs_c(n_dofs_u_per_cell/dim, dim);
+  MatrixXd            u_coefs_c_trans(dim,n_dofs_u_per_cell/dim);
+  MatrixXd            u_coefs_f(n_dofs_u_per_facet/dim, dim);
+  MatrixXd            u_coefs_f_trans(dim,n_dofs_u_per_facet/dim);
+  VectorXd            p_coefs_c(n_dofs_p_per_cell);
+  MatrixXd            x_coefs_c(nodes_per_cell, dim);
+  MatrixXd            x_coefs_c_trans(dim, nodes_per_cell);
+  MatrixXd            x_coefs_f(nodes_per_facet, dim);
+  MatrixXd            x_coefs_f_trans(dim, nodes_per_facet);
+  Tensor              F_c(dim,dim), invF_c(dim,dim), invFT_c(dim,dim);
+  Tensor              F_f(dim,dim-1), invF_f(dim-1,dim), fff(dim-1,dim-1);
+  MatrixXd            dxphi_err(n_dofs_u_per_cell/dim, dim);
+  MatrixXd            dxpsi_err(n_dofs_p_per_cell, dim);
+  MatrixXd            dxqsi_err(nodes_per_cell, dim);
+  Tensor              dxU(dim,dim); // grad u
+  Vector              dxP(dim);     // grad p
+  Vector              Xqp(dim);
+  Vector              Uqp(dim);
+
+  double              Pqp;
+  VectorXi            cell_nodes(nodes_per_cell);
+  double              J, JxW;
+  double              weight;
+  int                 tag;
+  double              volume=0;
+
+  double              p_L2_norm = 0.;
+  double              u_L2_norm = 0.;
+  double              grad_u_L2_norm = 0.;
+  double              grad_p_L2_norm = 0.;
+  double              p_inf_norm = 0.;
+  double              u_inf_norm = 0.;
+  double              hmean = 0.;
+  double              u_L2_facet_norm = 0.;
+  double              u_inf_facet_norm = 0.;
+
+  VectorXi            mapU_c(n_dofs_u_per_cell);
+  VectorXi            mapU_f(n_dofs_u_per_facet);
+  VectorXi            mapU_r(n_dofs_u_per_corner);
+  VectorXi            mapP_c(n_dofs_p_per_cell);
+  VectorXi            mapP_r(n_dofs_p_per_corner);
+  VectorXi            mapM_c(dim*nodes_per_cell);
+  VectorXi            mapM_f(dim*nodes_per_facet);
+  VectorXi            mapM_r(dim*nodes_per_corner);
+
+  int                 tag_pt0, tag_pt1, tag_pt2, nPer, ccell, nod_id;
+  double const*       Xqpb;  //coordonates at the master element \hat{X}
+  Vector              Phi(dim), DPhi(dim), X0(dim), X2(dim), Xcc(3), Vdat(3);
+  Tensor              F_c_curv(dim,dim);
+  bool                curvf = false;
+  //Permutation matrices
+  TensorXi            PerM3(TensorXi::Zero(3,3)), PerM6(TensorXi::Zero(6,6));
+  MatrixXi            PerM12(MatrixXi::Zero(12,12));
+  PerM3(0,1) = 1; PerM3(1,2) = 1; PerM3(2,0) = 1;
+  PerM6(0,2) = 1; PerM6(1,3) = 1; PerM6(2,4) = 1; PerM6(3,5) = 1; PerM6(4,0) = 1; PerM6(5,1) = 1;
+  PerM12.block(0,0,6,6) = PerM6; PerM12.block(6,6,6,6) = PerM6;
+  int                 is_slipvel, is_fsi;
+  Tensor              F_f_curv(dim,dim-1);
+  double              ybar = 0.0;
+
+  double    VD = 0.0, visc;  //viscous dissipation
+
+  VecSetOption(Vec_up, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE); //?
+
+  ////////////////////////////////////////////////// STARTING CELL ITERATION //////////////////////////////////////////////////
+  cell_iterator cell = mesh->cellBegin();
+  cell_iterator cell_end = mesh->cellEnd();
+  for (; cell != cell_end; ++cell)
+  {
+    tag = cell->getTag();
+
+    if (is_sfip)
+      if (is_in(tag,solidonly_tags))
+        continue;
+
+    //get nodal coordinates of the old and (permuted) new cell//////////////////////////////////////////////////
+    mesh->getCellNodesId(&*cell, cell_nodes.data());  //cout << cell_nodes.transpose() << endl;
+    if (is_curvt){
+      //find good orientation for nodes in case of curved border element
+      tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
+      tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+      tag_pt2 = mesh->getNodePtr(cell_nodes(2))->getTag();
+      //test if the cell is acceptable (one curved side)
+      //bcell = is_in(tag_pt0,fluidonly_tags)+is_in(tag_pt1,fluidonly_tags)+is_in(tag_pt2,fluidonly_tags);
+      ccell = is_in(tag_pt0,flusoli_tags)+is_in(tag_pt1,flusoli_tags)+is_in(tag_pt2,flusoli_tags)
+             +is_in(tag_pt0,slipvel_tags)+is_in(tag_pt1,slipvel_tags)+is_in(tag_pt2,slipvel_tags)
+             +is_in(tag_pt0,interface_tags)+is_in(tag_pt1,interface_tags)+is_in(tag_pt2,interface_tags);
+      curvf = /*bcell==1 &&*/ ccell==2;  nPer = 0;
+      if (curvf){
+        while ( !(is_in(tag_pt1, fluidonly_tags) || is_in(tag_pt1, feature_tags)
+               || is_in(tag_pt1, dirichlet_tags) || is_in(tag_pt1, neumann_tags)) ){
+          cell_nodes = PerM3*cell_nodes; nPer++;  //counts how many permutations are performed
+          tag_pt1 = mesh->getNodePtr(cell_nodes(1))->getTag();
+        }
+      }
+    }
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    //mapeamento do local para o global//////////////////////////////////////////////////
+    dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);
+    dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);
+
+    //if cell is permuted, this corrects the maps; mapZ is alreday corrected by hand in the previous if conditional
+    if (curvf){
+      for (int l = 0; l < nPer; l++){
+        mapM_c = PerM6*mapM_c;  //cout << mapM_c.transpose() << endl;
+        mapU_c = PerM6*mapU_c;  //cout << mapU_c.transpose() << endl;
+        mapP_c = PerM3*mapP_c;  //cout << mapP_c.transpose() << endl;
+      }
+    }
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    //get the value for the variables//////////////////////////////////////////////////
+    VecGetValues(Vec_up, mapU_c.size(), mapU_c.data(), u_coefs_c.data());
+    VecGetValues(Vec_x,  mapM_c.size(), mapM_c.data(), x_coefs_c.data());
+
+    u_coefs_c_trans = u_coefs_c.transpose();
+    x_coefs_c_trans = x_coefs_c.transpose();
+
+    if (curvf){
+      tag_pt0 = mesh->getNodePtr(cell_nodes(0))->getTag();
+      nod_id = is_in_id(tag_pt0,flusoli_tags)+is_in_id(tag_pt0,slipvel_tags);
+      Xcc = XG_0[nod_id-1];
+      X0(0) = x_coefs_c_trans(0,0);  X0(1) = x_coefs_c_trans(1,0);
+      X2(0) = x_coefs_c_trans(0,2);  X2(1) = x_coefs_c_trans(1,2);
+      Vdat << RV[nod_id-1](0),RV[nod_id-1](1), 0.0; //theta_0[nod_id-1]; //container for R1, R2, theta
+    }
+
+    visc = muu(tag);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+     ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
+     for (int qp = 0; qp < n_qpts_err; ++qp)
+     {
+
+       F_c = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+       Xqp = Vector::Zero(dim);// coordenada espacial (x,y,z) do ponto de quadratura
+       if (curvf){//F_c_curv.setZero();
+         Xqpb = quadr_err->point(qp);
+         Phi = curved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+         DPhi = Dcurved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+         F_c_curv.col(0) = -Phi;
+         F_c_curv.col(1) = -Phi + (1.0-Xqpb[0]-Xqpb[1])*DPhi;
+         F_c = F_c_curv;
+         Xqp = (1.0-Xqpb[0]-Xqpb[1])*Phi;
+       }
+
+       F_c   += x_coefs_c_trans * dLqsi_err[qp];
+       J      = F_c.determinant();
+       invF_c = F_c.inverse();
+       invFT_c= invF_c.transpose();
+
+       dxphi_err = dLphi_err[qp] * invF_c;
+       dxpsi_err = dLpsi_err[qp] * invF_c;
+       dxqsi_err = dLqsi_err[qp] * invF_c;
+
+       dxU  = u_coefs_c_trans * dxphi_err;       // n+utheta
+       dxP  = dxpsi_err.transpose() * p_coefs_c;
+
+       Xqp += x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+       Uqp  = u_coefs_c_trans * phi_err[qp];
+       Pqp  = p_coefs_c.dot(psi_err[qp]);
+
+       //quadrature weight//////////////////////////////////////////////////
+       weight = quadr_err->weight(qp);
+       JxW = J*weight;
+       if (is_axis){
+         JxW = JxW*2.0*pi*Xqp(0);
+       }
+       //////////////////////////////////////////////////
+
+       VD += JxW*( 2.0*visc*DobCont(dxU,dxU) );
+
+     } // fim quadratura //////////////////////////////////////////////////
+   } // end elementos //////////////////////////////////////////////////
+
+
+  cout << "\n Viscous Dissiparion = " << VD << endl;
 }
 
 void AppCtx::pressureTimeCorrection(Vec &Vec_up_0, Vec &Vec_up_1, double a, double b) // p(n+1) = a*p(n+.5) + b* p(n)

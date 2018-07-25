@@ -691,7 +691,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   if (n_links > 0){
     is_sflp = PETSC_TRUE;
     if (n_groups > 0){
-      ebref.resize(n_groups);
+      //ebref.resize(n_links);
     }
   }
 
@@ -1820,17 +1820,18 @@ PetscErrorCode AppCtx::setInitialConditions()
   if (is_sflp){
     //eref(0) = XG_ini[1](0) - XG_ini[0](0);
     //eref(1) = XG_ini[1](1) - XG_ini[0](1);
-    eref = XG_0[1] - XG_0[0];
-    eref.normalize();  cout << eref.transpose() << endl;
-    ebref[0] = eref;
-
     for (int nl = 0; nl < n_links; nl++){
+      eref = XG_0[nl+1] - XG_0[nl];
+      eref.normalize();
+      ebref.push_back(eref); cout << ebref[nl].transpose() << endl;
+
       link_vel = DFlink(current_time, nl);
       //dllink.push_back(link_vel);
       dllink(nl) = link_vel;
       cout << Flink(current_time, nl) << "   " << DFlink(current_time, nl) << endl;
     }
     //dllink.resize(n_links);
+    ebref.resize(n_links);
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1858,7 +1859,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     if (nodsum){//initial conditions coming from solid bodies
       Zf = z_initial(X, tag);  //first part of dofs vector q
       if (is_sflp){
-        Zf = LinksVel(XG_0[nodsum-1], XG_0[0], Zf, theta_0[0], dllink, nodsum, ebref[0], dim, LZ);
+        Zf = LinksVel(XG_0[nodsum-1], XG_0[0], Zf, theta_0[0], dllink, nodsum, ebref/*[0]*/, dim, LZ);
       }
       Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
       //if (is_sflp){

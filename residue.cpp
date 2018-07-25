@@ -2190,7 +2190,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     VecGetValues(Vec_uzp_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new_ref.data());  //cout << z_coefs_new.transpose() << endl;
     z_coefs_mid_ref = utheta*z_coefs_new_ref + (1-utheta)*z_coefs_old_ref;
 
-    Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], l_coefs_tmp, 2, ebref[0], dim, LZ);  //cout << Lsloc.transpose() << endl;
+    Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], l_coefs_tmp, 2, ebref/*[0]*/, dim, LZ);  //cout << Lsloc.transpose() << endl;
 
     for (int K = 0; K < n_solids; K++){
       if (K == 0)
@@ -2203,7 +2203,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       VecGetValues(Vec_uzp_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
       z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
 
-      FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], l_coefs_new, K+1, ebref[0], dim, LZ);
+      FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], l_coefs_new, K+1, ebref/*[0]*/, dim, LZ);
       VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), INSERT_VALUES);
 
       for (int nl = 0; nl < K; nl++){

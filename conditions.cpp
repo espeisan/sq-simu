@@ -2559,16 +2559,88 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
 
 double Flink(double t, int Nl){
   double ome = pi/2.0;
-  double pha = 90.0*pi/180.0;
-  double alp = .9;
+  double pha = 0*90.0*pi/180.0;
+  double alp = .5;
   double lmax = 1.0;
-  return lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl-4)*pha) + 1.0));
+  double d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl)*pha) + 1.0));
+
+  if (false){
+    double P = 8;
+    double tP = t - floor(t/P)*P;
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*tP) + 1.0));}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = lmax*alp;}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*(tP-2.0)) + 1.0));}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmax;}
+    }
+    else{
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = lmax;}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*(tP-2.0)) + 1.0));}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = lmax*alp;}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*(tP-4.0)) + 1.0));}
+    }
+  }
+
+  if (true){
+    double P = 8;
+    double tP = t - floor(t/P)*P;
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*tP) + 1.0));}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = lmax*alp;}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = lmax*alp;}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*(tP-4.0)) + 1.0));}
+    }
+    else{
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = lmax;}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*(tP-2.0)) + 1.0));}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*(tP-2.0)) + 1.0));}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmax;}
+    }
+  }
+
+  return d;
 }
 
 double DFlink(double t, int Nl){
   double ome = pi/2.0;
-  double pha = 90.0*pi/180.0;
-  double alp = .9;
+  double pha = 0*90.0*pi/180.0;
+  double alp = .5;
   double lmax = 1.0;
-  return -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl-4)*pha);
+  double d = -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl)*pha);
+
+  if (false){
+    double P = 8;
+    double tP = t - floor(t/P)*P;
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*tP);}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = 0.0;}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0));}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else{
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = 0.0;}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0));}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = 0.0;}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-4.0));}
+    }
+  }
+
+  if (true){
+    double P = 8;
+    double tP = t - floor(t/P)*P;
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*tP);}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = 0.0;}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = 0.0;}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-4.0));}
+    }
+    else{
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = 0.0;}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0));}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0));}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+  }
+
+  return d;
 }

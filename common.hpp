@@ -304,7 +304,7 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
 
 inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref,
                        double theta, VectorXd const& dllink/*std::vector<double> const& dllink*/,
-                       int K, Vector const& ebref, int dim, int LZ){
+                       int K, /*Vector const&*/ std::vector<Vector3d> const& ebref, int dim, int LZ){
   Vector R(Vector::Zero(dim));
   Vector Z(Vector::Zero(LZ));
 
@@ -313,12 +313,13 @@ inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref
     R(1) = Zref(1) + Zref(2)*(Xg(0)-Xgref(0));
     if (/*is_sflp && */K > 1){
       Vector eb(dim);
-      eb(0) = ebref(0); eb(1) = ebref(1);
+      //eb(0) = ebref(0); eb(1) = ebref(1);
       Matrix2d Q(Matrix2d::Zero(2,2));
       Q(0,0) = cos(theta); Q(0,1) = -sin(theta);
       Q(1,0) = sin(theta); Q(1,1) =  cos(theta);
 
       for (int m = 1; m < K; m++){
+        eb(0) = ebref[m-1](0); eb(1) = ebref[m-1](1);
         R += dllink(m-1)*Q*eb;
       }
     }

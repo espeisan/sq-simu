@@ -482,6 +482,12 @@ public:
   void dofsCreate();
   void dofsUpdate();
   PetscErrorCode allocPetscObjs();
+  PetscErrorCode allocPetscObjsVecInt();
+  PetscErrorCode allocPetscObjsVecNoInt();
+  PetscErrorCode allocPetscObjsMesh();
+  PetscErrorCode allocPetscObjsFluid();
+  PetscErrorCode allocPetscObjsSwimmer();
+  PetscErrorCode allocPetscObjsDissForce();
   void matrixColoring();
   void printMatlabLoader();
   // must be called after loadDofs
@@ -564,7 +570,7 @@ public:
   void getSolidInertiaTensor();
   PetscErrorCode moveCenterMass(double vtheta);
   PetscErrorCode updateSolidMesh();
-  PetscErrorCode velNoSlip(Vec const& Vec_uzp, Vec const& Vec_sv, Vec &Vec_uzp_ns);
+  PetscErrorCode velNoSlip(Vec const& Vec_uzp, Vec const& Vec_sv, Vec &Vec_ups_ns);
   PetscErrorCode plotFiles();
   Vector vectorSolidMesh(int const K, Point const* point, int const vs);
   void getFromBSV();
@@ -826,22 +832,22 @@ public:
   std::vector<Real>    mesh_sizes;
 
   // fluid
-  Vec                 Vec_res_fs, Vec_uzp_0, Vec_uzp_1;//, Vec_res, Vec_up_0, Vec_up_1,Vec_dup, /**/;
-  Vec                 Vec_uzp_m1, Vec_uzp_m2; // for bdf3  //Vec_duzp_0, Vec_duzp,
+  Vec                 Vec_res_fs, Vec_ups_0, Vec_ups_1;//, Vec_res, Vec_up_0, Vec_up_1,Vec_dup, /**/;
+  Vec                 Vec_ups_m1, Vec_ups_m2; // for bdf3  //Vec_duzp_0, Vec_duzp,
   Mat                 Mat_Jac_fs;//, Mat_Jac;
   SNES                snes_fs;//, snes;         /* nonlinear solver context */
   KSP    			  ksp_fs;//ksp,
   PC	   			  pc_fs;//pc,
-  SNESLineSearch      linesearch;
 
   // mesh
-  Vec                 Vec_res_m,  Vec_v_mid, Vec_v_1, Vec_normal, Vec_tangent;//, Vec_binormal;
+  Vec                 Vec_res_m, Vec_v_mid, Vec_v_1, Vec_normal, Vec_tangent;//, Vec_binormal;
   Vec                 Vec_x_0, Vec_x_1, Vec_x_aux, Vec_x_cur; // bdf3
   Mat                 Mat_Jac_m;
   SNES                snes_m;
   KSP    			  ksp_m;
   PC	   			  pc_m;
-  
+  SNESLineSearch      linesearch;
+
   // slip velocity
   Vec                 Vec_slipv_0, Vec_slipv_1, Vec_slipv_m1, Vec_slipv_m2, Vec_normal_aux;
   Vec                 Vec_Fdis_0, Vec_res_Fdis, Vec_ftau_0;
@@ -852,7 +858,7 @@ public:
   SNESLineSearch      linesearch_fd;
 
   // swimmer
-  Vec                 Vec_res_s, Vec_slip_rho, Vec_rho_aux;  //Vec_uzp_0_ns, Vec_uzp_1_ns,;
+  Vec                 Vec_res_s, Vec_slip_rho, Vec_rho_aux;  //Vec_ups_0_ns, Vec_ups_1_ns,;
   Mat                 Mat_Jac_s;
   SNES                snes_s;
   KSP                 ksp_s;
@@ -860,7 +866,7 @@ public:
   SNESLineSearch      linesearch_s;
 
   //time adaptation
-  Vec                 Vec_uzp_time_aux, Vec_x_time_aux;
+  Vec                 Vec_ups_time_aux, Vec_x_time_aux;
 
   //mech. dofs printing information
   ofstream            filg, filv;

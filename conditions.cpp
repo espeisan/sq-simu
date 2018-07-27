@@ -2561,8 +2561,10 @@ double Flink(double t, int Nl){
   double ome = pi/2.0;
   double pha = 0*90.0*pi/180.0;
   double alp = .5;
-  double lmax = 1.0;
+  double lmax = .6;
   double d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl)*pha) + 1.0));
+
+  if (Nl == 1){d = 0;}
 
   if (false){
     double P = 8;
@@ -2581,7 +2583,7 @@ double Flink(double t, int Nl){
     }
   }
 
-  if (true){
+  if (false){
     double P = 8;
     double tP = t - floor(t/P)*P;
     if (Nl == 0){
@@ -2605,8 +2607,10 @@ double DFlink(double t, int Nl){
   double ome = pi/2.0;
   double pha = 0*90.0*pi/180.0;
   double alp = .5;
-  double lmax = 1.0;
+  double lmax = .6;
   double d = -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl)*pha);
+
+  if (Nl == 1){d = 0;}
 
   if (false){
     double P = 8;
@@ -2625,7 +2629,7 @@ double DFlink(double t, int Nl){
     }
   }
 
-  if (true){
+  if (false){
     double P = 8;
     double tP = t - floor(t/P)*P;
     if (Nl == 0){

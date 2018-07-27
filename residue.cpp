@@ -440,7 +440,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
         weight = quadr_cell->weight(qp);
         JxW = J*weight;  //parece que no es necesario, ver 2141 (JxW/JxW)
-        MuE = 1*1.0/(pow(JxW,1.0));  LambE = 1*1.0/(pow(JxW,1.0));  ChiE = 0.0;  Jx0 = 1.0;
+        MuE = 1*1.0/(pow(JxW,1.0));  LambE = -1*1.0/(pow(JxW,1.0));  ChiE = 0.0;  Jx0 = JxW;
 
         for (int i = 0; i < n_dofs_v_per_cell/dim; ++i)  //sobre cantidad de funciones de forma
         {
@@ -582,13 +582,13 @@ PetscErrorCode AppCtx::formJacobian_mesh(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**
 // ******************************************************************************
 //                            FORM FUNCTION_FS
 // ******************************************************************************
-PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun_fs)
+PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun_fs)
 {
   double utheta = AppCtx::utheta;
   if (is_mr){utheta = 1.0;}
 
   VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
-  VecSetOption(Vec_uzp_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
+  VecSetOption(Vec_ups_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
 
   std::vector<Vector3d> XG_mid = midGP(XG_1, XG_0, utheta, n_solids);
 
@@ -609,7 +609,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     if (behaviors & BH_Press_grad_elim)//TODO: what is BH_Press_grad_elim?
     {
       // fix the initial guess
-      VecSetValue(Vec_uzp_k, null_space_press_dof, 0.0, INSERT_VALUES);
+      VecSetValue(Vec_ups_k, null_space_press_dof, 0.0, INSERT_VALUES);
     }
     else
     {//imposes a pressure node (the first one in the mesh) at the Dirichlet region (or wherever you want)
@@ -625,10 +625,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       dof_handler[DH_UNKM].getVariable(VAR_P).getVertexDofs(&null_space_press_dof, &*point); //null_space_press_dof used at the end for pressure imposition
       //cout << null_space_press_dof << endl;
       // fix the initial guess
-      VecSetValue(Vec_uzp_k, null_space_press_dof, p_exact(X,current_time+.5*dt,point->getTag()), INSERT_VALUES);  //insert pressure value at node point
+      VecSetValue(Vec_ups_k, null_space_press_dof, p_exact(X,current_time+.5*dt,point->getTag()), INSERT_VALUES);  //insert pressure value at node point
     }
 
-    Assembly(Vec_uzp_k);
+    Assembly(Vec_ups_k);
 
   }
 
@@ -646,7 +646,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
   // LOOP NAS CÉLULAS Parallel (uncomment it) //////////////////////////////////////////////////
 #ifdef FEP_HAS_OPENMP
-  FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout,null_space_press_dof,JJ,utheta,iter,XG_mid))
+  FEP_PRAGMA_OMP(parallel default(none) shared(Vec_ups_k,Vec_fun_fs,cout,null_space_press_dof,JJ,utheta,iter,XG_mid))
 #endif
   {
     VectorXd            FUloc(n_dofs_u_per_cell);  // U subvector part of F
@@ -888,8 +888,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
         dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);
         dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);
         VecGetValues(Vec_x_1,     mapM_c.size(), mapM_c.data(), x_coefs_c_new.data());
-        VecGetValues(Vec_uzp_k,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());
-        VecGetValues(Vec_uzp_k,   mapP_c.size(), mapP_c.data(), p_coefs_c_new.data());
+        VecGetValues(Vec_ups_k,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());
+        VecGetValues(Vec_ups_k,   mapP_c.size(), mapP_c.data(), p_coefs_c_new.data());
         //if (is_unksv){mapUs_c = -(mapU_c + n_unknowns_ups*VectorXi::Ones(n_dofs_u_per_cell));}
 
         x_coefs_c_new_trans = x_coefs_c_new.transpose();
@@ -929,7 +929,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           }
         }
 
-        VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());
+        VecGetValues(Vec_ups_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());
         z_coefs_c_new_trans = z_coefs_c_new.transpose();  //cout << z_coefs_c_new.transpose() << endl << endl;
 
         for (int i = 0; i < n_dofs_u_per_cell/dim; ++i){
@@ -1090,20 +1090,20 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
       VecGetValues(Vec_x_0,     mapM_c.size(), mapM_c.data(), x_coefs_c_old.data());  //cout << x_coefs_c_old << endl << endl;
       VecGetValues(Vec_x_1,     mapM_c.size(), mapM_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl << endl;
-      VecGetValues(Vec_uzp_0,   mapU_c.size(), mapU_c.data(), u_coefs_c_old.data());  //cout << u_coefs_c_old << endl << endl;
-      VecGetValues(Vec_uzp_k,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());  //cout << u_coefs_c_new << endl << endl;
-      VecGetValues(Vec_uzp_0,   mapP_c.size(), mapP_c.data(), p_coefs_c_old.data());  //cout << p_coefs_c_old << endl << endl;
-      VecGetValues(Vec_uzp_k,   mapP_c.size(), mapP_c.data(), p_coefs_c_new.data());  //cout << p_coefs_c_new << endl << endl;
+      VecGetValues(Vec_ups_0,   mapU_c.size(), mapU_c.data(), u_coefs_c_old.data());  //cout << u_coefs_c_old << endl << endl;
+      VecGetValues(Vec_ups_k,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());  //cout << u_coefs_c_new << endl << endl;
+      VecGetValues(Vec_ups_0,   mapP_c.size(), mapP_c.data(), p_coefs_c_old.data());  //cout << p_coefs_c_old << endl << endl;
+      VecGetValues(Vec_ups_k,   mapP_c.size(), mapP_c.data(), p_coefs_c_new.data());  //cout << p_coefs_c_new << endl << endl;
       if (is_sfip){
-        VecGetValues(Vec_uzp_0,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_old.data());  //cout << z_coefs_c_old << endl << endl;
-        VecGetValues(Vec_uzp_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());  //cout << z_coefs_c_new << endl << endl;
+        VecGetValues(Vec_ups_0,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_old.data());  //cout << z_coefs_c_old << endl << endl;
+        VecGetValues(Vec_ups_k,   mapZ_c.size(), mapZ_c.data(), z_coefs_c_new.data());  //cout << z_coefs_c_new << endl << endl;
       }
 
-      VecGetValues(Vec_uzp_m1,  mapU_c.size(), mapU_c.data(), u_coefs_c_om1.data()); // bdf2,bdf3
-      if (is_sfip) VecGetValues(Vec_uzp_m1,  mapU_t.size(), mapU_t.data(), u_coefs_c_om1c.data()); // bdf2,bdf3
+      VecGetValues(Vec_ups_m1,  mapU_c.size(), mapU_c.data(), u_coefs_c_om1.data()); // bdf2,bdf3
+      if (is_sfip) VecGetValues(Vec_ups_m1,  mapU_t.size(), mapU_t.data(), u_coefs_c_om1c.data()); // bdf2,bdf3
       if (is_bdf3){
-        VecGetValues(Vec_uzp_m2,  mapU_c.size(), mapU_c.data(), u_coefs_c_om2.data());
-        if (is_sfip) VecGetValues(Vec_uzp_m2,  mapU_t.size(), mapU_t.data(), u_coefs_c_om2c.data()); // bdf3
+        VecGetValues(Vec_ups_m2,  mapU_c.size(), mapU_c.data(), u_coefs_c_om2.data());
+        if (is_sfip) VecGetValues(Vec_ups_m2,  mapU_t.size(), mapU_t.data(), u_coefs_c_om2c.data()); // bdf3
       }
 
       if (!is_unksv && SVI){//TODO check if is necessary
@@ -1114,8 +1114,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           VecGetValues(Vec_slipv_m2,  mapU_t.size(), mapU_t.data(), vs_coefs_c_om2.data()); // bdf3
       }
       //else if (is_unksv && (SVI || VSF)){
-      //  VecGetValues(Vec_uzp_0,  mapUs_c.size(), mapUs_c.data(), vs_coefs_c_old.data()); // bdf2,bdf3
-      //  VecGetValues(Vec_uzp_k,  mapUs_c.size(), mapUs_c.data(), vs_coefs_c_new.data()); // bdf2,bdf3
+      //  VecGetValues(Vec_ups_0,  mapUs_c.size(), mapUs_c.data(), vs_coefs_c_old.data()); // bdf2,bdf3
+      //  VecGetValues(Vec_ups_k,  mapUs_c.size(), mapUs_c.data(), vs_coefs_c_new.data()); // bdf2,bdf3
       //}
 
       v_coefs_c_mid_trans = v_coefs_c_mid.transpose();  //cout << v_coefs_c_mid_trans << endl << endl;
@@ -1373,11 +1373,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
           }
           else if (is_bdf3 && time_step > 1){
             //u_coefs_c_om1 = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
-            //VecGetValues(Vec_uzp_m1,  mapU_t.size(), mapU_t.data(), u_coefs_c_om1.data()); // bdf2,bdf3
+            //VecGetValues(Vec_ups_m1,  mapU_t.size(), mapU_t.data(), u_coefs_c_om1.data()); // bdf2,bdf3
             //u_coefs_c_om1_trans = u_coefs_c_om1.transpose();
             Uqp_m1 = u_coefs_c_om1c_trans * phi_c[qp];
             //u_coefs_c_om2 = MatrixXd::Zero(n_dofs_u_per_cell/dim,dim);
-            //VecGetValues(Vec_uzp_m2,  mapU_t.size(), mapU_t.data(), u_coefs_c_om2.data());
+            //VecGetValues(Vec_ups_m2,  mapU_t.size(), mapU_t.data(), u_coefs_c_om2.data());
             //u_coefs_c_om2_trans = u_coefs_c_om2.transpose();
             Uqp_m2 = u_coefs_c_om2c_trans * phi_c[qp];
           }
@@ -1781,11 +1781,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       for (int C = 0; C < LZ; C++){
         mapZ_s(C) = n_unknowns_u + n_unknowns_p + LZ*K + C;
       }  //cout << mapZ_s << endl;
-      VecGetValues(Vec_uzp_0,    mapZ_s.size(), mapZ_s.data(), z_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
-      VecGetValues(Vec_uzp_k ,   mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
-      VecGetValues(Vec_uzp_m1,   mapZ_s.size(), mapZ_s.data(), z_coefs_om1.data()); // bdf2,bdf3
+      VecGetValues(Vec_ups_0,    mapZ_s.size(), mapZ_s.data(), z_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
+      VecGetValues(Vec_ups_k ,   mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
+      VecGetValues(Vec_ups_m1,   mapZ_s.size(), mapZ_s.data(), z_coefs_om1.data()); // bdf2,bdf3
       if (is_bdf3){
-        VecGetValues(Vec_uzp_m2, mapZ_s.size(), mapZ_s.data(), z_coefs_om2.data()); // bdf2
+        VecGetValues(Vec_ups_m2, mapZ_s.size(), mapZ_s.data(), z_coefs_om2.data()); // bdf2
       }
 
       z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
@@ -1941,8 +1941,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
             for (int C = 0; C < LZ; C++){
               mapZ_J(C) = n_unknowns_u + n_unknowns_p + LZ*J + C;
             }
-            VecGetValues(Vec_uzp_0,    mapZ_J.size(), mapZ_J.data(), z_coefs_olJ.data());  //cout << z_coefs_old.transpose() << endl;
-            VecGetValues(Vec_uzp_k ,   mapZ_J.size(), mapZ_J.data(), z_coefs_neJ.data());  //cout << z_coefs_new.transpose() << endl;
+            VecGetValues(Vec_ups_0,    mapZ_J.size(), mapZ_J.data(), z_coefs_olJ.data());  //cout << z_coefs_old.transpose() << endl;
+            VecGetValues(Vec_ups_k ,   mapZ_J.size(), mapZ_J.data(), z_coefs_neJ.data());  //cout << z_coefs_new.transpose() << endl;
             z_coefs_miJ = utheta*z_coefs_neJ + (1-utheta)*z_coefs_olJ;
             gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep))*(z_coefs_miJ-z_coefs_mid).norm();
             Fpp.head(3) += gap*eJK/dJK;
@@ -1964,8 +1964,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
               for (int C = 0; C < LZ; C++){
                 mapZ_J(C) = n_unknowns_u + n_unknowns_p + LZ*J + C;
               }
-              VecGetValues(Vec_uzp_0,    mapZ_J.size(), mapZ_J.data(), z_coefs_olJ.data());  //cout << z_coefs_old.transpose() << endl;
-              VecGetValues(Vec_uzp_k ,   mapZ_J.size(), mapZ_J.data(), z_coefs_neJ.data());  //cout << z_coefs_new.transpose() << endl;
+              VecGetValues(Vec_ups_0,    mapZ_J.size(), mapZ_J.data(), z_coefs_olJ.data());  //cout << z_coefs_old.transpose() << endl;
+              VecGetValues(Vec_ups_k ,   mapZ_J.size(), mapZ_J.data(), z_coefs_neJ.data());  //cout << z_coefs_new.transpose() << endl;
               z_coefs_miJ = utheta*z_coefs_neJ + (1-utheta)*z_coefs_olJ;
               gap = 8.0*visc*sqrt(R*R*R/(ep*ep*ep));//*(z_coefs_miJ-z_coefs_mid).norm();
               for (int C = 0; C < dim; C++){
@@ -2178,16 +2178,16 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
     for (int nl = 0; nl < n_links; nl++){
       mapL_l(nl) = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
     }
-    VecGetValues(Vec_uzp_0, mapL_l.size(), mapL_l.data(), l_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
-    VecGetValues(Vec_uzp_k, mapL_l.size(), mapL_l.data(), l_coefs_new.data());
+    VecGetValues(Vec_ups_0, mapL_l.size(), mapL_l.data(), l_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
+    VecGetValues(Vec_ups_k, mapL_l.size(), mapL_l.data(), l_coefs_new.data());
     l_coefs_mid = utheta*l_coefs_new + (1-utheta)*l_coefs_old;
     MatSetValues(*JJ, mapL_l.size(), mapL_l.data(), mapL_l.size(), mapL_l.data(), Zlsloc.data(), INSERT_VALUES);
 
     for (int C = 0; C < LZ; C++){
       mapZ_s(C) = n_unknowns_u + n_unknowns_p + C;
     }
-    VecGetValues(Vec_uzp_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old_ref.data());  //cout << z_coefs_old.transpose() << endl;
-    VecGetValues(Vec_uzp_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new_ref.data());  //cout << z_coefs_new.transpose() << endl;
+    VecGetValues(Vec_ups_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old_ref.data());  //cout << z_coefs_old.transpose() << endl;
+    VecGetValues(Vec_ups_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new_ref.data());  //cout << z_coefs_new.transpose() << endl;
     z_coefs_mid_ref = utheta*z_coefs_new_ref + (1-utheta)*z_coefs_old_ref;
 
     Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], l_coefs_tmp, 2, ebref/*[0]*/, dim, LZ);  //cout << Lsloc.transpose() << endl;
@@ -2199,8 +2199,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       for (int C = 0; C < LZ; C++){
         mapZ_s(C) = n_unknowns_u + n_unknowns_p + LZ*K + C;
       }
-      VecGetValues(Vec_uzp_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
-      VecGetValues(Vec_uzp_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
+      VecGetValues(Vec_ups_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
+      VecGetValues(Vec_ups_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
       z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
 
       FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], l_coefs_new, K+1, ebref/*[0]*/, dim, LZ);
@@ -2234,7 +2234,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
 
   // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol, NeumBody) //////////////////////////////////////////////////
-  //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout))
+  //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_ups_k,Vec_fun_fs,cout))
   {
     int                 tag, sid, nod_id, nod_sv, nodsum, pts_id[15], is_slipvel, is_fsi;//tag_p
     bool                is_neumann, is_surface, is_solid;
@@ -2377,12 +2377,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
       VecGetValues(Vec_normal,  mapM_f.size(), mapM_f.data(), noi_coefs_f_new.data());
       VecGetValues(Vec_x_0,     mapM_f.size(), mapM_f.data(), x_coefs_f_old.data());
       VecGetValues(Vec_x_1,     mapM_f.size(), mapM_f.data(), x_coefs_f_new.data());
-      VecGetValues(Vec_uzp_0,   mapU_f.size(), mapU_f.data(), u_coefs_f_old.data());
-      VecGetValues(Vec_uzp_k,   mapU_f.size(), mapU_f.data(), u_coefs_f_new.data());
+      VecGetValues(Vec_ups_0,   mapU_f.size(), mapU_f.data(), u_coefs_f_old.data());
+      VecGetValues(Vec_ups_k,   mapU_f.size(), mapU_f.data(), u_coefs_f_new.data());
       if (is_fsi || is_slipvel){
-        VecGetValues(Vec_uzp_k,   mapZ_f.size(), mapZ_f.data(), z_coefs_f_new.data()); //cout << z_coefs_c_new << endl << endl;
+        VecGetValues(Vec_ups_k,   mapZ_f.size(), mapZ_f.data(), z_coefs_f_new.data()); //cout << z_coefs_c_new << endl << endl;
         //if (is_unksv){
-        //  VecGetValues(Vec_uzp_k,  mapUs_f.size(), mapUs_f.data(), vs_coefs_f_new.data()); // bdf2,bdf3
+        //  VecGetValues(Vec_ups_k,  mapUs_f.size(), mapUs_f.data(), vs_coefs_f_new.data()); // bdf2,bdf3
         //}
       }
 
@@ -2727,7 +2727,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_uzp_k, Vec Vec_fun
 
 } // END formFunction
 
-PetscErrorCode AppCtx::formJacobian_fs(SNES snes_fs,Vec Vec_uzp_k, Mat* /*Mat_Jac*/, Mat* /*prejac*/, MatStructure * /*flag*/)
+PetscErrorCode AppCtx::formJacobian_fs(SNES snes_fs,Vec Vec_ups_k, Mat* /*Mat_Jac*/, Mat* /*prejac*/, MatStructure * /*flag*/)
 {
   PetscBool          found = PETSC_FALSE;
   char               snes_type[PETSC_MAX_PATH_LEN];
@@ -2738,7 +2738,7 @@ PetscErrorCode AppCtx::formJacobian_fs(SNES snes_fs,Vec Vec_uzp_k, Mat* /*Mat_Ja
     if (string(snes_type) == string("test"))
     {
       cout << "WARNING: TESTING JACOBIAN !!!!! \n";
-      this->formFunction_fs(snes_fs, Vec_uzp_k, Vec_res_fs);
+      this->formFunction_fs(snes_fs, Vec_ups_k, Vec_res_fs);
     }
 
   PetscFunctionReturn(0);
@@ -3236,10 +3236,10 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
 
       VecGetValues(Vec_x_0,     mapM_c.size(), mapM_c.data(), x_coefs_c_old.data());  //cout << x_coefs_c_old << endl << endl;
       VecGetValues(Vec_x_1,     mapM_c.size(), mapM_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl << endl;
-      VecGetValues(Vec_uzp_0,   mapU_c.size(), mapU_c.data(), u_coefs_c_old.data());  //cout << u_coefs_c_old << endl << endl;
-      VecGetValues(Vec_uzp_1,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());  //cout << u_coefs_c_new << endl << endl;
-      VecGetValues(Vec_uzp_0,   mapP_c.size(), mapP_c.data(), p_coefs_c_old.data());  //cout << p_coefs_c_old << endl << endl;
-      VecGetValues(Vec_uzp_1,   mapP_c.size(), mapP_c.data(), p_coefs_c_new.data());  //cout << p_coefs_c_new << endl << endl;
+      VecGetValues(Vec_ups_0,   mapU_c.size(), mapU_c.data(), u_coefs_c_old.data());  //cout << u_coefs_c_old << endl << endl;
+      VecGetValues(Vec_ups_1,   mapU_c.size(), mapU_c.data(), u_coefs_c_new.data());  //cout << u_coefs_c_new << endl << endl;
+      VecGetValues(Vec_ups_0,   mapP_c.size(), mapP_c.data(), p_coefs_c_old.data());  //cout << p_coefs_c_old << endl << endl;
+      VecGetValues(Vec_ups_1,   mapP_c.size(), mapP_c.data(), p_coefs_c_new.data());  //cout << p_coefs_c_new << endl << endl;
       VecGetValues(Vec_fd,      mapM_c.size(), mapM_c.data(), f_coefs_c_new.data());  //cout << x_coefs_c_new << endl << endl;
 
       v_coefs_c_mid_trans = v_coefs_c_mid.transpose();  //cout << v_coefs_c_mid_trans << endl << endl;
@@ -3392,7 +3392,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
 
 #if (true)
   // LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol, NeumBody) //////////////////////////////////////////////////
-  //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_uzp_k,Vec_fun_fs,cout))
+  //~ FEP_PRAGMA_OMP(parallel default(none) shared(Vec_ups_k,Vec_fun_fs,cout))
   {
     int                 tag, is_slipvel, is_fsi;
     bool                is_neumann, is_surface, is_solid;
@@ -3449,8 +3449,8 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       VecGetValues(Vec_x_0,     mapM_f.size(), mapM_f.data(), x_coefs_f_old.data());
       VecGetValues(Vec_x_1,     mapM_f.size(), mapM_f.data(), x_coefs_f_new.data());
       VecGetValues(Vec_fd,      mapM_f.size(), mapM_f.data(), f_coefs_f_new.data());  //cout << x_coefs_c_new << endl << endl;
-//      VecGetValues(Vec_uzp_0,   mapU_f.size(), mapU_f.data(), u_coefs_f_old.data());
-//      VecGetValues(Vec_uzp_k,   mapU_f.size(), mapU_f.data(), u_coefs_f_new.data());
+//      VecGetValues(Vec_ups_0,   mapU_f.size(), mapU_f.data(), u_coefs_f_old.data());
+//      VecGetValues(Vec_ups_k,   mapU_f.size(), mapU_f.data(), u_coefs_f_new.data());
 
       x_coefs_f_old_trans = x_coefs_f_old.transpose();
       x_coefs_f_new_trans = x_coefs_f_new.transpose();

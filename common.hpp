@@ -109,14 +109,14 @@ double beta_diss();
 double muu(int tag);
 Vector force(Vector const& X, double t, int tag);
 Vector u_exact(Vector const& X, double t, int tag);
-Vector z_exact(Vector const& X, double t, int tag);
+Vector z_exact(Vector const& X, double t, int tag, int LZ);
 Vector traction(Vector const& X, Vector const& normal, double t, int tag);
 double p_exact(Vector const& X, double t, int tag);
 Vector grad_p_exact(Vector const& X, double t, int tag);
 Tensor grad_u_exact(Vector const& X, double t, int tag);
 Vector u_initial(Vector const& X, int tag);
 double p_initial(Vector const& X, int tag);
-Vector z_initial(Vector const& X, int tag);
+Vector z_initial(Vector const& X, int tag, int LZ);
 Vector solid_normal(Vector const& X, double t, int tag);
 Vector v_exact(Vector const& X, double t, int tag);
 Vector solid_veloc(Vector const& X, double t, int tag);
@@ -134,6 +134,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
+Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 //Vector SlipVel(Vector const& X, Vector const& XG, int dim, int tag);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
@@ -303,7 +304,7 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
 }
 
 inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref,
-                       double theta, VectorXd const& dllink/*std::vector<double> const& dllink*/,
+                       double theta, Matrix3d const& Qr, VectorXd const& dllink/*std::vector<double> const& dllink*/,
                        int K, /*Vector const&*/ std::vector<Vector3d> const& ebref, int dim, int LZ){
   Vector R(Vector::Zero(dim));
   Vector Z(Vector::Zero(LZ));
@@ -312,7 +313,7 @@ inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref
     R(0) = Zref(0) - Zref(2)*(Xg(1)-Xgref(1));
     R(1) = Zref(1) + Zref(2)*(Xg(0)-Xgref(0));
     if (/*is_sflp && */K > 1){
-      Vector eb(dim);
+      Vector eb(2);
       //eb(0) = ebref(0); eb(1) = ebref(1);
       Matrix2d Q(Matrix2d::Zero(2,2));
       Q(0,0) = cos(theta); Q(0,1) = -sin(theta);
@@ -325,18 +326,24 @@ inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref
     }
     Z(0) = R(0); Z(1) = R(1); Z(2) = Zref(2);
   }
-  else if(dim == 3){}
+  else if(dim == 3){
+    R = Zref.head(3) + cross(Z.tail(3),Xg-Xgref);
+    if (K > 1){
+      Vector3d eb(3);
+      for (int m = 1; m < K; m++){
+        eb = ebref[m-1];
+        R += dllink(m-1)*Qr*eb;
+      }
+    }
+    Z.head(3) = R; Z.tail(3) = Zref.tail(3);
+  }
+
   return Z;
 }
 
-inline TensorZ SkewMatrix(Vector const& X, int dim){
-  TensorZ S;
-  if (dim == 2){
-    S = TensorZ::Zero(dim,1);
-    S(0) = X(1); S(1) = -X(0);
-  }
-  else if (dim == 3){
-    S = TensorZ::Zero(dim,dim);
+inline Matrix3d SkewMatrix(Vector const& X, int dim){
+  Matrix3d S(Matrix3d::Zero(dim,dim));
+  if (dim == 3){
     S(0,1) = -X(2); S(1,0) =  X(2);
     S(0,2) =  X(1); S(2,0) = -X(1);
     S(1,2) = -X(0); S(2,1) =  X(0);
@@ -798,6 +805,7 @@ public:
   std::vector<double>    MV, VV, LV;  //mass vector, radius vector, link vector
   std::vector<Vector3d>  RV, SV_file, FD_file, FT_file, NR_file, TG_file;
   std::vector<Vector3d>  XG_0,    XG_1,    XG_aux,    XG_ini;
+  std::vector<Matrix3d>  Q_0,     Q_1,     Q_aux,     Q_ini;
   std::vector<double>    theta_0, theta_1, theta_aux, theta_ini;
   std::vector<double>    llink_0, llink_1, llink_aux, llink_ini;
   double                 hme, hmn, hmx;

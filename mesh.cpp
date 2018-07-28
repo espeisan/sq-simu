@@ -18,8 +18,8 @@ extern PetscErrorCode FormFunction_fs(SNES snes, Vec Vec_up_1, Vec Vec_fun, void
 extern PetscErrorCode FormJacobian_sqrm(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
 extern PetscErrorCode FormFunction_sqrm(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
 
-extern PetscErrorCode FormJacobian_fd(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
-extern PetscErrorCode FormFunction_fd(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
+//extern PetscErrorCode FormJacobian_fd(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
+//extern PetscErrorCode FormFunction_fd(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
 
 void checkConsistencyTri(Mesh *mesh)
 {
@@ -1439,7 +1439,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
         }
         else
         {
-          if (nodsum){                                           //enforces solid motion for the nodsum mesh nodes,
+          if (nodsum){ // enforces solid motion for the nodsum mesh nodes,
             Vm = vectorSolidMesh(nodsum,&*point,nod_vs);  //to calculate mesh velocity //ojo antes solo nod_vs
             tmp(0) = Vm(0); tmp(1) = Vm(1); if (dim == 3) tmp(2) = Vm(2);
           }
@@ -1455,7 +1455,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
     } // end for point
     //VecView(Vec_v_mid,PETSC_VIEWER_STDOUT_WORLD); VecView(Vec_up_0,PETSC_VIEWER_STDOUT_WORLD); VecView(Vec_up_1,PETSC_VIEWER_STDOUT_WORLD);
   } // b.c.  //NOTE: at t=0 results Vec_v_mid=
-  Assembly(Vec_v_mid); //View(Vec_v_mid,"matrizes/vmid1.m","vmidm1");
+  Assembly(Vec_v_mid); View(Vec_v_mid,"matrizes/vmid1.m","vmidm1");
   //char buf1[50], buf2[50];
   //sprintf(buf1,"matrizes/vmid1_%d.m",time_step); sprintf(buf2,"vmidm1_%d",time_step); View(Vec_v_mid, buf1, buf2);
   if (!force_mesh_velocity)
@@ -1525,7 +1525,7 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 
   if (is_mr){
     VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X_0.data());
-    X_1 = XG_1[K-1] + RotM(theta_1[K-1],dim)*RotM(theta_0[K-1],dim).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
+    X_1 = XG_1[K-1] + RotM(theta_1[K-1],Q_1[K-1],dim)*RotM(theta_0[K-1],Q_1[K-1],dim).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
     Vm = (-X_0 + X_1)/dt;
   }
   else if (is_bdf3 && time_step > 1){
@@ -1569,8 +1569,9 @@ PetscErrorCode AppCtx::updateSolidMesh()
   VectorXi  dofs(dim), dofs_fs(LZ), dofs_U(dim);
   Vector3d  X0(Vector3d::Zero(3)), Vs(Vector3d::Zero(3));
   Vector    Zf(Vector::Zero(LZ)), Uf(dim), U(dim), VS(dim);
-  vector<bool>   SV(n_solids,false);  //solid visited history
+  vector<bool> SV(n_solids,false);  //solid visited history
   Vector3d  Xg, XG_temp, Us;
+  Matrix3d  Id3(Matrix3d::Identity(3,3)), Qtmp;
 
   point_iterator point = mesh->pointBegin();
   point_iterator point_end = mesh->pointEnd();
@@ -1592,16 +1593,21 @@ PetscErrorCode AppCtx::updateSolidMesh()
         Xg(0) = Xg(0)+(dt/2.0)*Zf(0); Xg(1) = Xg(1)+(dt/2.0)*Zf(1); if (dim == 3){Xg(2) = Xg(2)+(dt/2.0)*Zf(2);}
         XG_1[nodsum-1] = Xg;                               // if Zf = 0, then XG_1 = XG_0
         theta_1[nodsum-1] = theta_0[nodsum-1] + (dt/2.0)*Zf(LZ-1);  // if Zf = 0, then theta_1 = theta_0
+        if (dim == 3){
+          Qtmp = Id3 - (dt/2.0)*SkewMatrix(Zf.tail(3),dim);
+          invert(Qtmp,dim);
+          Q_1[nodsum-1] = Qtmp*Q_0[nodsum-1];
+        }
         SV[nodsum-1] = true;  //cout << XG_1[nodsum-1].transpose() <<  "   " << theta_1[nodsum-1] << endl;
       }
 
       getNodeDofs(&*point, DH_MESH, VAR_M, dofs.data());
       VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X0.data());
-      X0 = XG_1[nodsum-1] + RotM(theta_1[nodsum-1],dim)*RotM(theta_0[nodsum-1],dim).transpose()*(X0 - XG_0[nodsum-1]);// - XG_0[nodsum-1];
+      X0 = XG_1[nodsum-1] + RotM(theta_1[nodsum-1],Q_1[nodsum-1],dim)*RotM(theta_0[nodsum-1],Q_0[nodsum-1],dim).transpose()*(X0 - XG_0[nodsum-1]);// - XG_0[nodsum-1];
       VecSetValues(Vec_x_1, dofs.size(), dofs.data(), X0.data(), INSERT_VALUES);
       if (nod_vs){
         VecGetValues(Vec_slipv_0, dim, dofs.data(), Vs.data());
-        Vs = RotM(theta_1[nodsum-1],dim)*RotM(theta_0[nodsum-1],dim).transpose()*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
+        Vs = RotM(theta_1[nodsum-1],Q_1[nodsum-1],dim)*RotM(theta_0[nodsum-1],Q_0[nodsum-1],dim).transpose()*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
         VecSetValues(Vec_slipv_1, dim, dofs.data(), Vs.data(), INSERT_VALUES);
       }
       else if (nod_id){
@@ -2757,8 +2763,8 @@ PetscErrorCode AppCtx::meshAdapt_s()
   bool mesh_was_changed = false;
 
   double Qmesh = quality_m(&*mesh);
-
-  if (Qmesh < Q_star /*true*/){
+  //int counter = 0;
+  if ((Qmesh < Q_star) /*&& (counter < 4)*/ /*true*/){
 
     cout << endl << "Entering Mesh quality test " << Qmesh << " < " << Q_star << endl;
 
@@ -2870,6 +2876,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     }
     //end for adaptation //////////////////////////////////////////////////
 //    }
+    //Qmesh = quality_m(&*mesh);  counter++;
   }
   // end if Qmesh //////////////////////////////////////////////////
 

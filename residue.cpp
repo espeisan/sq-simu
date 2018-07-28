@@ -440,7 +440,8 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
         weight = quadr_cell->weight(qp);
         JxW = J*weight;  //parece que no es necesario, ver 2141 (JxW/JxW)
-        MuE = 1*1.0/(pow(JxW,1.0));  LambE = -1*1.0/(pow(JxW,1.0));  ChiE = 0.0;  Jx0 = JxW;
+        MuE = 1*1.0/(pow(JxW,2.0));  LambE = -MuE/*1*1.0/(pow(JxW,1.0))*/;  ChiE = 2.0;  Jx0 = 1;
+        //gives problems the second term un Floc and Aloc if it is not zero, ie, if LambE =! -Mue
 
         for (int i = 0; i < n_dofs_v_per_cell/dim; ++i)  //sobre cantidad de funciones de forma
         {
@@ -448,8 +449,8 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
           {
             for (int k = 0; k < dim; ++k)  //sobre dimension
             {
-              sigma_ck = dxV(c,k) + dxV(k,c); //sigma_ck = dxV(c,k);
-
+              //sigma_ck = dxV(c,k) + dxV(k,c);  //original
+              sigma_ck = dxV(c,k);
               if (non_linear)  //is right?
               {
                 for (int l = 0; l < dim; ++l)
@@ -464,7 +465,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
                 }
               }  //end non_linear
 
-              Floc(i*dim + c) += sigma_ck*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + dxV(k,k)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*LambE); // (JxW/JxW) is to compiler not complain about unused variables
+              Floc(i*dim + c) += sigma_ck*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + dxV(k,k)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*(MuE+LambE));
               //Floc(i*dim + c) += sigma_ck*dxqsi_c(i,k)*(JxW*MuE) + dxV(k,k)*dxqsi_c(i,c)*(JxW*(MuE+LambE));
               for (int j = 0; j < n_dofs_v_per_cell/dim; ++j)
               {
@@ -472,12 +473,13 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
                 {
                   dsigma_ckjd = 0;
 
-                  if (c==d)
+                  if (c==d){
                     dsigma_ckjd = dxqsi_c(j,k);
-
-                  if (k==d)
-                    dsigma_ckjd += dxqsi_c(j,c);
-
+                  }
+                  if (k==d){
+                    //dsigma_ckjd += dxqsi_c(j,c); //original
+                    dsigma_ckjd += 0;
+                  }
                   if (non_linear)  //is right?
                   {
                     for (int l = 0; l < dim; ++l)
@@ -497,7 +499,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
                     }
                   }  //end non_linear
 
-                  Aloc(i*dim + c, j*dim + d) += dsigma_ckjd*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + (1/dim)*dxqsi_c(j,d)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*LambE);
+                  Aloc(i*dim + c, j*dim + d) += dsigma_ckjd*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + /*(1/dim)**/dxqsi_c(j,d)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*(MuE+LambE));
                   //Aloc(i*dim + c, j*dim + d) += dsigma_ckjd*dxqsi_c(i,k)*(JxW*MuE) + (1/dim)*dxqsi_c(j,d)*dxqsi_c(i,c)*(JxW*(LambE+MuE));
                 } // end d
               } // end j
@@ -564,8 +566,8 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
     }
   }
 
-  Assembly(*JJ); //View(*JJ, "matrizes/jac.m", "Jacm"); //MatView(*JJ,PETSC_VIEWER_STDOUT_WORLD);
-  Assembly(Vec_fun);  //View(Vec_fun, "matrizes/rhs.m", "resm");
+  Assembly(*JJ); View(*JJ, "matrizes/jac.m", "Jacm"); //MatView(*JJ,PETSC_VIEWER_STDOUT_WORLD);
+  Assembly(Vec_fun);  View(Vec_fun, "matrizes/rhs.m", "resm");
   //View(*JJ, "ElastOp", "JJ");
   //double val; VecNorm(Vec_fun,NORM_2,&val); cout << "norma residuo " << val <<endl;
   //cout << "Mesh calculation:" << endl;
@@ -2173,10 +2175,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     Vector      Lsloc = Vector::Zero(LZ);
     VectorXd    z_coefs_tmp(VectorXd::Zero(LZ));
 
-
-
     for (int nl = 0; nl < n_links; nl++){
-      mapL_l(nl) = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
+      mapL_l(nl) = n_unknowns_u + n_unknowns_p + n_unknowns_z + nl;
     }
     VecGetValues(Vec_ups_0, mapL_l.size(), mapL_l.data(), l_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
     VecGetValues(Vec_ups_k, mapL_l.size(), mapL_l.data(), l_coefs_new.data());
@@ -2190,7 +2190,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     VecGetValues(Vec_ups_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new_ref.data());  //cout << z_coefs_new.transpose() << endl;
     z_coefs_mid_ref = utheta*z_coefs_new_ref + (1-utheta)*z_coefs_old_ref;
 
-    Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], l_coefs_tmp, 2, ebref/*[0]*/, dim, LZ);  //cout << Lsloc.transpose() << endl;
+    Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], Q_1[0], l_coefs_tmp, 2, ebref/*[0]*/, dim, LZ);  //cout << Lsloc.transpose() << endl;
 
     for (int K = 0; K < n_solids; K++){
       if (K == 0)
@@ -2203,7 +2203,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       VecGetValues(Vec_ups_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
       z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
 
-      FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], l_coefs_new, K+1, ebref/*[0]*/, dim, LZ);
+      FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], Q_1[0], l_coefs_new, K+1, ebref/*[0]*/, dim, LZ);
       VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), INSERT_VALUES);
 
       for (int nl = 0; nl < K; nl++){

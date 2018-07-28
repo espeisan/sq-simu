@@ -251,7 +251,7 @@ void AppCtx::setUpDefaultOptions()
   L_low = 0.577350269;//1.0*L_min/L_max;
   L_sup = 1.732050808; //1.0/L_low;
 
-  TOLad = 0.5;  //for meshAdapt_s()
+  TOLad = 0.6;  //for meshAdapt_s()
 
   n_unknowns_z      = 0; n_unknowns_f        = 0; n_unknowns_s        = 0;
   n_nodes_fsi       = 0; n_nodes_fo          = 0; n_nodes_so          = 0;
@@ -579,7 +579,6 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
       XG_0.push_back(Xg);      XG_1.push_back(Xg);      XG_aux.push_back(Xg);      XG_ini.push_back(Xg);
       theta_0.push_back(the);  theta_1.push_back(the);  theta_aux.push_back(the);  theta_ini.push_back(the); //(rand()%6);
       llink_0.push_back(llin); llink_1.push_back(llin); llink_aux.push_back(llin); llink_ini.push_back(llin); //(rand()%6);
-      //LV.push_back(linkmax);
     }
     is.close();
     MV.resize(n_solids); RV.resize(n_solids); VV.resize(n_solids);
@@ -1005,7 +1004,7 @@ void AppCtx::dofsUpdate()
 //    n_unknowns_f = dof_handler[DH_FOON].getVariable(VAR_F).numPositiveDofs();
 //    n_unknowns_s = dof_handler[DH_FOON].getVariable(VAR_S).numPositiveDofs();
 
-  n_unknowns_fs = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + n_links; //- dim*n_nodes_fsi;
+  n_unknowns_fs = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_links; //- dim*n_nodes_fsi;
   //if (is_unksv){
   //  n_unknowns_ups = n_unknowns_fs;
   //  n_unknowns_fs += n_unknowns_u;
@@ -2068,6 +2067,17 @@ PetscErrorCode AppCtx::setInitialConditions()
     //View(Vec_slipv_0,"matrizes/slv0.m","sl0");
   }//////////////////////////////////////////////////
 
+  // setting initial rotational matrix for solids (identity) //////////////////////////////////////////////////
+  if (is_sfip){
+    Matrix3d Id3(Matrix3d::Identity(3,3));
+    bool dimt = dim == 3;
+    Id3 = dimt*Id3; //cout << Id3 << endl;
+    for (int i = 0; i < n_solids; i++){
+      Q_0.push_back(Id3); Q_1.push_back(Id3); Q_aux.push_back(Id3); Q_ini.push_back(Id3);
+    }
+    Q_0.resize(n_solids); Q_1.resize(n_solids); Q_aux.resize(n_solids); Q_ini.resize(n_solids);
+  }//////////////////////////////////////////////////
+
   // calculate derivatives for link problem //////////////////////////////////////////////////
   if (is_sflp){
     //eref(0) = XG_ini[1](0) - XG_ini[0](0);
@@ -2075,7 +2085,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     for (int nl = 0; nl < n_links; nl++){
       eref = XG_0[nl+1] - XG_0[nl];
       eref.normalize();
-      ebref.push_back(eref); cout << ebref[nl].transpose() << endl;
+      ebref.push_back(eref); //cout << ebref[nl].transpose() << endl;
 
       link_vel = DFlink(current_time, nl);
       //dllink.push_back(link_vel);
@@ -2087,7 +2097,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   }//////////////////////////////////////////////////
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // initial velocity and initial pressure, saved in Vec_ups_0 //////////////////////////////////////////////////
+  // initial velocity and initial pressure, saved in Vec_ups_0 (initial shoot) //////////////////////////////////////////////////
   point_iterator point = mesh->pointBegin();
   point_iterator point_end = mesh->pointEnd();
   for (; point != point_end; ++point)
@@ -2109,9 +2119,11 @@ PetscErrorCode AppCtx::setInitialConditions()
     nod_vs = is_in_id(tag,slipvel_tags);
     nodsum = nod_id+nod_is+nod_vs;
     if (nodsum){//initial conditions coming from solid bodies
-      Zf = z_initial(X, tag);  //first part of dofs vector q
+      Zf = z_initial(X, tag, LZ);  //first part of dofs vector q, in the case is_sflp this has th dofs of the referential body
       if (is_sflp){
-        Zf = LinksVel(XG_0[nodsum-1], XG_0[0], Zf, theta_0[0], dllink, nodsum, ebref/*[0]*/, dim, LZ);
+        //cout << Zf.transpose() << endl;
+        Zf = LinksVel(XG_0[nodsum-1], XG_0[0], Zf, theta_0[0], Q_0[0], dllink, nodsum, ebref/*[0]*/, dim, LZ);
+        //cout << Zf.transpose() << endl;
       }
       Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
       //if (is_sflp){
@@ -2180,8 +2192,8 @@ PetscErrorCode AppCtx::setInitialConditions()
 
   if (is_sflp){
     for (int nl = 0; nl < n_links; nl++){
-      dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
-      link_vel = DFlink(current_time,nl);
+      dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + nl;
+      link_vel = DFlink(current_time,nl);  //cout << link_vel << endl;
       VecSetValue(Vec_ups_0, dofs_sl, link_vel, INSERT_VALUES);
     }
   }
@@ -2362,7 +2374,7 @@ PetscErrorCode AppCtx::setUPInitialGuess()
 
   if (is_sflp){
     for (int nl = 0; nl < n_links; nl++){
-      int dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + n_modes + nl;
+      int dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + nl;
       double link_vel = DFlink(current_time,nl);
       VecSetValue(Vec_ups_1, dofs_sl, link_vel, INSERT_VALUES);
     }
@@ -2539,6 +2551,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     VecCopy(Vec_x_1, Vec_x_0);
     XG_0 = XG_1;
     theta_0 = theta_1;
+    Q_0 = Q_1;
     VecCopy(Vec_ups_1, Vec_ups_0);
     //copyVec2Mesh(Vec_x_1);
 
@@ -2735,7 +2748,7 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
   VectorXi            mapM_f(dim*nodes_per_facet);
   VectorXi            mapM_r(dim*nodes_per_corner);
 
-  int                 tag_pt0, tag_pt1, tag_pt2, nPer, ccell, nod_id;
+  int                 tag_pt0, tag_pt1, tag_pt2, nPer = 0, ccell, nod_id;
   double const*       Xqpb;  //coordonates at the master element \hat{X}
   Vector              Phi(dim), DPhi(dim), X0(dim), X2(dim), Xcc(3), Vdat(3);
   Tensor              F_c_curv(dim,dim);
@@ -3132,22 +3145,11 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   Vector              Xqp(dim);
   Vector              Uqp(dim);
 
-  double              Pqp;
+  //double              Pqp;
   VectorXi            cell_nodes(nodes_per_cell);
   double              J, JxW;
   double              weight;
   int                 tag;
-  double              volume=0;
-
-  double              p_L2_norm = 0.;
-  double              u_L2_norm = 0.;
-  double              grad_u_L2_norm = 0.;
-  double              grad_p_L2_norm = 0.;
-  double              p_inf_norm = 0.;
-  double              u_inf_norm = 0.;
-  double              hmean = 0.;
-  double              u_L2_facet_norm = 0.;
-  double              u_inf_facet_norm = 0.;
 
   VectorXi            mapU_c(n_dofs_u_per_cell);
   VectorXi            mapU_f(n_dofs_u_per_facet);
@@ -3158,7 +3160,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   VectorXi            mapM_f(dim*nodes_per_facet);
   VectorXi            mapM_r(dim*nodes_per_corner);
 
-  int                 tag_pt0, tag_pt1, tag_pt2, nPer, ccell, nod_id;
+  int                 tag_pt0, tag_pt1, tag_pt2, nPer = 0, ccell, nod_id;
   double const*       Xqpb;  //coordonates at the master element \hat{X}
   Vector              Phi(dim), DPhi(dim), X0(dim), X2(dim), Xcc(3), Vdat(3);
   Tensor              F_c_curv(dim,dim);
@@ -3169,9 +3171,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   PerM3(0,1) = 1; PerM3(1,2) = 1; PerM3(2,0) = 1;
   PerM6(0,2) = 1; PerM6(1,3) = 1; PerM6(2,4) = 1; PerM6(3,5) = 1; PerM6(4,0) = 1; PerM6(5,1) = 1;
   PerM12.block(0,0,6,6) = PerM6; PerM12.block(6,6,6,6) = PerM6;
-  int                 is_slipvel, is_fsi;
   Tensor              F_f_curv(dim,dim-1);
-  double              ybar = 0.0;
 
   double    VD = 0.0, visc;  //viscous dissipation
 
@@ -3275,7 +3275,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
 
        Xqp += x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
        Uqp  = u_coefs_c_trans * phi_err[qp];
-       Pqp  = p_coefs_c.dot(psi_err[qp]);
+       //Pqp  = p_coefs_c.dot(psi_err[qp]);
 
        //quadrature weight//////////////////////////////////////////////////
        weight = quadr_err->weight(qp);
@@ -3291,7 +3291,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
    } // end elementos //////////////////////////////////////////////////
 
 
-  cout << "\n Viscous Dissiparion = " << VD << endl;
+  cout << "\n Viscous Dissipation = " << VD << endl;
 }
 
 void AppCtx::pressureTimeCorrection(Vec &Vec_up_0, Vec &Vec_up_1, double a, double b) // p(n+1) = a*p(n+.5) + b* p(n)
@@ -3861,24 +3861,33 @@ PetscErrorCode AppCtx::updateSolidVel()
 
 PetscErrorCode AppCtx::moveCenterMass(double const vtheta)
 {
-  VectorXi    dofs(dim), dof(1);
+  VectorXi    dofs(LZ), dof(1);
   Vector      U0(Vector::Zero(3)), U1(Vector::Zero(3)), XG_temp(Vector::Zero(3)), omega0(1), omega1(1);
+  Vector      Z0(Vector::Zero(LZ)), Z1(Vector::Zero(LZ));
+  Matrix3d    Id3(Matrix3d::Identity(3,3)), Qtmp;
   double      theta_temp;
 
   for (int s = 0; s < n_solids; s++){
 
-    for (int l = 0; l < dim; l++){
+    for (int l = 0; l < LZ; l++){
       dofs(l) = n_unknowns_u + n_unknowns_p + LZ*s + l;
     }
-    VecGetValues(Vec_ups_0, dim, dofs.data(), U0.data());
-    VecGetValues(Vec_ups_1, dim, dofs.data(), U1.data());
-    dof(0) = n_unknowns_u + n_unknowns_p + LZ*s + dim;
-    VecGetValues(Vec_ups_0, 1, dof.data(), omega0.data());
-    VecGetValues(Vec_ups_1, 1, dof.data(), omega1.data());
+    VecGetValues(Vec_ups_0, LZ, dofs.data(), Z0.data());
+    VecGetValues(Vec_ups_1, LZ, dofs.data(), Z1.data());
+    //dof(0) = n_unknowns_u + n_unknowns_p + LZ*s + dim;
+    //VecGetValues(Vec_ups_0, 1, dof.data(), omega0.data());
+    //VecGetValues(Vec_ups_1, 1, dof.data(), omega1.data());
+    U0.head(dim) = Z0.head(dim); omega0(0) = Z0(LZ-1);
+    U1.head(dim) = Z1.head(dim); omega1(0) = Z1(LZ-1);
 
     if (is_mr){
       XG_1[s] = XG_0[s] + dt*U1;
       theta_1[s] = theta_0[s] + dt*omega1(0);
+      if (dim == 3){
+        Qtmp = Id3 - (dt/2.0)*SkewMatrix(Z1.tail(3),dim);
+        invert(Qtmp,dim);
+        Q_1[s] = Qtmp*Q_0[s];
+      }
     }
     else if (is_bdf3 && time_step > 1){
       XG_temp   = XG_1[s];

@@ -18,13 +18,13 @@ double muu(int tag);
 Vector force(Vector const& X, double t, int tag);   //density*gravity (force/vol)
 Vector u_exact(Vector const& X, double t, int tag);
 double p_exact(Vector const& X, double t, int tag);
-Vector z_exact(Vector const& X, double t, int tag);
+Vector z_exact(Vector const& X, double t, int tag, int LZ);
 Tensor grad_u_exact(Vector const& X, double t, int tag);
 Vector grad_p_exact(Vector const& X, double t, int tag);
 Vector traction(Vector const& X, Vector const& normal, double t, int tag);
 Vector u_initial(Vector const& X, int tag);
 double p_initial(Vector const& X, int tag);
-Vector z_initial(Vector const& X, int tag);
+Vector z_initial(Vector const& X, int tag, int LZ);
 Vector solid_normal(Vector const& X, double t, int tag);
 Tensor feature_proj(Vector const& X, double t, int tag);
 Vector gravity(Vector const& X, int dim);
@@ -40,6 +40,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
+Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
 Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
@@ -246,7 +247,7 @@ Tensor feature_proj(Vector const& X, double t, int tag)
   return f;
 }
 
-Vector z_exact(Vector const& X, double t, int tag)
+Vector z_exact(Vector const& X, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -267,9 +268,9 @@ Vector gravity(Vector const& X, int dim){
   return f;
 }
 
-Vector z_initial(Vector const& X, int tag)
+Vector z_initial(Vector const& X, int tag, int LZ)
 {
-  return z_exact(X,0,tag);
+  return z_exact(X,0,tag,LZ);
 }
 
 #endif
@@ -374,7 +375,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag)
+Vector z_exact(Vector const& X, double t, int tag, int LZ)
 {
   int dim = X.size();
   int LZ = 3*(dim-1);
@@ -416,9 +417,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag)
+Vector z_initial(Vector const& X, int tag, int LZ)
 {
-  return z_exact(X,0,tag);
+  return z_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -814,7 +815,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag)
+Vector z_exact(Vector const& X, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -860,9 +861,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag)
+Vector z_initial(Vector const& X, int tag, int LZ)
 {
-  return z_exact(X,0,tag);
+  return z_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1145,7 +1146,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag)
+Vector z_exact(Vector const& X, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -1191,9 +1192,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag)
+Vector z_initial(Vector const& X, int tag, int LZ)
 {
-  return z_exact(X,0,tag);
+  return z_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1441,7 +1442,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag)
+Vector z_exact(Vector const& X, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -1484,9 +1485,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag)
+Vector z_initial(Vector const& X, int tag, int LZ)
 {
-  return z_exact(X,0,tag);
+  return z_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1711,7 +1712,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag)
+Vector z_exact(Vector const& X, double t, int tag, int LZ)
 {
   double w2 = 0.0;
   int dim = X.size();
@@ -1757,9 +1758,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag)
+Vector z_initial(Vector const& X, int tag, int LZ)
 {
-  return z_exact(X,0,tag);
+  return z_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1994,11 +1995,11 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag)
+Vector z_exact(Vector const& X, double t, int tag, int LZ)
 {//for inertialess case, this MUST be zero at t = 0;
   double w2 = 0.0;
   int dim = X.size();
-  int LZ = 3*(dim-1);
+  //int LZ = 3*(dim-1);
   Vector v(Vector::Zero(LZ)); //v << 1, 1, 0;
   //Vector v(Vector::Ones(LZ));
   return v;
@@ -2037,9 +2038,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag)
+Vector z_initial(Vector const& X, int tag, int LZ)
 {
-  return z_exact(X,0,tag);
+  return z_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -2203,7 +2204,7 @@ TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI)
   return MI;
 }
 
-Matrix3d RotM(double theta, int dim)
+Matrix3d RotM(double theta, Matrix3d Qr, int dim)
 {
   Matrix3d M(Matrix3d::Zero(3,3));
   if (dim == 2){
@@ -2211,7 +2212,17 @@ Matrix3d RotM(double theta, int dim)
     M(1,0) = sin(theta); M(1,1) =  cos(theta);
   }
   if (dim == 3){
-    cout << "Not yet" << endl;
+    M = Qr;
+  }
+  return M;
+}
+
+Matrix3d RotM(double theta, int dim)
+{
+  Matrix3d M(Matrix3d::Zero(3,3));
+  if (dim == 2){
+    M(0,0) = cos(theta); M(0,1) = -sin(theta);
+    M(1,0) = sin(theta); M(1,1) =  cos(theta);
   }
   return M;
 }

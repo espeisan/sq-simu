@@ -2122,7 +2122,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       Zf = z_initial(X, tag, LZ);  //first part of dofs vector q, in the case is_sflp this has th dofs of the referential body
       if (is_sflp){
         //cout << Zf.transpose() << endl;
-        Zf = LinksVel(XG_0[nodsum-1], XG_0[0], Zf, theta_0[0], Q_0[0], dllink, nodsum, ebref/*[0]*/, dim, LZ);
+        Zf = LinksVel(XG_0[nodsum-1], XG_0[0], theta_0[0], Q_0[0], Zf, dllink, nodsum, ebref/*[0]*/, dim, LZ);
         //cout << Zf.transpose() << endl;
       }
       Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);

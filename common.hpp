@@ -303,9 +303,39 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
   return R;
 }
 
-inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref,
-                       double theta, Matrix3d const& Qr, VectorXd const& dllink/*std::vector<double> const& dllink*/,
-                       int K, /*Vector const&*/ std::vector<Vector3d> const& ebref, int dim, int LZ){
+inline Vector LinksVelSim(Vector const& Xg, Vector const& Xgref, double thetaref, Matrix3d const& Qref, Vector const& Zref,
+                       VectorXd const& dllink, int K, std::vector<Vector3d> const& ebref, int dim, int LZ){
+  Vector R(Vector::Zero(dim));
+  Vector Z(Vector::Zero(LZ));
+
+  if (dim == 2){
+    R(0) = Zref(0) - Zref(2)*(Xg(1)-Xgref(1));
+    R(1) = Zref(1) + Zref(2)*(Xg(0)-Xgref(0));
+    Vector eb(2);
+    Matrix2d Q(Matrix2d::Zero(2,2));
+    Q(0,0) = cos(thetaref); Q(0,1) = -sin(thetaref);
+    Q(1,0) = sin(thetaref); Q(1,1) =  cos(thetaref);
+
+    eb(0) = ebref[K-1](0); eb(1) = ebref[K-1](1);
+    R += dllink(K-1)*Q*eb;
+
+    Z(0) = R(0); Z(1) = R(1); Z(2) = Zref(2);
+  }
+  else if(dim == 3){
+    R = Zref.head(3) + cross(Z.tail(3),Xg-Xgref);
+    Vector3d eb(3);
+
+    eb = ebref[K-1];
+    R += dllink(K-1)*Qref*eb;
+
+    Z.head(3) = R; Z.tail(3) = Zref.tail(3);
+  }
+
+  return Z;
+}
+
+inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, double thetaref, Matrix3d const& Qref, Vector const& Zref,
+                          VectorXd const& dllink, int K, std::vector<Vector3d> const& ebref, int dim, int LZ){  //Links Velocity Simple, i.e, using its direct neighbor
   Vector R(Vector::Zero(dim));
   Vector Z(Vector::Zero(LZ));
 
@@ -316,8 +346,8 @@ inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref
       Vector eb(2);
       //eb(0) = ebref(0); eb(1) = ebref(1);
       Matrix2d Q(Matrix2d::Zero(2,2));
-      Q(0,0) = cos(theta); Q(0,1) = -sin(theta);
-      Q(1,0) = sin(theta); Q(1,1) =  cos(theta);
+      Q(0,0) = cos(thetaref); Q(0,1) = -sin(thetaref);
+      Q(1,0) = sin(thetaref); Q(1,1) =  cos(thetaref);
 
       for (int m = 1; m < K; m++){
         eb(0) = ebref[m-1](0); eb(1) = ebref[m-1](1);
@@ -332,7 +362,7 @@ inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, Vector const& Zref
       Vector3d eb(3);
       for (int m = 1; m < K; m++){
         eb = ebref[m-1];
-        R += dllink(m-1)*Qr*eb;
+        R += dllink(m-1)*Qref*eb;
       }
     }
     Z.head(3) = R; Z.tail(3) = Zref.tail(3);
@@ -363,6 +393,19 @@ inline TensorZ SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ
     TensorZ S = SkewMatrix(X-Xg,dim);
     H.block(0,dim,dim,dim) = -S;
     //H = Z.head(3) + cross(Z.tail(3),X-Xg);
+  }
+  return H;
+}
+
+inline TensorZ SolidVelGrad(Vector const& X, Vector const& Xg, int dim, int LZ){
+  TensorZ H = TensorZ::Identity(LZ,LZ);
+  if (dim == 2){
+    H(0,2) = -(X(1)-Xg(1));
+    H(1,2) =  (X(0)-Xg(0));
+  }
+  else if(dim == 3){
+    TensorZ S = SkewMatrix(X-Xg,dim);
+    H.block(0,dim,dim,dim) = -S;
   }
   return H;
 }

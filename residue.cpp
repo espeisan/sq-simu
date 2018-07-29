@@ -2169,7 +2169,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     Vector      FZsloc = Vector::Zero(LZ);
     VectorXd    z_coefs_old(LZ), z_coefs_new(LZ), z_coefs_mid(LZ);
     VectorXd    z_coefs_old_ref(LZ), z_coefs_new_ref(LZ), z_coefs_mid_ref(LZ);
-    VectorXi    mapZ_s(LZ), mapZ_J(LZ);
+    VectorXi    mapZ_s(LZ), mapZ_t(LZ);
     TensorZ     Z3sloc = TensorZ::Zero(LZ,LZ);
     MatrixXd    Zlsloc(MatrixXd::Identity(n_links,n_links));
     Vector      Lsloc = Vector::Zero(LZ);
@@ -2183,6 +2183,39 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     l_coefs_mid = utheta*l_coefs_new + (1-utheta)*l_coefs_old;
     MatSetValues(*JJ, mapL_l.size(), mapL_l.data(), mapL_l.size(), mapL_l.data(), Zlsloc.data(), INSERT_VALUES);
 
+    for (int K = 0; K < n_solids; K++){
+      if (K == 0)
+        continue;
+
+      for (int C = 0; C < LZ; C++){
+        mapZ_s(C) = n_unknowns_u + n_unknowns_p + LZ*K + C;
+        mapZ_t(C) = n_unknowns_u + n_unknowns_p + LZ*(K-1) + C;
+      }
+
+      VecGetValues(Vec_ups_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
+      VecGetValues(Vec_ups_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
+      z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
+      VecGetValues(Vec_ups_0, mapZ_t.size(), mapZ_t.data(), z_coefs_old_ref.data());  //cout << z_coefs_old.transpose() << endl;
+      VecGetValues(Vec_ups_k, mapZ_t.size(), mapZ_t.data(), z_coefs_new_ref.data());  //cout << z_coefs_new.transpose() << endl;
+      z_coefs_mid_ref = utheta*z_coefs_new_ref + (1-utheta)*z_coefs_old_ref;
+
+      // residual
+      FZsloc = -z_coefs_mid + LinksVelSim(XG_1[K], XG_1[K-1], theta_1[K-1], Q_1[K-1], z_coefs_mid_ref,
+                                          l_coefs_mid, K, ebref, dim, LZ);
+      VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), INSERT_VALUES);
+
+      // jacobian
+      Z3sloc = SolidVelGrad(XG_1[K], XG_1[K-1], dim, LZ);
+      MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_t.size(), mapZ_t.data(), Z3sloc.data(), INSERT_VALUES);
+      Z3sloc = -TensorZ::Identity(LZ,LZ);
+      MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_s.size(), mapZ_s.data(), Z3sloc.data(), INSERT_VALUES);
+
+      Lsloc = LinksVelSim(XG_1[K], XG_1[K], theta_1[K-1], Q_1[K-1], z_coefs_tmp, l_coefs_tmp, K, ebref, dim, LZ);
+      MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), 1, &mapL_l(K-1), Lsloc.data(), INSERT_VALUES);
+
+    }
+
+/*
     for (int C = 0; C < LZ; C++){
       mapZ_s(C) = n_unknowns_u + n_unknowns_p + C;
     }
@@ -2190,7 +2223,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     VecGetValues(Vec_ups_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new_ref.data());  //cout << z_coefs_new.transpose() << endl;
     z_coefs_mid_ref = utheta*z_coefs_new_ref + (1-utheta)*z_coefs_old_ref;
 
-    Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], Q_1[0], l_coefs_tmp, 2, ebref/*[0]*/, dim, LZ);  //cout << Lsloc.transpose() << endl;
+    Lsloc = -LinksVel(XG_mid[0], XG_mid[0], z_coefs_tmp, theta_1[0], Q_1[0], l_coefs_tmp, 2, ebref, dim, LZ);  //cout << Lsloc.transpose() << endl;
 
     for (int K = 0; K < n_solids; K++){
       if (K == 0)
@@ -2203,7 +2236,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       VecGetValues(Vec_ups_k, mapZ_s.size(), mapZ_s.data(), z_coefs_new.data());  //cout << z_coefs_new.transpose() << endl;
       z_coefs_mid = utheta*z_coefs_new + (1-utheta)*z_coefs_old;
 
-      FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], Q_1[0], l_coefs_new, K+1, ebref/*[0]*/, dim, LZ);
+      FZsloc = z_coefs_mid-LinksVel(XG_mid[K], XG_mid[0], z_coefs_mid_ref, theta_1[0], Q_1[0], l_coefs_new, K+1, ebref, dim, LZ);
       VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), INSERT_VALUES);
 
       for (int nl = 0; nl < K; nl++){
@@ -2212,7 +2245,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
 
       for (int L = 0; L < n_solids; L++){
         for (int C = 0; C < LZ; C++){
-          mapZ_J(C) = n_unknowns_u + n_unknowns_p + LZ*L + C;
+          mapZ_t(C) = n_unknowns_u + n_unknowns_p + LZ*L + C;
         }
         if (L == 0){
           Z3sloc = -TensorZ::Identity(LZ,LZ);
@@ -2226,9 +2259,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         else{
           Z3sloc = TensorZ::Zero(LZ,LZ);
         }
-        MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_J.size(), mapZ_J.data(), Z3sloc.data(), INSERT_VALUES);
+        MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_t.size(), mapZ_t.data(), Z3sloc.data(), INSERT_VALUES);
       }
     }
+    */
   }
   // LOOP FOR LINK PROBLEM CONTRIBUTION //////////////////////////////////////////////////
 

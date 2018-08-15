@@ -5,8 +5,6 @@
 #define CONTRACT3(i,j,k,   size_i, size_j, size_k)         for (int i = 0; i < size_i; ++i) for (int j = 0; j < size_j; ++j) for (int k = 0; k < size_k; ++k)
 #define CONTRACT4(i,j,k,l, size_i, size_j, size_k, size_l) for (int i = 0; i < size_i; ++i) for (int j = 0; j < size_j; ++j) for (int k = 0; k < size_k; ++k) for (int l = 0; l < size_l; ++l)
 
-
-
 int epsilon(int i, int j, int k)  // permutation function
 {
   if(i==1 && j==2 && k==3) return  1;
@@ -214,7 +212,10 @@ void getProjectorBC(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
       }
       else
       {
-        P.block(i*dim,i*dim,dim,dim) = Z;
+        app.getNodeDofs(&*point, DH_MESH, VAR_M, dofs);
+        VecGetValues(Vec_x_, dim, dofs, X.data());
+        P.block(i*dim,i*dim,dim,dim) = feature_proj(X,t,tag);
+        //P.block(i*dim,i*dim,dim,dim) = Z;
       }
     }
     else if (is_in(tag,solid_tags) )
@@ -404,7 +405,6 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
     const int tid = omp_get_thread_num();
     const int nthreads = omp_get_num_threads();
-
     cell_iterator cell = mesh->cellBegin(tid,nthreads);   //cell_iterator cell = mesh->cellBegin();
     cell_iterator cell_end = mesh->cellEnd(tid,nthreads); //cell_iterator cell_end = mesh->cellEnd();
     for (; cell != cell_end; ++cell)
@@ -440,7 +440,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
         weight = quadr_cell->weight(qp);
         JxW = J*weight;  //parece que no es necesario, ver 2141 (JxW/JxW)
-        MuE = 1*1.0/(pow(JxW,2.0));  LambE = -MuE/*1*1.0/(pow(JxW,1.0))*/;  ChiE = 2.0;  Jx0 = 1;
+        MuE = 1.0/*1*1.0/(pow(JxW,1.0))*/;  LambE = -MuE/*1*1.0/(pow(JxW,1.0))*/;  ChiE = 2.0;  Jx0 = 1.0;
         //gives problems the second term un Floc and Aloc if it is not zero, ie, if LambE =! -Mue
 
         for (int i = 0; i < n_dofs_v_per_cell/dim; ++i)  //sobre cantidad de funciones de forma
@@ -449,14 +449,14 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
           {
             for (int k = 0; k < dim; ++k)  //sobre dimension
             {
-              //sigma_ck = dxV(c,k) + dxV(k,c);  //original
-              sigma_ck = dxV(c,k);
-              if (non_linear)  //is right?
+              sigma_ck = dxV(c,k) + dxV(k,c);  //original
+              //sigma_ck = dxV(c,k);
+              if (non_linear)
               {
                 for (int l = 0; l < dim; ++l)
                 {
                   sigma_ck += dxV(l,c)*dxV(l,k);
-                  if (c==k)
+                  if (c==k && true) //is right?
                   {
                     sigma_ck -= dxV(l,l);
                     for (int m = 0; m < dim; ++m)
@@ -465,8 +465,9 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
                 }
               }  //end non_linear
 
-              Floc(i*dim + c) += sigma_ck*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + dxV(k,k)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*(MuE+LambE));
+              //Floc(i*dim + c) += sigma_ck*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + dxV(k,k)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*(MuE+LambE));
               //Floc(i*dim + c) += sigma_ck*dxqsi_c(i,k)*(JxW*MuE) + dxV(k,k)*dxqsi_c(i,c)*(JxW*(MuE+LambE));
+              Floc(i*dim + c) += MuE*sigma_ck*dxqsi_c(i,k)*JxW*pow(Jx0/JxW,ChiE) + LambE*dxV(k,k)*dxqsi_c(i,c)*JxW*pow(Jx0/JxW,ChiE);
               for (int j = 0; j < n_dofs_v_per_cell/dim; ++j)
               {
                 for (int d = 0; d < dim; ++d)
@@ -477,17 +478,17 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
                     dsigma_ckjd = dxqsi_c(j,k);
                   }
                   if (k==d){
-                    //dsigma_ckjd += dxqsi_c(j,c); //original
-                    dsigma_ckjd += 0;
+                    dsigma_ckjd += dxqsi_c(j,c); //original
+                    //dsigma_ckjd += 0;
                   }
                   if (non_linear)  //is right?
                   {
                     for (int l = 0; l < dim; ++l)
                     {
                       if (l==d)
-                        dsigma_ckjd += dxqsi_c(j,c)*dxV(l,k) + dxV(l,c)*dxqsi_c(j,k);  //is ok?
+                        dsigma_ckjd += dxqsi_c(j,c)*dxV(l,k) + dxV(l,c)*dxqsi_c(j,k);
 
-                      if (c==k)
+                      if (c==k && true) //is ok?
                       {
                         if (l==d)
                         {
@@ -499,22 +500,28 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
                     }
                   }  //end non_linear
 
-                  Aloc(i*dim + c, j*dim + d) += dsigma_ckjd*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + /*(1/dim)**/dxqsi_c(j,d)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*(MuE+LambE));
+                  //Aloc(i*dim + c, j*dim + d) += dsigma_ckjd*dxqsi_c(i,k)*(pow(Jx0/JxW,ChiE)*JxW*MuE) + /*(1/dim)**/dxqsi_c(j,d)*dxqsi_c(i,c)*(pow(Jx0/JxW,ChiE)*JxW*(MuE+LambE));
                   //Aloc(i*dim + c, j*dim + d) += dsigma_ckjd*dxqsi_c(i,k)*(JxW*MuE) + (1/dim)*dxqsi_c(j,d)*dxqsi_c(i,c)*(JxW*(LambE+MuE));
+                  Aloc(i*dim + c, j*dim + d) += MuE*dsigma_ckjd*dxqsi_c(i,k)*JxW*pow(Jx0/JxW,ChiE) + LambE*(1.0/((double)dim))*dxqsi_c(j,d)*dxqsi_c(i,c)*JxW*pow(Jx0/JxW,ChiE);
                 } // end d
               } // end j
             } // end k
           }// end c
         } // end i
 
-      } // fim quadratura
+      }
+      ////////////////////////////////////////////////// ENDING QUADRATURE //////////////////////////////////////////////////
 
 
-      // Projection - to force non-penetrarion bc
+      // Projection - to force Dirichlet conditions: solid motion, non-penetration, pure Dirichlet, respect //////////////////////////////////////////////////
       mesh->getCellNodesId(&*cell, cell_nodes.data());
       getProjectorBC(Prj, nodes_per_cell, cell_nodes.data(), Vec_x_1, current_time, *this /*AppCtx*/); // MESH CHOISE
       Floc = Prj*Floc;  //cout << Floc.transpose() << endl;
-      Aloc = Prj*Aloc*Prj;  //zeros at dirichlet nodes (lines and columns)
+      Aloc = Prj*Aloc/*Prj*/;  //zeros at dirichlet nodes (lines and columns)
+
+      MatrixXd Id_vs(MatrixXd::Identity(n_dofs_u_per_cell,n_dofs_u_per_cell));
+      double   betaPrj = 1.0;
+      Aloc += betaPrj*(Id_vs - Prj);
 
 #ifdef FEP_HAS_OPENMP
       FEP_PRAGMA_OMP(critical)
@@ -531,7 +538,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
   // boundary conditions on global Jacobian
     // solid & triple tags .. force normal
-  if (true && force_dirichlet)  //identify the contribution of points in *_tags
+  if (false && force_dirichlet)  //identify the contribution of points in *_tags
   {
     int      nodeid;
     int      v_dofs[dim];
@@ -587,7 +594,7 @@ PetscErrorCode AppCtx::formJacobian_mesh(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**
 PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun_fs)
 {
   double utheta = AppCtx::utheta;
-  if (is_mr){utheta = 1.0;}
+  if (is_mr_qextrap){utheta = 1.0;}
 
   VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
   VecSetOption(Vec_ups_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
@@ -842,11 +849,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     Vector   auxRotvI(dim), auxRotvJ(dim);
     Tensor   auxTenf(dim,dim), auxTenv(dim,dim);
     Tensor   auxTenfI(dim,dim), auxTenfJ(dim,dim), auxTenvI(dim,dim), auxTenvJ(dim,dim);
-    double   thetaI = 0.0;
 
     VectorXi            cell_nodes_tmp(nodes_per_cell);
     Tensor              F_c_curv(dim,dim);
-    int                 tag_pt0, tag_pt1, tag_pt2, bcell, nPer, ccell;
+    int                 tag_pt0, tag_pt1, tag_pt2, /*bcell,*/ nPer, ccell;
     double const*       Xqpb;  //coordinates at the master element \hat{X}
     Vector              Phi(dim), DPhi(dim), X0(dim), X2(dim), T0(dim), T2(dim), Xcc(3), Vdat(3);
     bool                curvf = false;
@@ -1659,17 +1665,18 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         //  Asloc = -betaPrj*(Id_vs - Prj);
         //}
 
+        // DOFS elimination //////////////////////////////////////////////////
+        MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
+        MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
+        VectorXi s_DOFS(LZ); s_DOFS << 0,0,0; // this aliminates all DOFS //<< 0, 1, 0;
         if (true /*is_axis && is_sfip*/){// eliminating specific solid DOFS
-          MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
-          MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
-          VectorXi s_DOFS(LZ); s_DOFS = DOFS_elimination(LZ); //<< 0, 1, 0;
           if (is_sflp){
             MatrixXd PrjDOFSlz(LZ,LZ);
             PrjDOFS.setIdentity();
             for (int i = 0; i < n_dofs_u_per_cell/dim; ++i){
               int K = SV_c[i] + VS_c[i];
               if (K == 1)
-                continue;
+                continue;  //eliminates all contribution in the jacobian for all bodies except for body K=1
 
               getProjectorDOFS(PrjDOFSlz, 1, s_DOFS.data(), *this);
               PrjDOFS.block(i*LZ,i*LZ,LZ,LZ) = PrjDOFSlz;
@@ -1679,15 +1686,16 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             Z4loc = PrjDOFS*Z4loc;
             Z3loc = Id_LZ - PrjDOFS;
           }
-          else{
+          if (is_axis){
+            s_DOFS = DOFS_elimination(LZ);  //eliminates horizontal and rotational velocities
             getProjectorDOFS(PrjDOFS, n_dofs_u_per_cell/dim, s_DOFS.data(), *this);
             FZloc = PrjDOFS*FZloc;
             Z2loc = PrjDOFS*Z2loc;
             Z4loc = PrjDOFS*Z4loc;
             Z3loc.setZero(); //= Id_LZ - PrjDOFS;
           }
+        }//////////////////////////////////////////////////
 
-        }
       }
       //////////////////////////////////////////////////
 
@@ -2691,7 +2699,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         }
       }
 
-      if (true /*is_axis && is_sfip*/){// eliminating specific solid DOFS
+      if (false /*is_axis && is_sfip*/){// eliminating specific solid DOFS
         MatrixXd PrjDOFS(n_dofs_z_per_facet,n_dofs_z_per_facet);
         MatrixXd PrjDOFSlz(LZ,LZ);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_facet,n_dofs_z_per_facet));
@@ -2843,7 +2851,6 @@ PetscErrorCode AppCtx::formFunction_sqrm(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
     const int tid = omp_get_thread_num();
     const int nthreads = omp_get_num_threads();
-
     cell_iterator cell = mesh->cellBegin(tid,nthreads);   //cell_iterator cell = mesh->cellBegin();
     cell_iterator cell_end = mesh->cellEnd(tid,nthreads); //cell_iterator cell_end = mesh->cellEnd();
     for (; cell != cell_end; ++cell)
@@ -3094,7 +3101,7 @@ PetscErrorCode AppCtx::formJacobian_sqrm(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**
 PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
 {
   double utheta = AppCtx::utheta;
-  if (is_mr){utheta = 1.0;}
+  if (is_mr_qextrap){utheta = 1.0;}
 
   VecSetOption(Vec_fun, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
   VecSetOption(Vec_fd, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);

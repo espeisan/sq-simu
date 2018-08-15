@@ -109,14 +109,14 @@ double beta_diss();
 double muu(int tag);
 Vector force(Vector const& X, double t, int tag);
 Vector u_exact(Vector const& X, double t, int tag);
-Vector z_exact(Vector const& X, double t, int tag, int LZ);
-Vector traction(Vector const& X, Vector const& normal, double t, int tag);
 double p_exact(Vector const& X, double t, int tag);
+Vector s_exact(int dim, double t, int tag, int LZ);
+Vector traction(Vector const& X, Vector const& normal, double t, int tag);
 Vector grad_p_exact(Vector const& X, double t, int tag);
 Tensor grad_u_exact(Vector const& X, double t, int tag);
 Vector u_initial(Vector const& X, int tag);
 double p_initial(Vector const& X, int tag);
-Vector z_initial(Vector const& X, int tag, int LZ);
+Vector s_initial(int dim, int tag, int LZ);
 Vector solid_normal(Vector const& X, double t, int tag);
 Vector v_exact(Vector const& X, double t, int tag);
 Vector solid_veloc(Vector const& X, double t, int tag);
@@ -618,7 +618,7 @@ public:
   void getSolidVolume();
   void getSolidCentroid();
   void getSolidInertiaTensor();
-  PetscErrorCode moveCenterMass(double vtheta);
+  PetscErrorCode moveSolidDOFs(double vtheta);
   PetscErrorCode updateSolidMesh();
   PetscErrorCode velNoSlip(Vec const& Vec_uzp, Vec const& Vec_sv, Vec &Vec_ups_ns);
   PetscErrorCode plotFiles();
@@ -705,7 +705,7 @@ public:
   PetscBool   is_sfim;              //is SFI modes problem
   PetscBool   is_sflp;              //is SFI links problem
   PetscBool   is_curvt;
-  PetscBool   is_mr;
+  PetscBool   is_mr_qextrap;
   PetscBool   is_axis;
   PetscBool   exact_normal;
   PetscBool   read_from_sv_fd;
@@ -717,6 +717,7 @@ public:
   double      steady_tol;
   double      utheta;
   double      vtheta;
+  double      stheta;
   double      finaltime;
   bool        pres_pres_block;
   bool        solve_the_sys;

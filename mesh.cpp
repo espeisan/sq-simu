@@ -1523,7 +1523,7 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 
   getNodeDofs(&*point, DH_MESH, VAR_M, dofs.data());
 
-  if (is_mr){
+  if (is_mr_qextrap || is_mr_ab){
     VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X_0.data());
     X_1 = XG_1[K-1] + RotM(theta_1[K-1],Q_1[K-1],dim)*RotM(theta_0[K-1],Q_1[K-1],dim).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
     Vm = (-X_0 + X_1)/dt;
@@ -2140,7 +2140,7 @@ PetscErrorCode AppCtx::meshAdapt_l()
     for (int v = 0; v < L; ++v)
     {
       if (is_slipv){
-        if ((is_mr_ab || is_basic || is_mr) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
+        if ((is_mr_ab || is_basic || is_mr_qextrap) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
           continue;
         else if (is_bdf2 && (v == 5 || v == 6 || v == 10))
           continue;
@@ -2962,7 +2962,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     for (int v = 0; v < L; ++v)
     {
       if (is_sfip){
-        if ((is_mr_ab || is_basic || is_mr) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
+        if ((is_mr_ab || is_basic || is_mr_qextrap) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
           continue;
         else if (is_bdf2 && (v == 5 || v == 6 || v == 10))
           continue;

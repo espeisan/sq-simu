@@ -32,6 +32,7 @@ PetscErrorCode FormJacobian_fd(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac,
 PetscErrorCode FormFunction_fd(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
 
 class AppCtx;
+
 class Statistics;
 
 class GetDataVelocity : public DefaultGetDataVtk
@@ -106,7 +107,6 @@ public:
   double *q_array;
   virtual ~GetDataSlipVel() {}
 };
-
 
 AppCtx::AppCtx(int argc, char **argv, bool &help_return, bool &erro)
 {
@@ -186,6 +186,7 @@ void AppCtx::setUpDefaultOptions()
   steady_tol             = 1.e-6;
   utheta                 = 1;  // time step, theta method (momentum)
   vtheta                 = 1;  // time step, theta method (mesh velocity) NOT USED
+  stheta                 = 0;  // time step, theta method (mesh velocity) NOT USED
   maxts                  = 10; // max num of time steps
   finaltime              = -1;
   quadr_degree_cell      = (dim==2) ? 3 : 3;   // ordem de quadratura
@@ -236,7 +237,7 @@ void AppCtx::setUpDefaultOptions()
   is_bdf_euler_start = PETSC_FALSE;
   is_bdf_extrap_cte  = PETSC_FALSE;
   is_basic           = PETSC_FALSE;
-  is_mr              = PETSC_FALSE;
+  is_mr_qextrap      = PETSC_FALSE;
 
   solve_the_sys          = true;   // for debug
   filename               = (dim==2 ? "malha/cavity2d-1o.msh" : "malha/cavity3d-1o.msh");
@@ -298,6 +299,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsScalar("-dt", "time step", "main.cpp", dt, &dt, PETSC_NULL);
   PetscOptionsScalar("-utheta", "utheta value", "main.cpp", utheta, &utheta, PETSC_NULL);
   PetscOptionsScalar("-vtheta", "vtheta value", "main.cpp", vtheta, &vtheta, PETSC_NULL);  //borrar
+  PetscOptionsScalar("-stheta", "stheta value", "main.cpp", stheta, &stheta, PETSC_NULL);  //borrar
   PetscOptionsScalar("-sst", "steady state tolerance", "main.cpp", steady_tol, &steady_tol, PETSC_NULL);
   PetscOptionsScalar("-beta1", "par vel do fluido", "main.cpp", beta1, &beta1, PETSC_NULL);
   PetscOptionsScalar("-beta2", "par vel elastica", "main.cpp", beta2, &beta2, PETSC_NULL);
@@ -334,7 +336,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
 
   switch(temporal_solver)
   {
-    case 0:{is_mr               = PETSC_TRUE; break;}
+    case 0:{is_mr_qextrap       = PETSC_TRUE; break;}
     case 1:{is_mr_ab            = PETSC_TRUE; break;}
     case 2:{is_bdf3             = PETSC_TRUE; break;}
     case 3:{is_bdf2             = PETSC_TRUE; break;}
@@ -2119,32 +2121,28 @@ PetscErrorCode AppCtx::setInitialConditions()
     nod_vs = is_in_id(tag,slipvel_tags);
     nodsum = nod_id+nod_is+nod_vs;
     if (nodsum){//initial conditions coming from solid bodies
-      Zf = z_initial(X, tag, LZ);  //first part of dofs vector q, in the case is_sflp this has th dofs of the referential body
+      Zf = s_initial(dim, tag, LZ);  //first part of dofs vector q, in the case is_sflp this has th dofs of the referential body
       if (is_sflp){
         //cout << Zf.transpose() << endl;
         Zf = LinksVel(XG_0[nodsum-1], XG_0[0], theta_0[0], Q_0[0], Zf, dllink, nodsum, ebref/*[0]*/, dim, LZ);
         //cout << Zf.transpose() << endl;
       }
       Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
-      //if (is_sflp){
-      //  Uf += LinksVel(theta_0[nodsum-1], dllink, nodsum, ebref[0], dim);
-      //}
-      //VecSetValues(Vec_ups_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
+      VecSetValues(Vec_ups_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);
+
       if (nod_vs+nod_id){  //ojo antes solo nod_vs
         getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
         int pID = mesh->getPointId(&*point);
         if(!is_sslv){  //calculate slip velocity at slipvel nodes (and in fsi nodes, which is not a problem, cause this is just a shoot) TODO
           VecGetValues(Vec_normal, dim, dofs_mesh.data(), Nr.data());
           /*cout << X.transpose() << "   "
-               << XG_0[nod_vs+nod_id-1].transpose() << "   "
-               << Nr.transpose() << "   "
-               << theta_ini[nod_vs+nod_id-1] << endl;*/
+               << XG_0[nod_vs+nod_id-1].transpose() << "   " << Nr.transpose() << "   " << theta_ini[nod_vs+nod_id-1] << endl;*/
           if (nod_vs){
             if (read_from_sv_fd){
               Vs = BFields_from_file(pID,2);
             }
             else{
-              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs
+              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs//here nod_vs=0
             }
             VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
@@ -2169,28 +2167,30 @@ PetscErrorCode AppCtx::setInitialConditions()
         }
         //Uf = Uf + Vs;  //cout << tag << "  " << X(0)-3 << " " << X(1)-3<< "  " << Uf.transpose() << endl; ojo, descomentar?
       }
-      VecSetValues(Vec_ups_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);
-      if (!SV[nodsum-1]){
-        for (int l = 0; l < LZ; l++){
-          dofs_fs(l) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + l;
-        }
-        VecSetValues(Vec_ups_0, LZ, dofs_fs.data(), Zf.data(), INSERT_VALUES);  //cout << dofs_fs.transpose() << endl;
-        //VecSetValues(Vec_ups_1, LZ, dofs_fs.data(), Zf.data(), INSERT_VALUES);
-        Xg = XG_0[nodsum-1];
-        Xg(0) = Xg(0)+dt*Zf(0); Xg(1) = Xg(1)+dt*Zf(1); if (dim == 3){Xg(2) = Xg(2)+dt*Zf(2);}
-        XG_1[nodsum-1] = Xg;                               // if Zf = 0, then XG_1 = XG_0
-        theta_1[nodsum-1] = theta_0[nodsum-1] + dt*Zf(2);  // if Zf = 0, then theta_1 = theta_0
-        SV[nodsum-1] = true;  //cout << XG_1[nodsum-1].transpose() <<  "   " << theta_1[nodsum-1] << endl;
-      }
     }
     else{
       Uf = u_initial(X, tag);
       VecSetValues(Vec_ups_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);  //cout << dofs.transpose() << endl;
-      //VecSetValues(Vec_ups_1, dim, dofs.data(), Uf.data(), INSERT_VALUES);
     }
   }// end point loop //////////////////////////////////////////////////
 
-  if (is_sflp){
+  if (is_sfip){//calculating the first inteprolated/approximated value for the body's DOFs //////////////////////////////////////////////////
+    for (int K = 1; K <= n_solids ; K++){
+      nodsum = K;
+      for (int l = 0; l < LZ; l++){
+        dofs_fs(l) = n_unknowns_u + n_unknowns_p + LZ*(nodsum-1) + l;
+      }
+      Zf = s_initial(dim, solidonly_tags[nodsum-1], LZ);
+      VecSetValues(Vec_ups_0, LZ, dofs_fs.data(), Zf.data(), INSERT_VALUES);  //svanig DOFs in the UPS vector//cout << dofs_fs.transpose() << endl;
+/*      Xg = XG_0[nodsum-1];
+      Xg(0) = Xg(0)+dt*Zf(0); Xg(1) = Xg(1)+dt*Zf(1); if (dim == 3){Xg(2) = Xg(2)+dt*Zf(2);}
+      XG_1[nodsum-1] = Xg;                               // if Zf = 0, then XG_1 = XG_0
+      theta_1[nodsum-1] = theta_0[nodsum-1] + dt*Zf(2);  // if Zf = 0, then theta_1 = theta_0
+      //Q_1[nodsum-1] = Q_0[nodsum-1] + 0*dt*SkewMatrix(Zf.tail(3),dim);  //TODO: matrix ode solver*/
+    }
+  }
+
+  if (is_sflp){//calculating the links derivatives and saving it in UPS //////////////////////////////////////////////////
     for (int nl = 0; nl < n_links; nl++){
       dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + nl;
       link_vel = DFlink(current_time,nl);  //cout << link_vel << endl;
@@ -2198,7 +2198,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     }
   }
 
-  if (false){//saving matlab matrices
+  if (false){//saving matlab matrices //////////////////////////////////////////////////
     View(Vec_x_0,"matrizes/xv0.m","x0");
     if (is_sfip){View(Vec_slipv_0,"matrizes/sv0.m","s0");}
     View(Vec_tangent,"matrizes/tv0.m","t0");
@@ -2237,6 +2237,10 @@ PetscErrorCode AppCtx::setInitialConditions()
   {
     printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
 
+    // update mesh and mech. dofs
+    moveSolidDOFs(0.0);
+    calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
+    VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
     // extrapolation and compatibilization of the mesh
     VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
     if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
@@ -2259,14 +2263,14 @@ PetscErrorCode AppCtx::setInitialConditions()
     if ((pic+1) < PI){
       //VecCopy(Vec_x_1, Vec_x_0);
       //XG_0 = XG_1; theta_0 = theta_1;
-      VecCopy(Vec_ups_1, Vec_ups_0);
+//      VecCopy(Vec_ups_1, Vec_ups_0);
       //VecCopy(Vec_slipv_1, Vec_slipv_0);
       //copyVec2Mesh(Vec_x_0);
       //saveDOFSinfo();
       //if (family_files){plotFiles();}
     }
     // update mesh and mech. dofs
-    moveCenterMass(0.0);
+    moveSolidDOFs(0.0);
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
     VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
     //View(Vec_ups_1,"matrizes/UPS.m","ups");
@@ -2433,8 +2437,6 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
   int its;
 
-  current_time += dt;
-  time_step += 1;
 /*
   else if (is_bdf2)
   {
@@ -2452,7 +2454,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       copyMesh2Vec(Vec_x_cur);
       // calc V^{n+1} and update with D_{2}X^{n+1} = dt*V^{n+1}
       if (is_sfip){
-        moveCenterMass(2.0);
+        moveSolidDOFs(2.0);
         if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
       }
       calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 2.0, Vec_v_1, current_time);
@@ -2462,7 +2464,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       copyMesh2Vec(Vec_x_0);
       VecAXPY(Vec_x_1,4./3.,Vec_x_0);
       if (is_sfip && false){
-        moveCenterMass(2.0);
+        moveSolidDOFs(2.0);
         if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
         updateSolidMesh();
       }
@@ -2477,13 +2479,13 @@ PetscErrorCode AppCtx::solveTimeProblem()
       VecAXPY(Vec_x_1,-0.5,Vec_x_0);  // \bar{X}^(n+1/2)=1.5*X^(n)-0.5X^(n-1)
       copyMesh2Vec(Vec_x_0);          //copy current mesh to Vec_x_0
       if (is_sfip){
-        moveCenterMass(1.5);
+        moveSolidDOFs(1.5);
         if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
       }
       calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.5, Vec_v_1, current_time); // Adams-Bashforth
       VecWAXPY(Vec_x_1, dt, Vec_v_1, Vec_x_0); // Vec_x_1 = Vec_v_1*dt + Vec_x_0
       if (is_sfip && false){
-        moveCenterMass(1.5);
+        moveSolidDOFs(1.5);
         if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
         updateSolidMesh();
       }
@@ -2512,7 +2514,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     //velNoSlip(Vec_ups_0,Vec_slipv_0,Vec_ups_0_ns);velNoSlip(Vec_ups_1,Vec_slipv_1,Vec_ups_1_ns);
     // extrapolate center of mass
     if (is_sfip){
-      moveCenterMass(1.5);
+      moveSolidDOFs(1.5);
       if (is_slipv) VecCopy(Vec_slipv_1,Vec_slipv_0);
     }
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.5, Vec_v_mid, current_time); // Adams-Bashforth
@@ -2535,6 +2537,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
   for(;;)  // equivalent to forever or while(true), must be a break inside
   {
+    current_time += dt;
+    time_step += 1;
     cout << "\n==================================================\n";
     cout << "current time: " << current_time << endl;
     cout << "time step: "    << time_step  << endl;
@@ -2547,19 +2551,18 @@ PetscErrorCode AppCtx::solveTimeProblem()
       break;
     }
 
-    // Preparing data at time n
+    // Preparing data at time n //////////////////////////////////////////////////
+    VecCopy(Vec_x_0, Vec_x_aux);
     VecCopy(Vec_x_1, Vec_x_0);
-    XG_0 = XG_1;
-    theta_0 = theta_1;
-    Q_0 = Q_1;
-    VecCopy(Vec_ups_1, Vec_ups_0);
+    XG_aux = XG_0; theta_aux = theta_0; Q_aux = Q_0;
+    XG_0 = XG_1; theta_0 = theta_1; Q_0 = Q_1;
+    VecCopy(Vec_slipv_1, Vec_slipv_0);
     //copyVec2Mesh(Vec_x_1);
 
-    //Saving and printing data
-    if (family_files){plotFiles();}
+    // Saving and printing data //////////////////////////////////////////////////
     saveDOFSinfo();
 
-/*    if ((is_basic || is_mr) && !unsteady && time_step > 0 && maxts == 2){
+/*    if ((is_basic || is_mr_qextrap) && !unsteady && time_step > 0 && maxts == 2){
       plotFiles();
       cout << "\n==================================================\n";
       cout << "stop reason:\n";
@@ -2567,26 +2570,37 @@ PetscErrorCode AppCtx::solveTimeProblem()
       break;
     }*/
 
-    VecCopy(Vec_slipv_1, Vec_slipv_0);
-
     // Picard iterations (predictor-corrector to initialize) //////////////////////////////////////////////////
     for (int pic = 0; pic < PIs; pic++)
     {
       printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
 
-      // extrapolation and compatibilization of the mesh
-      VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
-      if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization, and slip vel at extrap mesh
-      copyVec2Mesh(Vec_x_1);  //not sure if necessary
+      // extrapolation/advance of solid's DOFs //////////////////////////////////////////////////
+      if (is_sfip){
+        moveSolidDOFs(stheta);  //qtheta = 1/2, order 2
+      }
+      else{//fliud-fluid case
+        VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
+      }
+      // mesh compatibilization, elasticity problem and slip vel at extrap mesh
+      calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
+      VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
 
-      // Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal and Vec_v_mid
+      // extrapolation and compatibilization of the mesh //////////////////////////////////////////////////
+      //VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
+      //if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization, and slip vel at extrap mesh
+      //copyVec2Mesh(Vec_x_1);  //not sure if necessary
+
+      // Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal and Vec_v_mid TODO: I'm here, solve Vec_v_mid destruction in the mesh adaptation
       if (mesh_adapt){meshAdapt_s();} //meshAdapt()_l;
       copyVec2Mesh(Vec_x_1);
       if (mesh_adapt){meshFlipping_s();}
 
       getVecNormals(&Vec_x_1, Vec_normal);
 
+      //////////////////////////////////////////////////
       setUPInitialGuess();  //setup Vec_ups_1 for SNESSolve
+      //////////////////////////////////////////////////
 
       // * SOLVE THE SYSTEM * /////////////////////////
       if (solve_the_sys){
@@ -2595,7 +2609,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         //cout << "# snes iterations: " << its << endl
         cout << "--------------------------------------------------" << endl;
-        if (true && is_sfip && (pic+1 == PIs) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
+        if (false && is_sfip && (pic+1 == PIs) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
           cout << "-----Interaction force calculation-----" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         }
@@ -2606,20 +2620,19 @@ PetscErrorCode AppCtx::solveTimeProblem()
       }
 
       // update mesh and mech. dofs
-      moveCenterMass(0.0);
+      moveSolidDOFs(0.0);
       calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
       VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
     }//end Picard iterations //////////////////////////////////////////////////
 
+    if (family_files){plotFiles();}
+
     cout << "--------------------------------------------------" << endl;
-    current_time += dt;
-    time_step += 1;
 
     // compute steady error
     VecNorm(Vec_ups_1, NORM_1, &Qmax); //VecNorm(Vec_up_1, NORM_1, &Qmax);
     VecCopy(Vec_ups_0, Vec_res_fs); //VecCopy(Vec_up_0, Vec_res);
-    VecAXPY(Vec_res_fs,-1.0,Vec_ups_1); //VecAXPY(Vec_res,-1.0,Vec_up_1);
-    //steady_error = VecNorm(Vec_res, NORM_1)/(Qmax==0.?1.:Qmax);
+    VecAXPY(Vec_res_fs,-1.0,Vec_ups_1); //VecAXPY(Vec_res,-1.0,Vec_up_1);//steady_error = VecNorm(Vec_res, NORM_1)/(Qmax==0.?1.:Qmax);
     VecNorm(Vec_res_fs, NORM_1, &steady_error); //VecNorm(Vec_res, NORM_1, &steady_error);
     steady_error /= (Qmax==0.?1.:Qmax);
     computeForces(Vec_x_0,Vec_ups_0);
@@ -3859,13 +3872,13 @@ PetscErrorCode AppCtx::updateSolidVel()
   PetscFunctionReturn(0);  //cout << endl;
 }
 
-PetscErrorCode AppCtx::moveCenterMass(double const vtheta)
+PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
 {
   VectorXi    dofs(LZ), dof(1);
-  Vector      U0(Vector::Zero(3)), U1(Vector::Zero(3)), XG_temp(Vector::Zero(3)), omega0(1), omega1(1);
+  Vector      U0(Vector::Zero(3)), U1(Vector::Zero(3)), XG_temp(Vector::Zero(3));
   Vector      Z0(Vector::Zero(LZ)), Z1(Vector::Zero(LZ));
   Matrix3d    Id3(Matrix3d::Identity(3,3)), Qtmp;
-  double      theta_temp;
+  double      theta_temp, omega0, omega1;
 
   for (int s = 0; s < n_solids; s++){
 
@@ -3877,14 +3890,23 @@ PetscErrorCode AppCtx::moveCenterMass(double const vtheta)
     //dof(0) = n_unknowns_u + n_unknowns_p + LZ*s + dim;
     //VecGetValues(Vec_ups_0, 1, dof.data(), omega0.data());
     //VecGetValues(Vec_ups_1, 1, dof.data(), omega1.data());
-    U0.head(dim) = Z0.head(dim); omega0(0) = Z0(LZ-1);
-    U1.head(dim) = Z1.head(dim); omega1(0) = Z1(LZ-1);
+    U0.head(dim) = Z0.head(dim); omega0 = Z0(LZ-(1+n_modes));
+    U1.head(dim) = Z1.head(dim); omega1 = Z1(LZ-(1+n_modes));
 
-    if (is_mr){
-      XG_1[s] = XG_0[s] + dt*U1;
-      theta_1[s] = theta_0[s] + dt*omega1(0);
-      if (dim == 3){
-        Qtmp = Id3 - (dt/2.0)*SkewMatrix(Z1.tail(3),dim);
+    if (is_mr_qextrap && time_step > 0){
+      XG_1[s] = XG_0[s] + vtheta*dt*U1;  //equiv. to XG_1[s] = (1.0+vtheta)*XG_0[s] - vtheta*XG_aux[s];
+      theta_1[s] = theta_0[s] + vtheta*dt*omega1;  //equiv. to theta_1[s] = (1.0+vtheta)*theta_0[s] - vtheta*theta_aux[s];
+      if (dim == 3){//TODO
+        Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
+        invert(Qtmp,dim);
+        Q_1[s] = Qtmp*Q_0[s];
+      }
+    }
+    else if (is_mr_ab && time_step > 0){
+      XG_1[s] = XG_0[s] + dt*((1.0+vtheta)*U1 - vtheta*U0);
+      theta_1[s] = theta_0[s] + dt*((1.0+vtheta)*omega1 - vtheta*omega0);
+      if (dim == 3){//TODO
+        Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
         invert(Qtmp,dim);
         Q_1[s] = Qtmp*Q_0[s];
       }
@@ -3919,8 +3941,13 @@ PetscErrorCode AppCtx::moveCenterMass(double const vtheta)
     }
     else{  //for MR-AB and basic, and for all at time = t0
       if (time_step == 0 || (is_bdf3 && time_step == 1)){
-        XG_1[s] = dt*(vtheta*U1 + (1.-vtheta)*U0) + XG_0[s];
-        theta_1[s] = dt*(vtheta*omega1(0) + (1.-vtheta)*omega0(0)) + theta_0[s];
+        XG_1[s] = XG_0[s] + dt*U1;
+        theta_1[s] = theta_0[s] + dt*omega1;
+        if (dim == 3){//TODO
+          Qtmp = Id3 - 0.0*dt*SkewMatrix(Z1.tail(3),dim);
+          invert(Qtmp,dim);
+          Q_1[s] = Qtmp*Q_0[s];
+        }
       }
       else{
         XG_0[s] = XG_1[s];
@@ -4932,8 +4959,8 @@ double GetDataSlipVel::get_data_r(int nodeid) const
 
 int main(int argc, char **argv)
 {
-  // initialization treatment //////////////////////////////////////////////////
-  printf("FEPICpp version...\n");
+  // initialization of FEPiCpp //////////////////////////////////////////////////
+  printf("FEPiCpp version... 2018\n\n");
   PetscInitialize(&argc,&argv,PETSC_NULL,PETSC_NULL);
 
   bool help_return, erro;
@@ -4950,9 +4977,9 @@ int main(int argc, char **argv)
     #pragma omp parallel
     {
       #pragma omp critical
-      nthreads = omp_get_num_threads();
-    }
-    printf("OpenMP version.\n");
+      nthreads = omp_get_num_threads(); //the number of threads is either the maximum of CPU cores (hyper-threading)
+    }                                   //or the value of the global variable OMP_NUM_THREADS
+    printf("\nOpenMP version.\n");
     printf("Num. threads: %d\n", nthreads);
   }
 #else

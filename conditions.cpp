@@ -18,13 +18,13 @@ double muu(int tag);
 Vector force(Vector const& X, double t, int tag);   //density*gravity (force/vol)
 Vector u_exact(Vector const& X, double t, int tag);
 double p_exact(Vector const& X, double t, int tag);
-Vector z_exact(Vector const& X, double t, int tag, int LZ);
+Vector s_exact(int dim, double t, int tag, int LZ);
 Tensor grad_u_exact(Vector const& X, double t, int tag);
 Vector grad_p_exact(Vector const& X, double t, int tag);
 Vector traction(Vector const& X, Vector const& normal, double t, int tag);
 Vector u_initial(Vector const& X, int tag);
 double p_initial(Vector const& X, int tag);
-Vector z_initial(Vector const& X, int tag, int LZ);
+Vector s_initial(int dim, int tag, int LZ);
 Vector solid_normal(Vector const& X, double t, int tag);
 Tensor feature_proj(Vector const& X, double t, int tag);
 Vector gravity(Vector const& X, int dim);
@@ -247,7 +247,7 @@ Tensor feature_proj(Vector const& X, double t, int tag)
   return f;
 }
 
-Vector z_exact(Vector const& X, double t, int tag, int LZ)
+Vector s_exact(int dim, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -268,9 +268,9 @@ Vector gravity(Vector const& X, int dim){
   return f;
 }
 
-Vector z_initial(Vector const& X, int tag, int LZ)
+Vector s_initial(int dim, int tag, int LZ)
 {
-  return z_exact(X,0,tag,LZ);
+  return s_exact(X,0,tag,LZ);
 }
 
 #endif
@@ -375,7 +375,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag, int LZ)
+Vector s_exact(int dim, double t, int tag, int LZ)
 {
   int dim = X.size();
   int LZ = 3*(dim-1);
@@ -417,9 +417,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag, int LZ)
+Vector s_initial(int dim, int tag, int LZ)
 {
-  return z_exact(X,0,tag,LZ);
+  return s_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -815,7 +815,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag, int LZ)
+Vector s_exact(int dim, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -861,9 +861,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag, int LZ)
+Vector s_initial(int dim, int tag, int LZ)
 {
-  return z_exact(X,0,tag,LZ);
+  return s_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1146,7 +1146,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag, int LZ)
+Vector s_exact(int dim, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -1192,9 +1192,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag, int LZ)
+Vector s_initial(int dim, int tag, int LZ)
 {
-  return z_exact(X,0,tag,LZ);
+  return s_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1442,7 +1442,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag, int LZ)
+Vector s_exact(int dim, double t, int tag, int LZ)
 {
   double w2 = 2.0;
   int dim = X.size();
@@ -1485,9 +1485,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag, int LZ)
+Vector s_initial(int dim, int tag, int LZ)
 {
-  return z_exact(X,0,tag,LZ);
+  return s_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1712,7 +1712,7 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag, int LZ)
+Vector s_exact(int dim, double t, int tag, int LZ)
 {
   double w2 = 0.0;
   int dim = X.size();
@@ -1758,9 +1758,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag, int LZ)
+Vector s_initial(int dim, int tag, int LZ)
 {
-  return z_exact(X,0,tag,LZ);
+  return s_exact(X,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1995,11 +1995,9 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
   return dxU;
 }
 
-Vector z_exact(Vector const& X, double t, int tag, int LZ)
+Vector s_exact(int dim, double t, int tag, int LZ)
 {//for inertialess case, this MUST be zero at t = 0;
   double w2 = 0.0;
-  int dim = X.size();
-  //int LZ = 3*(dim-1);
   Vector v(Vector::Zero(LZ)); //v << 1, 1, 0;
   //Vector v(Vector::Ones(LZ));
   return v;
@@ -2038,9 +2036,9 @@ Vector u_initial(Vector const& X, int tag)
   return u_exact(X,0,tag);
 }
 
-Vector z_initial(Vector const& X, int tag, int LZ)
+Vector s_initial(int dim, int tag, int LZ)
 {
-  return z_exact(X,0,tag,LZ);
+  return s_exact(dim,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -2301,7 +2299,7 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
   tau(0) = -normal(1); tau(1) = normal(0);
 
   Vector f(Vector::Zero(X.size()));
-  if (true && dim == 2)
+  if (false && dim == 2)
   {
     double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
@@ -2329,7 +2327,7 @@ double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int 
   Vector tau(dim);
   tau(0) = -normal(1); tau(1) = normal(0);
   double duthe = 0.0;
-  if (true){
+  if (false){
       duthe = -Vs.dot(tau)/pow(k + Vs.dot(tau)*Vs.dot(tau),1.5);
     }
   return duthe;//pow(2,1.5);//
@@ -2338,7 +2336,7 @@ double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int 
 VectorXi DOFS_elimination(int LZ)
 { //0 for component to eliminate, 1 for component to compute
   VectorXi s_DOFS(LZ);
-  s_DOFS << 0, 0, 0;
+  s_DOFS << 0, 1, 0;
   return s_DOFS;
 }
 
@@ -2571,9 +2569,9 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
 double Flink(double t, int Nl){
   double ome = pi/2.0;
   double pha = 0*90.0*pi/180.0;
-  double alp = .5;
-  double lmax = .6;
-  double d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl)*pha) + 1.0));
+  double alp = .6;
+  double lmax = 1;
+  double d = +lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl)*pha) + 1.0));
 
   if (Nl == 1){d = 0;}
 
@@ -2611,14 +2609,31 @@ double Flink(double t, int Nl){
     }
   }
 
+  if (true){
+    double P = 4;
+    double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = lmax - eps/(P/4.0)*tP;}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = lmin;}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = lmin + eps/(P/4.0)*(tP-P/2.0);}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmax;}
+    }
+    else{
+      if     ((      0.0 <= tP)&&(tP < P/4.0    )){d = lmax;}
+      else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = lmax - eps/(P/4.0)*(tP-P/4.0);}
+      else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = lmin;}
+      else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmin + eps/(P/4.0)*(tP-3.0*P/4.0);}
+    }
+  }
+
   return d;
 }
 
 double DFlink(double t, int Nl){
   double ome = pi/2.0;
   double pha = 0*90.0*pi/180.0;
-  double alp = .5;
-  double lmax = .6;
+  double alp = .6;
+  double lmax = 1;
   double d = -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl)*pha);
 
   if (Nl == 1){d = 0;}
@@ -2654,6 +2669,23 @@ double DFlink(double t, int Nl){
       else if((    P/4.0 <= tP)&&(tP < P/2.0    )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0));}
       else if((    P/2.0 <= tP)&&(tP < 3.0*P/4.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0));}
       else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+  }
+
+  if (true){
+    double P = 4;
+    double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
+    if (Nl == 0){
+      if     ((      0.0 <  tP)&&(tP <  P/4.0    )){d = - eps/(P/4.0);}
+      else if((    P/4.0 <= tP)&&(tP <= P/2.0    )){d = 0.0;}
+      else if((    P/2.0 <  tP)&&(tP <  3.0*P/4.0)){d = + eps/(P/4.0);}
+      else if((3.0*P/4.0 <= tP)&&(tP <= P        )){d = 0.0;}
+    }
+    else{
+      if     ((      0.0 <= tP)&&(tP <= P/4.0    )){d = 0.0;}
+      else if((    P/4.0 <  tP)&&(tP <  P/2.0    )){d = - eps/(P/4.0);}
+      else if((    P/2.0 <= tP)&&(tP <= 3.0*P/4.0)){d = 0.0;}
+      else if((3.0*P/4.0 <  tP)&&(tP <  P        )){d = + eps/(P/4.0);}
     }
   }
 

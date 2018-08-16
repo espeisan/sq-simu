@@ -1996,6 +1996,112 @@ void AppCtx::onUpdateMesh()
   matrixColoring();
 }
 
+PetscErrorCode AppCtx::checkSnesConvergence(SNES snes, PetscInt it,PetscReal xnorm, PetscReal pnorm, PetscReal fnorm, SNESConvergedReason *reason)
+{
+  PetscErrorCode ierr;
+
+  ierr = SNESConvergedDefault(snes,it,xnorm,pnorm,fnorm,reason,NULL); CHKERRQ(ierr);
+
+  // se não convergiu, não terminou ou não é um método ale, retorna
+  if (*reason<=0 || !ale)
+  {
+    return ierr;
+  }
+  else
+  {
+    // se não é a primeira vez que converge
+    if (converged_times)
+    {
+      return ierr;
+    }
+    else
+    {
+
+      //Vec *Vec_up_k = &Vec_up_1;
+      ////SNESGetSolution(snes,Vec_up_k);
+      //
+      //copyMesh2Vec(Vec_x_1);
+      //calcMeshVelocity(*Vec_up_k, Vec_x_1, Vec_v_mid, current_time+dt);
+      //moveMesh(Vec_x_1, Vec_vmsh_0, Vec_v_mid, 0.5);
+      //
+      //// mean mesh velocity
+      //VecAXPY(Vec_v_mid,1,Vec_vmsh_0);
+      //VecScale(Vec_v_mid, 0.5);
+      //
+      //*reason = SNES_CONVERGED_ITERATING;
+      //++converged_times;
+
+      return ierr;
+    }
+  }
+
+
+/*
+  converged
+  SNES_CONVERGED_FNORM_ABS         =  2,  ||F|| < atol
+  SNES_CONVERGED_FNORM_RELATIVE    =  3,  ||F|| < rtol*||F_initial||
+  SNES_CONVERGED_PNORM_RELATIVE    =  4,  Newton computed step size small; || delta x || < stol
+  SNES_CONVERGED_ITS               =  5,  maximum iterations reached
+  SNES_CONVERGED_TR_DELTA          =  7,
+   diverged
+  SNES_DIVERGED_FUNCTION_DOMAIN    = -1,  the new x location passed the function is not in the domain of F
+  SNES_DIVERGED_FUNCTION_COUNT     = -2,
+  SNES_DIVERGED_LINEAR_SOLVE       = -3,  the linear solve failed
+  SNES_DIVERGED_FNORM_NAN          = -4,
+  SNES_DIVERGED_MAX_IT             = -5,
+  SNES_DIVERGED_LINE_SEARCH        = -6,  the line search failed
+  SNES_DIVERGED_LOCAL_MIN          = -8,  || J^T b || is small, implies converged to local minimum of F()
+  SNES_CONVERGED_ITERATING         =  0
+*/
+}
+
+PetscErrorCode AppCtx::setUPInitialGuess()
+{
+  // set U^{n+1} b.c.
+
+  VectorXi    u_dofs_fs(dim), p_dofs(dim);
+  VectorXi    x_dofs(dim);
+  int         tag;
+  Vector      X1(dim);
+  Vector      U1(dim);
+
+  point_iterator point = mesh->pointBegin();
+  point_iterator point_end = mesh->pointEnd();
+  for (; point != point_end; ++point)
+  {
+    tag = point->getTag();
+
+    getNodeDofs(&*point, DH_MESH, VAR_M, x_dofs.data());
+    getNodeDofs(&*point, DH_UNKM, VAR_U, u_dofs_fs.data());
+
+    VecGetValues(Vec_x_1, dim, x_dofs.data(), X1.data());
+
+    if (is_in(tag, dirichlet_tags))
+    {
+      U1 = u_exact(X1, current_time+dt, tag);  //current_time+dt 'cause we want U^{n+1}
+      VecSetValues(Vec_ups_1, dim, u_dofs_fs.data(), U1.data(), INSERT_VALUES);
+    }
+    else if (is_in(tag, solid_tags) || is_in(tag, feature_tags) || is_in(tag, triple_tags))
+    {
+      U1.setZero();
+      VecSetValues(Vec_ups_1, dim, u_dofs_fs.data(), U1.data(), INSERT_VALUES);
+    }
+
+  } // end for point
+
+  if (is_sflp){
+    for (int nl = 0; nl < n_links; nl++){
+      int dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + nl;
+      double link_vel = DFlink(current_time,nl);
+      VecSetValue(Vec_ups_1, dofs_sl, link_vel, INSERT_VALUES);
+    }
+  }
+
+  Assembly(Vec_ups_1);
+
+  PetscFunctionReturn(0);
+}
+
 PetscErrorCode AppCtx::setInitialConditions()
 {
   PetscErrorCode      ierr(0);
@@ -2237,17 +2343,30 @@ PetscErrorCode AppCtx::setInitialConditions()
   {
     printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
 
-    // update mesh and mech. dofs
-    moveSolidDOFs(0.0);
+    //Extrapolation/advance of solid's DOFs//////////////////////////////////////////////////
+    if (is_sfip){
+      moveSolidDOFs(0.0);  //qtheta = 1/2, order 2
+    }
+    else{//fliud-fluid case
+      VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
+    }
+    //Mesh compatibilization, elasticity problem and slip vel at extrap mesh//////////////////////////////////////////////////
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
     VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
-    // extrapolation and compatibilization of the mesh
-    VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
-    if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
 
-    // solve (Navier-)Stokes problem by NR iterations
+    // extrapolation and compatibilization of the mesh
+    //VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
+    //if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
+
+    //Calculate normals//////////////////////////////////////////////////
+    getVecNormals(&Vec_x_1, Vec_normal);
+    //////////////////////////////////////////////////
+
+    //Initial guess for non-linear solver//////////////////////////////////////////////////
     setUPInitialGuess();  // initial guess saved at Vec_ups_1
-    // * SOLVE THE SYSTEM *
+    //////////////////////////////////////////////////
+
+    // * SOLVE THE SYSTEM * //////////////////////////////////////////////////
     if (solve_the_sys)
     { //VecView(Vec_ups_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_ups_0,PETSC_VIEWER_STDOUT_WORLD);
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");
@@ -2260,131 +2379,20 @@ PetscErrorCode AppCtx::setInitialConditions()
       }
     }
 
-    if ((pic+1) < PI){
-      //VecCopy(Vec_x_1, Vec_x_0);
-      //XG_0 = XG_1; theta_0 = theta_1;
-//      VecCopy(Vec_ups_1, Vec_ups_0);
-      //VecCopy(Vec_slipv_1, Vec_slipv_0);
-      //copyVec2Mesh(Vec_x_0);
-      //saveDOFSinfo();
-      //if (family_files){plotFiles();}
+    if (is_sfip){
+      // update mesh and mech. dofs//////////////////////////////////////////////////
+      if (is_mr_qextrap){
+        moveSolidDOFs(1.0);
+        calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
+        VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
+      }
     }
-    // update mesh and mech. dofs
-    moveSolidDOFs(0.0);
-    calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
-    VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
-    //View(Vec_ups_1,"matrizes/UPS.m","ups");
+
   }// end Picard Iterartions loop //////////////////////////////////////////////////
   copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
 
   cout << "--------------------------------------------------" << endl;
   computeError(Vec_x_0,Vec_ups_1,current_time);
-
-  PetscFunctionReturn(0);
-}
-
-PetscErrorCode AppCtx::checkSnesConvergence(SNES snes, PetscInt it,PetscReal xnorm, PetscReal pnorm, PetscReal fnorm, SNESConvergedReason *reason)
-{
-  PetscErrorCode ierr;
-
-  ierr = SNESConvergedDefault(snes,it,xnorm,pnorm,fnorm,reason,NULL); CHKERRQ(ierr);
-
-  // se não convergiu, não terminou ou não é um método ale, retorna
-  if (*reason<=0 || !ale)
-  {
-    return ierr;
-  }
-  else
-  {
-    // se não é a primeira vez que converge
-    if (converged_times)
-    {
-      return ierr;
-    }
-    else
-    {
-
-      //Vec *Vec_up_k = &Vec_up_1;
-      ////SNESGetSolution(snes,Vec_up_k);
-      //
-      //copyMesh2Vec(Vec_x_1);
-      //calcMeshVelocity(*Vec_up_k, Vec_x_1, Vec_v_mid, current_time+dt);
-      //moveMesh(Vec_x_1, Vec_vmsh_0, Vec_v_mid, 0.5);
-      //
-      //// mean mesh velocity
-      //VecAXPY(Vec_v_mid,1,Vec_vmsh_0);
-      //VecScale(Vec_v_mid, 0.5);
-      //
-      //*reason = SNES_CONVERGED_ITERATING;
-      //++converged_times;
-
-      return ierr;
-    }
-  }
-
-
-/*
-  converged
-  SNES_CONVERGED_FNORM_ABS         =  2,  ||F|| < atol
-  SNES_CONVERGED_FNORM_RELATIVE    =  3,  ||F|| < rtol*||F_initial||
-  SNES_CONVERGED_PNORM_RELATIVE    =  4,  Newton computed step size small; || delta x || < stol
-  SNES_CONVERGED_ITS               =  5,  maximum iterations reached
-  SNES_CONVERGED_TR_DELTA          =  7,
-   diverged
-  SNES_DIVERGED_FUNCTION_DOMAIN    = -1,  the new x location passed the function is not in the domain of F
-  SNES_DIVERGED_FUNCTION_COUNT     = -2,
-  SNES_DIVERGED_LINEAR_SOLVE       = -3,  the linear solve failed
-  SNES_DIVERGED_FNORM_NAN          = -4,
-  SNES_DIVERGED_MAX_IT             = -5,
-  SNES_DIVERGED_LINE_SEARCH        = -6,  the line search failed
-  SNES_DIVERGED_LOCAL_MIN          = -8,  || J^T b || is small, implies converged to local minimum of F()
-  SNES_CONVERGED_ITERATING         =  0
-*/
-}
-
-PetscErrorCode AppCtx::setUPInitialGuess()
-{
-  // set U^{n+1} b.c.
-
-  VectorXi    u_dofs_fs(dim), p_dofs(dim);
-  VectorXi    x_dofs(dim);
-  int         tag;
-  Vector      X1(dim);
-  Vector      U1(dim);
-
-  point_iterator point = mesh->pointBegin();
-  point_iterator point_end = mesh->pointEnd();
-  for (; point != point_end; ++point)
-  {
-    tag = point->getTag();
-
-    getNodeDofs(&*point, DH_MESH, VAR_M, x_dofs.data());
-    getNodeDofs(&*point, DH_UNKM, VAR_U, u_dofs_fs.data());
-
-    VecGetValues(Vec_x_1, dim, x_dofs.data(), X1.data());
-
-    if (is_in(tag, dirichlet_tags))
-    {
-      U1 = u_exact(X1, current_time+dt, tag);  //current_time+dt 'cause we want U^{n+1}
-      VecSetValues(Vec_ups_1, dim, u_dofs_fs.data(), U1.data(), INSERT_VALUES);
-    }
-    else if (is_in(tag, solid_tags) || is_in(tag, feature_tags) || is_in(tag, triple_tags))
-    {
-      U1.setZero();
-      VecSetValues(Vec_ups_1, dim, u_dofs_fs.data(), U1.data(), INSERT_VALUES);
-    }
-
-  } // end for point
-
-  if (is_sflp){
-    for (int nl = 0; nl < n_links; nl++){
-      int dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + nl;
-      double link_vel = DFlink(current_time,nl);
-      VecSetValue(Vec_ups_1, dofs_sl, link_vel, INSERT_VALUES);
-    }
-  }
-
-  Assembly(Vec_ups_1);
 
   PetscFunctionReturn(0);
 }
@@ -2575,34 +2583,42 @@ PetscErrorCode AppCtx::solveTimeProblem()
     {
       printf("\n\tFixed Point Iteration (Picard) %d\n", pic);
 
-      // extrapolation/advance of solid's DOFs //////////////////////////////////////////////////
+      //Extrapolation/advance of solid's DOFs//////////////////////////////////////////////////
       if (is_sfip){
         moveSolidDOFs(stheta);  //qtheta = 1/2, order 2
       }
       else{//fliud-fluid case
         VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
       }
-      // mesh compatibilization, elasticity problem and slip vel at extrap mesh
+      //Mesh compatibilization, elasticity problem and slip vel at extrap mesh//////////////////////////////////////////////////
       calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
       VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
 
-      // extrapolation and compatibilization of the mesh //////////////////////////////////////////////////
+      //Extrapolation and compatibilization of the mesh//////////////////////////////////////////////////
       //VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
       //if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization, and slip vel at extrap mesh
       //copyVec2Mesh(Vec_x_1);  //not sure if necessary
 
-      // Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal and Vec_v_mid TODO: I'm here, solve Vec_v_mid destruction in the mesh adaptation
+      //Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal//////////////////////////////////////////////////
       if (mesh_adapt){meshAdapt_s();} //meshAdapt()_l;
       copyVec2Mesh(Vec_x_1);
       if (mesh_adapt){meshFlipping_s();}
+      //////////////////////////////////////////////////
 
+      //Calculate normals//////////////////////////////////////////////////
       getVecNormals(&Vec_x_1, Vec_normal);
+      //////////////////////////////////////////////////
 
       //////////////////////////////////////////////////
+      //if ((pic+1) < PIs){
+      VecCopy(Vec_ups_1, Vec_ups_0);
+      //}//////////////////////////////////////////////////
+
+      //Initial guess for non-linear solver//////////////////////////////////////////////////
       setUPInitialGuess();  //setup Vec_ups_1 for SNESSolve
       //////////////////////////////////////////////////
 
-      // * SOLVE THE SYSTEM * /////////////////////////
+      // * SOLVE THE SYSTEM * ///////////////////////////////////////////////////////////////////////////
       if (solve_the_sys){
         ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); //Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");//VecView(Vec_ups_0,PETSC_VIEWER_STDOUT_WORLD);
         //if (is_sfip){updateSolidVel();}
@@ -2613,17 +2629,18 @@ PetscErrorCode AppCtx::solveTimeProblem()
           cout << "-----Interaction force calculation-----" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         }
-      }//////////////////////////////////////////////////
+      }////////////////////////////////////////////////////////////////////////////////////////////////////
 
-      if ((pic+1) < PIs){
-        VecCopy(Vec_ups_1, Vec_ups_0);
+      if (is_sfip){
+        // update mesh and mech. dofs//////////////////////////////////////////////////
+        if (is_mr_qextrap){
+          moveSolidDOFs(1.0);
+          calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
+          VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
+        }
       }
 
-      // update mesh and mech. dofs
-      moveSolidDOFs(0.0);
-      calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
-      VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
-    }//end Picard iterations //////////////////////////////////////////////////
+    }// end Picard Iterartions loop //////////////////////////////////////////////////
 
     if (family_files){plotFiles();}
 

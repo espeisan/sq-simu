@@ -2888,10 +2888,10 @@ PetscErrorCode AppCtx::meshAdapt_s()
   Destroy(Mat_Jac_fs);
   Destroy(Mat_Jac_m);
 
-  // No Interpolated Vectors in Mesh Adaptation /////////////////////////
+  // No Interpolated Vectors in Mesh Adaptation: Destroy them //////////////////////////////////////////////////
   Destroy(Vec_res_fs);
   Destroy(Vec_res_m);
-  Destroy(Vec_v_mid);
+  //Destroy(Vec_v_mid);
   Destroy(Vec_v_1);
   Destroy(Vec_normal);
   Destroy(Vec_tangent);
@@ -2935,46 +2935,48 @@ PetscErrorCode AppCtx::meshAdapt_s()
     SNESLineSearchReset(linesearch_fd);
   }
 
-  // Interpolated Vectors in Mesh Adaptation /////////////////////////
+
+  // Interpolated Vectors in Mesh Adaptation: Modify them //////////////////////////////////////////////////
   DofHandler  dof_handler_tmp[2];
-  // transfers variables values from old to new mesh
-  {
+
+  {// transfering variables values from old to new mesh //////////////////////////////////////////////////
+
     // First fix the u-p unknowns
     dof_handler_tmp[DH_MESH].copy(dof_handler[DH_MESH]);
     dof_handler_tmp[DH_UNKM].copy(dof_handler[DH_UNKM]);  //dof_handler_tmp[DH_UNKS].copy(dof_handler[DH_UNKS]);
-
     dofsUpdate();  //updates DH_ information: # variables u, z, p, mesh can change
     cout << " #u=" << n_unknowns_u << " #p=" << n_unknowns_p << " #z=" << n_unknowns_z << " #l=" << n_links << " #m=" << n_modes
          << " #v=" << n_dofs_v_mesh  << " #n_fsi=" << n_nodes_fsi << endl;
 
-    Vec *petsc_vecs[] = {&Vec_ups_0,    &Vec_ups_1,    &Vec_x_0,      &Vec_x_1,      &Vec_ups_m1,   &Vec_x_aux,    &Vec_ups_m2,   &Vec_slipv_0,  &Vec_slipv_1,  &Vec_slipv_m1, &Vec_slipv_m2};
-    int DH_t[]        = {DH_UNKM,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_MESH,       DH_MESH      };
-    int n_unks_t[]    = {n_unknowns_fs, n_unknowns_fs, n_dofs_v_mesh, n_dofs_v_mesh, n_unknowns_fs, n_dofs_v_mesh, n_unknowns_fs, n_dofs_v_mesh, n_dofs_v_mesh, n_dofs_v_mesh, n_dofs_v_mesh};
-    int L = 4;
+    Vec *petsc_vecs[] = {&Vec_ups_0,    &Vec_ups_1,    &Vec_x_0,      &Vec_x_1,      &Vec_v_mid,    &Vec_ups_m1,   &Vec_x_aux,    &Vec_ups_m2,   &Vec_slipv_0,  &Vec_slipv_1,  &Vec_slipv_m1, &Vec_slipv_m2};
+    int DH_t[]        = {DH_UNKM,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_MESH,       DH_MESH      };
+    int n_unks_t[]    = {n_unknowns_fs, n_unknowns_fs, n_dofs_v_mesh, n_dofs_v_mesh, n_dofs_v_mesh, n_unknowns_fs, n_dofs_v_mesh, n_unknowns_fs, n_dofs_v_mesh, n_dofs_v_mesh, n_dofs_v_mesh, n_dofs_v_mesh};
+    int L = 5;
     if (is_sfip){L = static_cast<int>( sizeof(DH_t)/sizeof(int) );}
     else{
-      if(is_bdf2){L = 5;}
-      else if (is_bdf3){L = 7;}//{L = static_cast<int>( sizeof(DH_t)/sizeof(int) );}
+      if(is_bdf2){L = 6;}
+      else if (is_bdf3){L = 8;}//{L = static_cast<int>( sizeof(DH_t)/sizeof(int) );}
     }
     std::vector<Real> temp;
 
     // NOTE: the mesh must not be changed in this loop
-    for (int v = 0; v < L; ++v)
+    for (int v = 0; v < L; ++v)  //for each vector to interpolate
     {
       if (is_sfip){
-        if ((is_mr_ab || is_basic || is_mr_qextrap) && (v == 4 || v == 5 || v == 6 || v == 9 || v == 10))
+        if ((is_mr_ab || is_basic || is_mr_qextrap) && (v == 5 || v == 6 || v == 7 || v == 10 || v == 11))
           continue;
-        else if (is_bdf2 && (v == 5 || v == 6 || v == 10))
+        else if (is_bdf2 && (v == 5 || v == 7 || v == 11))
           continue;
       }
 
+      //copy old values to array and then to temp//////////////////////////////////////////////////
       int vsize;
       VecGetSize(*petsc_vecs[v], &vsize);  //size of Vec_ups_0, Vec_ups_1, Vec_x_0, Vec_x_1 (old mesh)
       temp.assign(vsize, 0.0);
-      double *array;
 
-      // copy
+      double *array;
       VecGetArray(*petsc_vecs[v], &array);
+
       for (int i = 0; i < vsize; ++i)
         temp[i] = array[i];
       VecRestoreArray(*petsc_vecs[v], &array);
@@ -2982,16 +2984,17 @@ PetscErrorCode AppCtx::meshAdapt_s()
       ierr = VecCreate(PETSC_COMM_WORLD, petsc_vecs[v]);                              CHKERRQ(ierr);
       ierr = VecSetSizes(*petsc_vecs[v], PETSC_DECIDE, n_unks_t[v]);                  CHKERRQ(ierr);  //dof_handler[DH_t[v]].numDofs()
       ierr = VecSetFromOptions(*petsc_vecs[v]);                                       CHKERRQ(ierr);
-      if (v == 0 || v == 1 || v == 4 || v == 6){//DH_UNKM
+      if (v == 0 || v == 1 || v == 5 || v == 7){//DH_UNKM
         ierr = VecSetOption(*petsc_vecs[v],VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
       }
+      ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+      //copy data from old mesh to new mesh//////////////////////////////////////////////////
       std::vector<bool>   SV(n_solids,false);  //solid visited history
       int tagP, nod_id, dofs_fs_0, dofs_fs_1, nod_vs, nodsum;
 
       int dofs_0[64]; // old
       int dofs_1[64]; // new
-      // copy data from old mesh to new mesh
       VecGetArray(*petsc_vecs[v], &array);
       for (point_iterator point = mesh->pointBegin(), point_end = mesh->pointEnd(); point != point_end; ++point)
       {
@@ -3007,7 +3010,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
             for (int j = 0; j < dof_handler_tmp[DH_t[v]].getVariable(k).numDofsPerVertex(); ++j)
               array[dofs_1[j]] = temp.at(dofs_0[j]);
           }//end for k
-          if (v == 0 || v == 1 || v == 4 || v == 6){
+/*          if (v == 0 || v == 1 || v == 5 || v == 7){
             tagP = point->getTag();
             nod_id = is_in_id(tagP,flusoli_tags);
             nod_vs = is_in_id(tagP,slipvel_tags);
@@ -3024,14 +3027,38 @@ PetscErrorCode AppCtx::meshAdapt_s()
                 SV[nodsum-1] = true;
               }
             }
-          }
+          }*/
         }//end if !marked
       }//end for point
-      // interpolate values at new points
 
-      //if (v == 7 || v == 8 || v == 9 || v == 10)
-      //  continue;
+      if (is_sfip){//transport soild's DOFs information to the new vectors////////////////////
+        if (v == 0 || v == 1 || v == 5 || v == 7){
+          for (int K = 1; K <= n_solids ; K++){
+            nodsum = K;
+            for (int l = 0; l < LZ; l++){
+              dofs_fs_0 = dof_handler_tmp[DH_t[v]].getVariable(VAR_U).numPositiveDofs() +
+                          dof_handler_tmp[DH_t[v]].getVariable(VAR_P).numPositiveDofs() + LZ*(nodsum-1) + l;
+              dofs_fs_1 = dof_handler    [DH_t[v]].getVariable(VAR_U).numPositiveDofs() +
+                          dof_handler    [DH_t[v]].getVariable(VAR_P).numPositiveDofs() + LZ*(nodsum-1) + l;
+              array[dofs_fs_1] = temp.at(dofs_fs_0);
+            }
+          }//end K
 
+          if (is_sflp){//transport links////////////////////
+            for (int nl = 0; nl < n_links; nl++){
+              dofs_fs_0 = dof_handler_tmp[DH_t[v]].getVariable(VAR_U).numPositiveDofs() +
+                          dof_handler_tmp[DH_t[v]].getVariable(VAR_P).numPositiveDofs() + n_unknowns_z + nl;
+              dofs_fs_1 = dof_handler    [DH_t[v]].getVariable(VAR_U).numPositiveDofs() +
+                          dof_handler    [DH_t[v]].getVariable(VAR_P).numPositiveDofs() + n_unknowns_z + nl;
+              array[dofs_fs_1] = temp.at(dofs_fs_0);
+            }
+          }//end sflp
+
+        }//end v
+      }//end sfip
+
+
+      //interpolate values at new points//////////////////////////////////////////////////
       std::list<EdgeVtcs>::iterator it     = adde_vtcs.begin();
       std::list<EdgeVtcs>::iterator it_end = adde_vtcs.end();
       for (; it != it_end; ++it)
@@ -3058,7 +3085,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
             for (int c = 0; c < dof_handler_tmp[DH_t[v]].getVariable(k).numDofsPerVertex(); ++c)
               array[dofs_1[c]] += weight*temp[dofs_0[c]];
           }
-          if ((v == 0 || v == 1 || v == 4 || v == 6) && (k == VAR_U)){
+          if ((v == 0 || v == 1 || v == 5 || v == 7) && (k == VAR_U)){//if the new node is in the solid////////////
             tagP = point->getTag();
             nod_id = is_in_id(tagP,flusoli_tags);
             nod_vs = is_in_id(tagP,slipvel_tags);

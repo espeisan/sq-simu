@@ -2354,6 +2354,16 @@ PetscErrorCode AppCtx::setInitialConditions()
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
     VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
 
+    if (true){
+      VectorXd v_coeffs_s(LZ);
+      for (int l = 0; l < LZ; l++){
+        dofs_fs(l) = n_unknowns_u + n_unknowns_p + l;
+      }
+      VecGetValues(Vec_ups_1,dofs_fs.size(),dofs_fs.data(),v_coeffs_s.data());
+      VecScale(Vec_v_mid, v_coeffs_s(1));
+      View(Vec_v_mid,"matrizes/vmid0.m","vm");
+    }
+
     // extrapolation and compatibilization of the mesh
     //VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
     //if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
@@ -2369,25 +2379,32 @@ PetscErrorCode AppCtx::setInitialConditions()
     // * SOLVE THE SYSTEM * //////////////////////////////////////////////////
     if (solve_the_sys)
     { //VecView(Vec_ups_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_ups_0,PETSC_VIEWER_STDOUT_WORLD);
-      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");
-      //if (is_sfip){updateSolidVel();}
+      cout << "-----System solver-----" << endl;
+      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); //Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");
+      cout << "--------------------------------------------------" << endl;
       if (true && is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
         cout << "-----Interaction force calculation------" << endl;
         ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         cout << "-----Interaction force extracted------" << endl;
         extractFdForce();
       }
-    }
+    }////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    if (is_sfip){
-      // update mesh and mech. dofs//////////////////////////////////////////////////
+    if (is_sfip){// update mesh and mech. dofs//////////////////////////////////////////////////
       if (is_mr_qextrap){
         moveSolidDOFs(1.0);
         calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
         VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
       }
-    }
+    }////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    if (true){
+      saveDOFSinfo_Re_Vel();
+      if (pic != 0 && pic%4 == 0){
+        plotFilesNT();
+        time_step++;
+      }
+    }
   }// end Picard Iterartions loop //////////////////////////////////////////////////
   copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
 
@@ -2560,7 +2577,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     }
 
     // Preparing data at time n //////////////////////////////////////////////////
-    VecCopy(Vec_x_0, Vec_x_aux);
+    //VecCopy(Vec_x_0, Vec_x_aux);
     VecCopy(Vec_x_1, Vec_x_0);
     XG_aux = XG_0; theta_aux = theta_0; Q_aux = Q_0;
     XG_0 = XG_1; theta_0 = theta_1; Q_0 = Q_1;
@@ -2611,7 +2628,10 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
       //////////////////////////////////////////////////
       //if ((pic+1) < PIs){
-      VecCopy(Vec_ups_1, Vec_ups_0);
+      if (pic == 0){//copy n to n-1 just in the first Poincaré Iteration and save ups_0
+        VecCopy(Vec_ups_1, Vec_ups_0);
+        if (family_files){plotFiles();}
+      }
       //}//////////////////////////////////////////////////
 
       //Initial guess for non-linear solver//////////////////////////////////////////////////
@@ -2620,8 +2640,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
       // * SOLVE THE SYSTEM * ///////////////////////////////////////////////////////////////////////////
       if (solve_the_sys){
+        cout << "-----System solver-----" << endl;
         ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); //Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");//VecView(Vec_ups_0,PETSC_VIEWER_STDOUT_WORLD);
-        //if (is_sfip){updateSolidVel();}
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         //cout << "# snes iterations: " << its << endl
         cout << "--------------------------------------------------" << endl;
@@ -2631,18 +2651,15 @@ PetscErrorCode AppCtx::solveTimeProblem()
         }
       }////////////////////////////////////////////////////////////////////////////////////////////////////
 
-      if (is_sfip){
-        // update mesh and mech. dofs//////////////////////////////////////////////////
+      if (is_sfip){// update mesh and mech. dofs//////////////////////////////////////////////////
         if (is_mr_qextrap){
           moveSolidDOFs(1.0);
           calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
           VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
         }
-      }
+      }////////////////////////////////////////////////////////////////////////////////////////////////////
 
     }// end Picard Iterartions loop //////////////////////////////////////////////////
-
-    if (family_files){plotFiles();}
 
     cout << "--------------------------------------------------" << endl;
 
@@ -2656,7 +2673,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     computeViscousDissipation(Vec_x_0,Vec_ups_0);
     computeError(Vec_x_0,Vec_ups_1,current_time);
 
-    if(time_step > maxts) {
+    if(time_step+1 > maxts) {
       cout << "\n==================================================\n";
       cout << "stop reason:\n";
       cout << "maximum number of iterations reached. \n";
@@ -2673,6 +2690,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
   // END TIME LOOP
   //
 
+  VecCopy(Vec_ups_1, Vec_ups_0);
+  if (family_files){plotFiles();}
   cout << endl;
 
   final_volume = getMeshVolume();
@@ -3151,7 +3170,7 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
     }
   }
 
-  cout << "\n Traction Force = " << Traction_.transpose() << endl;
+  cout << "Traction Force = " << Traction_.transpose() << endl;
 }
 
 void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
@@ -3321,7 +3340,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
    } // end elementos //////////////////////////////////////////////////
 
 
-  cout << "\n Viscous Dissipation = " << VD << endl;
+  cout << "Viscous Dissipation = " << VD << endl;
 }
 
 void AppCtx::pressureTimeCorrection(Vec &Vec_up_0, Vec &Vec_up_1, double a, double b) // p(n+1) = a*p(n+.5) + b* p(n)
@@ -3934,7 +3953,7 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
       XG_aux[s] = XG_0[s];
       XG_0[s]   = XG_temp;
       theta_temp   = theta_1[s];
-      theta_1[s]   = (18./11.)*theta_1[s] - (9./11.)*theta_0[s] + (2./11.)*theta_aux[s] + (6./11.)*dt*omega0(0);
+      theta_1[s]   = (18./11.)*theta_1[s] - (9./11.)*theta_0[s] + (2./11.)*theta_aux[s] + (6./11.)*dt*omega0;
       theta_aux[s] = theta_0[s];
       theta_0[s]   = theta_temp;
     }
@@ -3944,7 +3963,7 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
         XG_1[s] = (4./3.)*XG_1[s] - (1./3.)*XG_0[s] + (2./3.)*dt*(vtheta*U1 + (1.-vtheta)*U0);
         XG_0[s] = XG_temp;
         theta_temp = theta_1[s];
-        theta_1[s] = (4./3.)*theta_1[s] - (1./3.)*theta_0[s] + (2./3.)*dt*(vtheta*omega1(0) + (1.-vtheta)*omega0(0));
+        theta_1[s] = (4./3.)*theta_1[s] - (1./3.)*theta_0[s] + (2./3.)*dt*(vtheta*omega1 + (1.-vtheta)*omega0);
         theta_0[s] = theta_temp;
       }
       else if (is_bdf2_ab){
@@ -3952,7 +3971,7 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
         XG_1[s] = dt*(vtheta*U1 + (1.-vtheta)*U0) + XG_0[s];
         //XG_0[s] = XG_temp;
         theta_0[s] = theta_1[s];
-        theta_1[s] = dt*(vtheta*omega1(0) + (1.-vtheta)*omega0(0)) + theta_0[s];
+        theta_1[s] = dt*(vtheta*omega1 + (1.-vtheta)*omega0) + theta_0[s];
         //theta_0[s] = theta_temp;
       }
     }
@@ -3971,7 +3990,7 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
         XG_1[s] = dt*(vtheta*U1 + (1.-vtheta)*U0) + XG_0[s];
         //XG_0[s] = XG_temp;
         theta_0[s] = theta_1[s];
-        theta_1[s] = dt*(vtheta*omega1(0) + (1.-vtheta)*omega0(0)) + theta_0[s];
+        theta_1[s] = dt*(vtheta*omega1 + (1.-vtheta)*omega0) + theta_0[s];
         //theta_0[s] = theta_temp;
       }
     }
@@ -4046,6 +4065,58 @@ PetscErrorCode AppCtx::plotFiles()
   VecRestoreArray(Vec_v_mid, &v_array);
   if (is_sfip){
     VecRestoreArray(Vec_slipv_0, &vs_array);
+    VecRestoreArray(Vec_Fdis_0, &fd_array);
+    VecRestoreArray(Vec_ftau_0, &Ftau_array);
+    VecRestoreArray(Vec_tangent, &tg_array);
+  }
+  if (is_sslv) VecRestoreArray(Vec_slip_rho, &rho_array);
+
+  PetscFunctionReturn(0);
+}
+
+PetscErrorCode AppCtx::plotFilesNT()
+{
+  double  *q_array;
+  double  *nml_array;
+  double  *v_array, *vs_array, *rho_array, *fd_array, *Ftau_array, *tg_array;
+  VecGetArray(Vec_ups_1, &q_array);  //VecGetArray(Vec_up_1, &q_array);
+  VecGetArray(Vec_normal, &nml_array);
+  VecGetArray(Vec_v_mid, &v_array);
+  if (is_sfip){
+    VecGetArray(Vec_slipv_1, &vs_array);
+    VecGetArray(Vec_Fdis_0, &fd_array);
+    VecGetArray(Vec_ftau_0, &Ftau_array);
+    VecGetArray(Vec_tangent, &tg_array);
+  }
+  if (is_sslv) VecGetArray(Vec_slip_rho, &rho_array);
+  vtk_printer.writeVtk();
+
+  /* ---- nodes data ---- */
+  vtk_printer.addNodeVectorVtk("u", GetDataVelocity(q_array, *this));
+  vtk_printer.addNodeVectorVtk("n", GetDataNormal(nml_array, *this));
+  vtk_printer.addNodeVectorVtk("v", GetDataMeshVel(v_array, *this));
+  if (is_sfip){
+    vtk_printer.addNodeVectorVtk("vs", GetDataMeshVel(vs_array, *this));
+    vtk_printer.addNodeVectorVtk("fd", GetDataMeshVel(fd_array, *this));
+    vtk_printer.addNodeVectorVtk("ftau", GetDataMeshVel(Ftau_array, *this));
+    vtk_printer.addNodeVectorVtk("tg", GetDataMeshVel(tg_array, *this));
+  }
+  if (is_sslv) vtk_printer.addNodeScalarVtk("rho", GetDataSlipVel(rho_array, *this));
+  vtk_printer.printPointTagVtk();
+
+  if (!shape_psi_c->discontinuous())
+    vtk_printer.addNodeScalarVtk("p", GetDataPressure(q_array, *this));
+  else
+    vtk_printer.addCellScalarVtk("p", GetDataPressCellVersion(q_array, *this));
+
+  vtk_printer.addCellIntVtk("cell_tag", GetDataCellTag(*this));
+
+  //vtk_printer.printPointTagVtk("point_tag");
+  VecRestoreArray(Vec_ups_1, &q_array);  //VecRestoreArray(Vec_up_1, &q_array);
+  VecRestoreArray(Vec_normal, &nml_array);
+  VecRestoreArray(Vec_v_mid, &v_array);
+  if (is_sfip){
+    VecRestoreArray(Vec_slipv_1, &vs_array);
     VecRestoreArray(Vec_Fdis_0, &fd_array);
     VecRestoreArray(Vec_ftau_0, &Ftau_array);
     VecRestoreArray(Vec_tangent, &tg_array);
@@ -4612,7 +4683,7 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
       for (int S = 0; S < LZ*n_solids; S++){
         mapvs[S] = n_unknowns_u + n_unknowns_p + S;
       }
-      VecGetValues(Vec_ups_0,mapvs.size(),mapvs.data(),v_coeffs_s.data());
+      VecGetValues(Vec_ups_1,mapvs.size(),mapvs.data(),v_coeffs_s.data());
       filg.open(gravc,iostream::app);
       filg.precision(15);
       filg.setf(iostream::fixed, iostream::floatfield);
@@ -4621,6 +4692,49 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
       filv.setf(iostream::fixed, iostream::floatfield);
       filg << current_time << " ";
       filv << current_time << " ";
+      for (int S = 0; S < (n_solids-1); S++){
+        Xgg = XG_0[S];
+        filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[S] << " ";// << VV[S] << " ";
+        filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1) << " " << v_coeffs_s(LZ*S+2) << " ";
+      }
+      Xgg = XG_0[n_solids-1];
+      filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[n_solids-1] << endl;//" " << VV[n_solids-1] << endl;
+      filv << v_coeffs_s(LZ*(n_solids-1)) << " " << v_coeffs_s(LZ*(n_solids-1)+1) << " "
+           << v_coeffs_s(LZ*(n_solids-1)+2);
+      if (dim == 3){
+        filv << " " << v_coeffs_s(LZ*(n_solids-1)+3) << " " << v_coeffs_s(LZ*(n_solids-1)+4) << " "
+            << v_coeffs_s(LZ*(n_solids-1)+5);
+      }
+      filv << endl;
+      filg.close();  //TT++;
+      filv.close();
+    }
+  } // end Printing mech. dofs information //////////////////////////////////////////////////
+
+ PetscFunctionReturn(0);
+}
+
+PetscErrorCode AppCtx::saveDOFSinfo_Re_Vel(){
+  VectorXd v_coeffs_s(LZ*n_solids);
+  VectorXi mapvs(LZ*n_solids);
+  Vector3d Xgg;
+
+  // Printing mech. dofs information //////////////////////////////////////////////////
+  if (fprint_hgv && is_sfip){
+    if ((time_step%print_step)==0 || time_step == (maxts-1)){
+      getSolidVolume();
+      for (int S = 0; S < LZ*n_solids; S++){
+        mapvs[S] = n_unknowns_u + n_unknowns_p + S;
+      }
+      VecGetValues(Vec_ups_1,mapvs.size(),mapvs.data(),v_coeffs_s.data());
+      filg.open(gravc,iostream::app);
+      filg.precision(15);
+      filg.setf(iostream::fixed, iostream::floatfield);
+      filv.open(velc,iostream::app);
+      filv.precision(15);
+      filv.setf(iostream::fixed, iostream::floatfield);
+      filg << pow(10.0,(double)(time_step-16.0)/8.0) << " ";
+      filv << pow(10.0,(double)(time_step-16.0)/8.0) << " ";
       for (int S = 0; S < (n_solids-1); S++){
         Xgg = XG_0[S];
         filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[S] << " ";// << VV[S] << " ";
@@ -5024,7 +5138,7 @@ int main(int argc, char **argv)
   user.freePetscObjs();
   PetscFinalize();
 
-  cout << "\a" << endl;
+  //cout << "\a" << endl;
   return 0;
 }
 /* ------------------------------------------------------------------- */

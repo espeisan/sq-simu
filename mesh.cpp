@@ -8,16 +8,12 @@ using std::tr1::get;
 //extern PetscErrorCode FormJacobian(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
 //extern PetscErrorCode FormFunction(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
 extern PetscErrorCode CheckSnesConvergence(SNES snes, PetscInt it,PetscReal xnorm, PetscReal pnorm, PetscReal fnorm, SNESConvergedReason *reason, void *ctx);
-
 extern PetscErrorCode FormJacobian_mesh(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
 extern PetscErrorCode FormFunction_mesh(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
-
 extern PetscErrorCode FormJacobian_fs(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
 extern PetscErrorCode FormFunction_fs(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
-
 extern PetscErrorCode FormJacobian_sqrm(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
 extern PetscErrorCode FormFunction_sqrm(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
-
 //extern PetscErrorCode FormJacobian_fd(SNES snes,Vec Vec_up_1,Mat *Mat_Jac, Mat *prejac, MatStructure *flag, void *ptr);
 //extern PetscErrorCode FormFunction_fd(SNES snes, Vec Vec_up_1, Vec Vec_fun, void *ptr);
 
@@ -754,7 +750,6 @@ void AppCtx::copyVec2Mesh(Vec const& Vec_xmsh)
   }
 }
 
-
 // copy mesh of the data structure to a Petsc Vector
 void AppCtx::swapMeshWithVec(Vec & Vec_xmsh)
 {
@@ -780,7 +775,6 @@ void AppCtx::swapMeshWithVec(Vec & Vec_xmsh)
 
   Assembly(Vec_xmsh);
 }
-
 
 PetscErrorCode AppCtx::meshAdapt()
 {
@@ -1428,6 +1422,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
         else
           tmp = (Y0 - X0)/dt;
 
+        //tmp.setZero();
         VecSetValues(Vec_v_mid, dim, node_dofs_mesh.data(), tmp.data(), INSERT_VALUES);
       }  //if for RK4  //end if force_mesh_velocity
       else
@@ -1462,7 +1457,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
   {
     cout << "-----Mesh solver-----" << endl;
     ierr = SNESSolve(snes_m, PETSC_NULL, Vec_v_mid);  CHKERRQ(ierr);
-    //cout << "---------------------" << endl;
+    cout << "---------------------" << endl;
   }
   //View(Vec_v_mid,"matrizes/vmid2.m","vmidm2");
   //sprintf(buf1,"matrizes/vmid2_%d.m",time_step); sprintf(buf2,"vmidm2_%d",time_step); View(Vec_v_mid, buf1, buf2);
@@ -2766,7 +2761,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
   //int counter = 0;
   if ((Qmesh < Q_star) /*&& (counter < 4)*/ /*true*/){
 
-    cout << endl << "Entering Mesh quality test " << Qmesh << " < " << Q_star << endl;
+    cout << "Entering Mesh quality test " << Qmesh << " < " << Q_star << endl;
 
 //    for (int na = 0; na < 5; na++){
     for (int is_splitting = 0; is_splitting < 2 ; ++is_splitting)
@@ -2880,8 +2875,10 @@ PetscErrorCode AppCtx::meshAdapt_s()
   }
   // end if Qmesh //////////////////////////////////////////////////
 
-  if (!mesh_was_changed)
+  if (!mesh_was_changed){
+    cout << "Mesh not adpated" << endl;
     PetscFunctionReturn(0);
+  }
 
   meshAliasesUpdate();
 
@@ -3389,7 +3386,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
 
   checkConsistencyTri(&*mesh);
 
-  printf("\nMesh adapted.\n\n");
+  printf("Mesh adapted.");
 
   PetscFunctionReturn(0);
 }

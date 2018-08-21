@@ -1898,7 +1898,7 @@ double pho(Vector const& X, int tag)
 {
 //  if (tag == 15)
 //  {
-    return 0;//e3;///1e4;
+    return pow(10.0,(double)(tag-16.0)/8.0);//e3;///1e4;
 //  }
 //  else
 //  {
@@ -1930,7 +1930,7 @@ double muu(int tag)
 {
 //  if (tag == 15)
 //  {
-    return 1;//1.0*0.1;
+    return 1.0/3.0;//1.0*0.1;
 //  }
 //  else
 //  {
@@ -2057,6 +2057,7 @@ Vector v_exact(Vector const& X, double t, int tag) //(X,t,tag)
   double const x = X(0);
   double const y = X(1);
   Vector v(Vector::Zero(X.size()));
+  v(1) = 0.0;
 
   return v;
 }
@@ -2273,9 +2274,9 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
     }
   }
 
-  if (false && dim == 2)
+  if (true && dim == 2)
   {
-    double B1 = -0.5, B2 = 0.0;
+    double B1 = 0.5, B2 = +0.25;
     //theta = pi/2;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);

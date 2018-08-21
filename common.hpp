@@ -622,9 +622,11 @@ public:
   PetscErrorCode updateSolidMesh();
   PetscErrorCode velNoSlip(Vec const& Vec_uzp, Vec const& Vec_sv, Vec &Vec_ups_ns);
   PetscErrorCode plotFiles();
+  PetscErrorCode plotFilesNT();
   Vector vectorSolidMesh(int const K, Point const* point, int const vs);
   void getFromBSV();
   PetscErrorCode saveDOFSinfo();
+  PetscErrorCode saveDOFSinfo_Re_Vel();
   PetscErrorCode extractFdForce();
   Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);

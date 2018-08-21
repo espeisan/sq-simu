@@ -362,6 +362,7 @@ void getProjectorDOFS(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Ap
 PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun)
 {
   double utheta = AppCtx::utheta;  //cout << "mesh" << endl;
+  double vtheta = AppCtx::vtheta;  //cout << "mesh" << endl;
 
   // NOTE: solve elasticity problem in the mesh at time step n
   // NOTE: The mesh used is the Vec_x_0 or Vec_x_1, look for MESH CHOISE
@@ -373,7 +374,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
 // LOOP NAS CÉLULAS Parallel (uncomment it)
 #ifdef FEP_HAS_OPENMP
-  FEP_PRAGMA_OMP(parallel default(none) shared(Vec_v, Vec_fun, cout, JJ, utheta))
+  FEP_PRAGMA_OMP(parallel default(none) shared(Vec_v, Vec_fun, cout, JJ, utheta, vtheta))
 #endif
   {
     bool const non_linear = nonlinear_elasticity;
@@ -388,7 +389,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
     MatrixXd          x_coefs_c_trans(dim, nodes_per_cell);
     MatrixXd          x_coefs_c(nodes_per_cell, dim);
     //MatrixXd          x_coefs_c_new_trans(dim, nodes_per_cell);
-    //MatrixXd          x_coefs_c_new(nodes_per_cell, dim);
+    MatrixXd          x_coefs_c_new(nodes_per_cell, dim);
     MatrixXd          dxqsi_c(nodes_per_cell, dim);
     double            J, weight, JxW, MuE, LambE, ChiE, Jx0;
 
@@ -416,11 +417,12 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
       //dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);  //cout << mapU_c.transpose() << endl;
       /* Pega os valores das variáveis nos graus de liberdade */
       VecGetValues(Vec_v ,  mapV_c.size(), mapV_c.data(), v_coefs_c.data());  //cout << v_coefs_c << endl;//VecView(Vec_v,PETSC_VIEWER_STDOUT_WORLD);
-      VecGetValues(Vec_x_1, mapV_c.size(), mapV_c.data(), x_coefs_c.data());  //cout << x_coefs_c << endl;// MESH CHOISE
-      //VecGetValues(Vec_x_1, mapV_c.size(), mapV_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl;
+      VecGetValues(Vec_x_0, mapV_c.size(), mapV_c.data(), x_coefs_c.data());  //cout << x_coefs_c << endl;// MESH CHOISE
+      VecGetValues(Vec_x_1, mapV_c.size(), mapV_c.data(), x_coefs_c_new.data());  //cout << x_coefs_c_new << endl;
 
       v_coefs_c_trans = v_coefs_c.transpose();
       x_coefs_c_trans = x_coefs_c.transpose();
+      x_coefs_c_trans = vtheta*x_coefs_c_new.transpose() + (1.-vtheta)*x_coefs_c.transpose();
 
       Floc.setZero();
       Aloc.setZero();
@@ -594,12 +596,13 @@ PetscErrorCode AppCtx::formJacobian_mesh(SNES /*snes*/,Vec /*Vec_up_k*/,Mat* /**
 PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun_fs)
 {
   double utheta = AppCtx::utheta;
+  double vtheta = AppCtx::vtheta;
   if (is_mr_qextrap){utheta = 1.0;}
 
   VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
   VecSetOption(Vec_ups_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
 
-  std::vector<Vector3d> XG_mid = midGP(XG_1, XG_0, utheta, n_solids);
+  std::vector<Vector3d> XG_mid = midGP(XG_1, XG_0, vtheta, n_solids);
 
   int null_space_press_dof = -1;
 
@@ -655,7 +658,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
 
   // LOOP NAS CÉLULAS Parallel (uncomment it) //////////////////////////////////////////////////
 #ifdef FEP_HAS_OPENMP
-  FEP_PRAGMA_OMP(parallel default(none) shared(Vec_ups_k,Vec_fun_fs,cout,null_space_press_dof,JJ,utheta,iter,XG_mid))
+  FEP_PRAGMA_OMP(parallel default(none) shared(Vec_ups_k,Vec_fun_fs,cout,null_space_press_dof,JJ,utheta,vtheta,iter,XG_mid))
 #endif
   {
     VectorXd            FUloc(n_dofs_u_per_cell);  // U subvector part of F
@@ -1143,7 +1146,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         u_coefs_c_om2c_trans = u_coefs_c_om2c.transpose();
       }
 
-      x_coefs_c_mid_trans = utheta*x_coefs_c_new_trans + (1.-utheta)*x_coefs_c_old_trans;
+      x_coefs_c_mid_trans = vtheta*x_coefs_c_new_trans + (1.-vtheta)*x_coefs_c_old_trans;
       u_coefs_c_mid_trans = utheta*u_coefs_c_new_trans + (1.-utheta)*u_coefs_c_old_trans;
       p_coefs_c_mid       = utheta*p_coefs_c_new       + (1.-utheta)*p_coefs_c_old;
       z_coefs_c_mid_trans = utheta*z_coefs_c_new_trans + (1.-utheta)*z_coefs_c_old_trans;
@@ -1199,7 +1202,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
 
       //viscosity and density at the cell//////////////////////////////////////////////////
       visc = muu(tag);
-      rho  = pho(Xqp,tag);  //pho is elementwise, so Xqp does nothing
+      rho  = pho(Xqp,time_step); //tag instead time_step  //pho is elementwise, so Xqp does nothing
       ////////////////////////////////////////////////////////////////////////////////////////////////////
 
       //initialization as zero of the residuals and elemental matrices////////////////////////////////////////
@@ -1447,6 +1450,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             cout << "cell Contig id: " << mesh->getCellContigId( mesh->getCellId(&*cell) ) << endl;
             cout << "cell nodes:\n" << cell_nodes.transpose() << endl;
             cout << "mapM :\n" << mapM_c.transpose() << endl;
+            freePetscObjs();
+            PetscFinalize();
             throw;
           }
         }
@@ -2434,7 +2439,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       u_coefs_f_new_trans = u_coefs_f_new.transpose();
 
       u_coefs_f_mid_trans = utheta*u_coefs_f_new_trans + (1.-utheta)*u_coefs_f_old_trans;
-      x_coefs_f_mid_trans = utheta*x_coefs_f_new_trans + (1.-utheta)*x_coefs_f_old_trans;
+      x_coefs_f_mid_trans = vtheta*x_coefs_f_new_trans + (1.-vtheta)*x_coefs_f_old_trans;
       if (is_fsi || is_slipvel){
         z_coefs_f_new_trans = z_coefs_f_new.transpose();
         z_coefs_f_mid_trans = z_coefs_f_new_trans;
@@ -2699,7 +2704,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         }
       }
 
-      if (false /*is_axis && is_sfip*/){// eliminating specific solid DOFS
+      if (true /*is_axis && is_sfip*/){// eliminating specific solid DOFS
         MatrixXd PrjDOFS(n_dofs_z_per_facet,n_dofs_z_per_facet);
         MatrixXd PrjDOFSlz(LZ,LZ);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_facet,n_dofs_z_per_facet));
@@ -2793,7 +2798,7 @@ PetscErrorCode AppCtx::formJacobian_fs(SNES snes_fs,Vec Vec_ups_k, Mat* /*Mat_Ja
 PetscErrorCode AppCtx::formFunction_sqrm(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun)
 {
   double utheta = AppCtx::utheta;
-
+  double vtheta = AppCtx::vtheta;
   if (is_bdf2)
   {
     if (time_step == 0)
@@ -2890,7 +2895,7 @@ PetscErrorCode AppCtx::formFunction_sqrm(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
       if ((is_bdf2 && time_step > 0) || (is_bdf3 && time_step > 1)) //the integration geometry is \bar{X}^{n+1}
         x_coefs_c = x_coefs_c_new;
       else
-        x_coefs_c = (1.-utheta)*x_coefs_c + utheta*x_coefs_c_new; // for MR-AB, this completes the geom extrap
+        x_coefs_c = (1.-vtheta)*x_coefs_c + vtheta*x_coefs_c_new; // for MR-AB, this completes the geom extrap
 
       s_coefs_c_trans = s_coefs_c;
       x_coefs_c_trans = x_coefs_c.transpose();
@@ -3289,8 +3294,8 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       u_coefs_c_old_trans = u_coefs_c_old.transpose();  //cout << u_coefs_c_old_trans << endl << endl;
       u_coefs_c_new_trans = u_coefs_c_new.transpose();
 
-      u_coefs_c_mid_trans = utheta*u_coefs_c_new_trans + (1.-utheta)*u_coefs_c_old_trans;
       x_coefs_c_mid_trans = utheta*x_coefs_c_new_trans + (1.-utheta)*x_coefs_c_old_trans;
+      u_coefs_c_mid_trans = utheta*u_coefs_c_new_trans + (1.-utheta)*u_coefs_c_old_trans;
       p_coefs_c_mid       = utheta*p_coefs_c_new       + (1.-utheta)*p_coefs_c_old;
       f_coefs_c_mid_trans = f_coefs_c_new.transpose();
 

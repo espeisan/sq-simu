@@ -2410,7 +2410,7 @@ PetscErrorCode AppCtx::setInitialConditions()
 
   cout << "--------------------------------------------------" << endl;
   computeError(Vec_x_0,Vec_ups_1,current_time);
-
+  computeViscousDissipation(Vec_x_0,Vec_ups_1);
   PetscFunctionReturn(0);
 }
 
@@ -3188,7 +3188,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   Tensor              F_f(dim,dim-1), invF_f(dim-1,dim), fff(dim-1,dim-1);
   MatrixXd            dxphi_err(n_dofs_u_per_cell/dim, dim);
   MatrixXd            dxpsi_err(n_dofs_p_per_cell, dim);
-  MatrixXd            dxqsi_err(nodes_per_cell, dim);
+  //MatrixXd            dxqsi_err(nodes_per_cell, dim);
   Tensor              dxU(dim,dim); // grad u
   Vector              dxP(dim);     // grad p
   Vector              Xqp(dim);
@@ -3294,47 +3294,48 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-     ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
-     for (int qp = 0; qp < n_qpts_err; ++qp)
-     {
+    ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
+    for (int qp = 0; qp < n_qpts_err; ++qp)
+    {
+      F_c = Tensor::Zero(dim,dim);  //Zero(dim,dim);
+      Xqp = Vector::Zero(dim);// coordenada espacial (x,y,z) do ponto de quadratura
+      if (curvf){//F_c_curv.setZero();
+       Xqpb = quadr_err->point(qp);
+       Phi = curved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+       DPhi = Dcurved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
+       F_c_curv.col(0) = -Phi;
+       F_c_curv.col(1) = -Phi + (1.0-Xqpb[0]-Xqpb[1])*DPhi;
+       F_c = F_c_curv;
+       Xqp = (1.0-Xqpb[0]-Xqpb[1])*Phi;
+      }
 
-       F_c = Tensor::Zero(dim,dim);  //Zero(dim,dim);
-       Xqp = Vector::Zero(dim);// coordenada espacial (x,y,z) do ponto de quadratura
-       if (curvf){//F_c_curv.setZero();
-         Xqpb = quadr_err->point(qp);
-         Phi = curved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
-         DPhi = Dcurved_Phi(Xqpb[1],X0,X2,Xcc,Vdat,dim);
-         F_c_curv.col(0) = -Phi;
-         F_c_curv.col(1) = -Phi + (1.0-Xqpb[0]-Xqpb[1])*DPhi;
-         F_c = F_c_curv;
-         Xqp = (1.0-Xqpb[0]-Xqpb[1])*Phi;
-       }
+      F_c   += x_coefs_c_trans * dLqsi_err[qp];
+      J      = F_c.determinant();
+      invF_c = F_c.inverse();
+      invFT_c= invF_c.transpose();
 
-       F_c   += x_coefs_c_trans * dLqsi_err[qp];
-       J      = F_c.determinant();
-       invF_c = F_c.inverse();
-       invFT_c= invF_c.transpose();
+      dxphi_err = dLphi_err[qp] * invF_c;
+      dxpsi_err = dLpsi_err[qp] * invF_c;
+      //dxqsi_err = dLqsi_err[qp] * invF_c;
 
-       dxphi_err = dLphi_err[qp] * invF_c;
-       dxpsi_err = dLpsi_err[qp] * invF_c;
-       dxqsi_err = dLqsi_err[qp] * invF_c;
+      dxU  = u_coefs_c_trans * dxphi_err;       // n+utheta
+      dxP  = dxpsi_err.transpose() * p_coefs_c;
 
-       dxU  = u_coefs_c_trans * dxphi_err;       // n+utheta
-       dxP  = dxpsi_err.transpose() * p_coefs_c;
+      Xqp += x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+      Uqp  = u_coefs_c_trans * phi_err[qp];
+      //Pqp  = p_coefs_c.dot(psi_err[qp]);
 
-       Xqp += x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
-       Uqp  = u_coefs_c_trans * phi_err[qp];
-       //Pqp  = p_coefs_c.dot(psi_err[qp]);
-
-       //quadrature weight//////////////////////////////////////////////////
-       weight = quadr_err->weight(qp);
-       JxW = J*weight;
-       if (is_axis){
-         JxW = JxW*2.0*pi*Xqp(0);
-       }
-       //////////////////////////////////////////////////
-
-       VD += JxW*( 2.0*visc*DobCont(dxU,dxU) );
+      //quadrature weight//////////////////////////////////////////////////
+      weight = quadr_err->weight(qp);
+      JxW = J*weight;
+      if (is_axis){
+       JxW = JxW*2.0*pi*Xqp(0);
+      }
+      //////////////////////////////////////////////////
+      //cout << DobCont((dxU.transpose()+dxU)/2.0,dxU) << endl;
+      dxU = (dxU + dxU.transpose())/2.0;
+      //cout << DobCont(dxU,dxU) << endl;
+      VD += JxW*( 2.0*visc*DobCont(dxU,dxU) );
 
      } // fim quadratura //////////////////////////////////////////////////
    } // end elementos //////////////////////////////////////////////////

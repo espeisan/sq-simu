@@ -1242,9 +1242,6 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           }
           F_c_mid += x_coefs_c_mid_trans * dLqsi_c[qp];
           J_mid = determinant(F_c_mid,dim);
-          if (is_axis && false){
-            J_mid = J_mid*2*pi*Xqp(0);
-          }
           cell_volume += J_mid * quadr_cell->weight(qp);
         }  //cout << J_mid << " " << cell_volume << endl;
 

@@ -2399,8 +2399,8 @@ PetscErrorCode AppCtx::setInitialConditions()
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
     if (true){
-      saveDOFSinfo_Re_Vel();
       if (pic != 0 && pic%4 == 0){
+        saveDOFSinfo_Re_Vel();
         plotFilesNT();
         time_step++;
       }

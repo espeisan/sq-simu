@@ -1262,11 +1262,14 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           tauk = 4.*visc/hk2 + 2.*rho*uconv/sqrt(hk2);
           tauk = 1./tauk;
         }
-        else{tauk = hk2/(12*visc);}
+        else{
+          tauk = 1./(1.*visc/hk2 + 2.*has_convec*rho*uconv/sqrt(hk2));
+          //tauk = hk2/(12*visc);
+        }
         if (dim==3)
           tauk *= 0.1;
 
-        //delk = 4.*visc + 2.*rho*uconv*sqrt(hk2);
+        //delk = 4.*visc + 2.*has_convec*rho*uconv*sqrt(hk2);
         delk = 0*4*visc;
 
         Eloc.setZero();
@@ -1531,10 +1534,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           for (int i = 0; i < n_dofs_u_per_cell/dim; i++)
           {
             //supg term tauk
-            vec  = JxW_mid*(has_convec)*tauk*rho*Uconv_qp.dot(dxphi_c.row(i))*Res;
+            vec  = has_convec*JxW_mid*tauk*rho*Uconv_qp.dot(dxphi_c.row(i))*Res;
             //divergence term delk
             divu = dxU.trace();
-            if (is_axis){
+            if (is_axis && test_st){
               divu += Uqp(0)/Xqp(0);
             }
             vec += JxW_mid*delk*divu*dxphi_c.row(i).transpose();
@@ -1564,7 +1567,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             for (int i = 0; i < n_dofs_u_per_cell/dim; i++)
             {
               //supg term tauk
-              Ten  = JxW_mid*(has_convec)*tauk*( utheta*rho*phi_c[qp][j]*Res*dxphi_c.row(i) + rho*Uconv_qp.dot(dxphi_c.row(i))*dResdu );
+              Ten  = has_convec*JxW_mid*tauk*( utheta*rho*phi_c[qp][j]*Res*dxphi_c.row(i) + rho*Uconv_qp.dot(dxphi_c.row(i))*dResdu );
               // divergence term
               Ten += JxW_mid*delk*utheta*dxphi_c.row(i).transpose()*dxphi_c.row(j);
               if (is_axis && test_st){
@@ -1584,7 +1587,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
               for (int d = 0; d < dim; d++)
                 Dloc(i, j*dim + d) += vec(d);
 
-              vec = JxW_mid*tauk*(has_convec)*rho*Uconv_qp.dot(dxphi_c.row(j))*dxpsi_c.row(i).transpose();
+              vec = has_convec*JxW_mid*tauk*rho*Uconv_qp.dot(dxphi_c.row(j))*dxpsi_c.row(i).transpose();
               if (is_axis && test_st){
                 vec(0) += st_met*JxW_mid*tauk*visc*dxpsi_c(i,0)*( dxphi_c(j,0)/Xqp(0) - phi_c[qp][j]/(Xqp(0)*Xqp(0)) );
                 vec(1) += st_met*JxW_mid*tauk*visc*dxpsi_c(i,1)*( dxphi_c(j,0)/Xqp(0)                                );

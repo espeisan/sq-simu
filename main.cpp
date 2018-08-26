@@ -2360,6 +2360,7 @@ PetscErrorCode AppCtx::setInitialConditions()
         dofs_fs(l) = n_unknowns_u + n_unknowns_p + l;
       }
       VecGetValues(Vec_ups_1,dofs_fs.size(),dofs_fs.data(),v_coeffs_s.data());
+      //if (pic == 0){v_coeffs_s(1) = -0.315364702750772;}
       VecScale(Vec_v_mid, v_coeffs_s(1));
       View(Vec_v_mid,"matrizes/vmid0.m","vm");
     }
@@ -2405,6 +2406,7 @@ PetscErrorCode AppCtx::setInitialConditions()
         time_step++;
       }
     }
+
   }// end Picard Iterartions loop //////////////////////////////////////////////////
   copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
 
@@ -4734,8 +4736,38 @@ PetscErrorCode AppCtx::saveDOFSinfo_Re_Vel(){
       filv.open(velc,iostream::app);
       filv.precision(15);
       filv.setf(iostream::fixed, iostream::floatfield);
-      filg << pow(10.0,(double)(time_step-16.0)/8.0) << " ";
-      filv << pow(10.0,(double)(time_step-16.0)/8.0) << " ";
+      //double alp = 100.0, bet = 0.018, kst = (double)time_step, alp1 = 8.0;
+      //filg << pow(10.0,(kst+000.0)/alp) << " ";
+      //filv << pow(10.0,(kst+000.0)/alp) << " ";
+      //filg << pow(10.0,2.0 + bet*kst + (1.0/(alp*alp) - bet/alp)*kst*kst) << " ";
+      //filv << pow(10.0,2.0 + bet*kst + (1.0/(alp*alp) - bet/alp)*kst*kst) << " ";
+/*      if (kst <= alp1){
+        filg << pow(10.0,(kst+alp1)/alp1) << " ";
+        filv << pow(10.0,(kst+alp1)/alp1) << " ";
+      }
+      else{
+        filg << pow(10.0,2.0 + bet*(kst-alp1) + (1.0/(alp*alp) - bet/alp)*(kst-alp1)*(kst-alp1)) << " ";
+        filv << pow(10.0,2.0 + bet*(kst-alp1) + (1.0/(alp*alp) - bet/alp)*(kst-alp1)*(kst-alp1)) << " ";
+      }*/
+
+      double kst = (double)time_step, p1 = 0.0, alp1 = 100.0, alp2 = 100.0, alp3 = 100.0;
+      if (kst <= alp1){
+        filg <<  pow(10.0,p1) + kst*(pow(10.0,p1+1) - pow(10.0,p1))/alp1 << " ";
+        filv <<  pow(10.0,p1) + kst*(pow(10.0,p1+1) - pow(10.0,p1))/alp1 << " ";
+      }
+      else if (kst > alp1 || kst <= alp2){
+        filg <<  pow(10.0,p1+1) + (kst-alp1)*(pow(10.0,p1+2) - pow(10.0,p1+1))/(alp2-alp1) << " ";
+        filv <<  pow(10.0,p1+1) + (kst-alp1)*(pow(10.0,p1+2) - pow(10.0,p1+1))/(alp2-alp1) << " ";
+      }
+      else if (kst > alp2 || kst <= alp3){
+        filg <<  pow(10.0,p1+2) + (kst-alp2)*(pow(10.0,p1+3) - pow(10.0,p1+2))/(alp3-alp2) << " ";
+        filv <<  pow(10.0,p1+2) + (kst-alp2)*(pow(10.0,p1+3) - pow(10.0,p1+2))/(alp3-alp2) << " ";
+      }
+      else{
+        filg <<  -1000000 << " ";
+        filv <<  -1000000 << " ";
+      }
+
       for (int S = 0; S < (n_solids-1); S++){
         Xgg = XG_0[S];
         filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[S] << " ";// << VV[S] << " ";

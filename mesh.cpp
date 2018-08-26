@@ -445,7 +445,7 @@ void AppCtx::getVecNormals(Vec const* Vec_x_1, Vec & Vec_normal_)
     {
       point->getCoord(X.data(),dim);
       Xc = XG_0[is_fsiid+is_slvid-1];  //TODO: see what's the correct XG_
-      normal = exact_normal_ellipse(X,Xc,theta_ini[is_fsiid+is_slvid-1],RV[is_fsiid+is_slvid-1](0),RV[is_fsiid+is_slvid-1](1),dim); //theta_ini[is_fsiid+is_slvid-1]
+      normal = exact_normal_ellipse(X,Xc,0.0/*theta_ini[is_fsiid+is_slvid-1]*/,RV[is_fsiid+is_slvid-1](0),RV[is_fsiid+is_slvid-1](1),dim); //theta_ini[is_fsiid+is_slvid-1]
       //cout << "HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE" << endl;
       VecSetValues(Vec_normal_, dim, map.data(), normal.data(), INSERT_VALUES);
       Assembly(Vec_normal_);

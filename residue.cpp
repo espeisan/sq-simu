@@ -1229,7 +1229,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
 
       if(behaviors & BH_GLS) //GLS stabilization elemental matrices and residual initialization
       {
-        cell_volume = 0;
+/*        cell_volume = 0;
         for (int qp = 0; qp < n_qpts_cell; ++qp) {
           F_c_mid = Tensor::Zero(dim,dim);  //Zero(dim,dim);
           if (curvf){//F_c_curv.setZero();
@@ -1244,8 +1244,14 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           J_mid = determinant(F_c_mid,dim);
           cell_volume += J_mid * quadr_cell->weight(qp);
         }  //cout << J_mid << " " << cell_volume << endl;
-
         hk2 = cell_volume / pi; //element size: radius a circle with the same volume of the cell
+*/
+        double L = 0.0;
+        double L1 = (x_coefs_c_mid_trans.col(0)-x_coefs_c_mid_trans.col(1)).norm();
+        double L2 = (x_coefs_c_mid_trans.col(1)-x_coefs_c_mid_trans.col(2)).norm();
+        double L3 = (x_coefs_c_mid_trans.col(0)-x_coefs_c_mid_trans.col(2)).norm();
+        L = max(L1,max(L2,L3));
+        hk2 = L*L;
 
         if (false && SVI){
           for (int J = 0; J < nodes_per_cell; J++){
@@ -1263,7 +1269,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           tauk = 1./tauk;
         }
         else{
-          tauk = 1./(1.*visc/hk2 + 2.*has_convec*rho*uconv/sqrt(hk2));
+          tauk = 1./(12.*visc/hk2 + 2.*has_convec*rho*uconv/sqrt(hk2));
           //tauk = hk2/(12*visc);
         }
         if (dim==3)
@@ -1522,7 +1528,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         {
           //int st_met = 0;  //-1 for Douglas and Wang, +1 for Hughes and Franca
           //int st_vis = 0; //1 for including visc term in the residual
-          bool test_st = true;
+          bool test_st = false;
           double divu = 0;
           //Residual
           Res = rho*(unsteady*dUdt + has_convec*dxU*Uconv_qp) + dxP_new - force_at_mid;
@@ -1537,7 +1543,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             vec  = has_convec*JxW_mid*tauk*rho*Uconv_qp.dot(dxphi_c.row(i))*Res;
             //divergence term delk
             divu = dxU.trace();
-            if (is_axis && test_st){
+            if (is_axis){
               divu += Uqp(0)/Xqp(0);
             }
             vec += JxW_mid*delk*divu*dxphi_c.row(i).transpose();

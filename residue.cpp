@@ -1229,7 +1229,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
 
       if(behaviors & BH_GLS) //GLS stabilization elemental matrices and residual initialization
       {
-/*        cell_volume = 0;
+        cell_volume = 0;
         for (int qp = 0; qp < n_qpts_cell; ++qp) {
           F_c_mid = Tensor::Zero(dim,dim);  //Zero(dim,dim);
           if (curvf){//F_c_curv.setZero();
@@ -1245,14 +1245,14 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           cell_volume += J_mid * quadr_cell->weight(qp);
         }  //cout << J_mid << " " << cell_volume << endl;
         hk2 = cell_volume / pi; //element size: radius a circle with the same volume of the cell
-*/
+/*
         double L = 0.0;
         double L1 = (x_coefs_c_mid_trans.col(0)-x_coefs_c_mid_trans.col(1)).norm();
         double L2 = (x_coefs_c_mid_trans.col(1)-x_coefs_c_mid_trans.col(2)).norm();
         double L3 = (x_coefs_c_mid_trans.col(0)-x_coefs_c_mid_trans.col(2)).norm();
         L = max(L1,max(L2,L3));
         hk2 = L*L;
-
+*/
         if (false && SVI){
           for (int J = 0; J < nodes_per_cell; J++){
             if (SV_c[J]){
@@ -1264,13 +1264,14 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           }
         }
         uconv = (u_coefs_c_old - v_coefs_c_mid /*+ uz_coefs_c_old.transpose()*/).lpNorm<Infinity>();
-        if (false && SVI){
+        if (false && SVI){//FIXME
           tauk = 4.*visc/hk2 + 2.*rho*uconv/sqrt(hk2);
           tauk = 1./tauk;
         }
-        else{
-          tauk = 1./(12.*visc/hk2 + 2.*has_convec*rho*uconv/sqrt(hk2));
-          //tauk = hk2/(12*visc);
+        else{//FIXME
+          //tauk = 1./(12.*visc/hk2 + 2.*has_convec*rho*uconv/sqrt(hk2));
+          tauk = hk2/(12*visc);
+          //tauk = hk2/(pow(2.0,time_step-14)*visc);
         }
         if (dim==3)
           tauk *= 0.1;
@@ -1680,7 +1681,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
         VectorXi s_DOFS(LZ); s_DOFS << 0,0,0; // this aliminates all DOFS //<< 0, 1, 0;
-        if (true /*is_axis && is_sfip*/){// eliminating specific solid DOFS
+        if (s_dofs_elim /*is_axis && is_sfip*/){// eliminating specific solid DOFS
           if (is_sflp){
             MatrixXd PrjDOFSlz(LZ,LZ);
             PrjDOFS.setIdentity();
@@ -1774,7 +1775,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     VectorXd   z_coefs_old(LZ), z_coefs_new(LZ), z_coefs_om1(LZ), z_coefs_om2(LZ);
     VectorXd   z_coefs_mid(LZ), z_coefs_olJ(LZ), z_coefs_neJ(LZ), z_coefs_miJ(LZ), z_coefs_miK(LZ);
     Vector     dZdt(LZ);
-    Vector     Grav(LZ), Fpp(LZ), Fpw(LZ), Fv(LZ);
+    Vector     Grav(LZ), Fpp(LZ), Fpw(LZ), Fv(LZ), Fdrg(Vector::Zero(LZ));
     TensorZ    Z3sloc = TensorZ::Zero(LZ,LZ), dFpp(LZ,LZ), dFpw(LZ,LZ);
     TensorZ    MI = TensorZ::Zero(LZ,LZ);
     double     ddt_factor, dJK;
@@ -1798,6 +1799,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       Fpp  = Vector::Zero(LZ);     Fpw  = Vector::Zero(LZ);
       dFpp = TensorZ::Zero(LZ,LZ); dFpw = TensorZ::Zero(LZ,LZ);
       Grav = gravity(XG_mid[K], dim); Fv = Grav;
+      Fdrg = Fdrag(LZ);
 
       for (int C = 0; C < LZ; C++){
         mapZ_s(C) = n_unknowns_u + n_unknowns_p + LZ*K + C;
@@ -2163,7 +2165,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         dZdt = 11./6.*dZdt - 7./6.*z_coefs_old/dt + 3./2.*z_coefs_om1/dt - 1./3.*z_coefs_om2/dt;
       }
       MI = MI_tensor(MV[K],RV[K](0),dim,InTen[K]);
-      FZsloc = (MI*dZdt - MV[K]*Grav)*unsteady - Fpp - Fpw - Fv;
+      FZsloc = (MI*dZdt - MV[K]*Grav)*unsteady - Fpp - Fpw - Fv - Fdrg;
       Z3sloc = ddt_factor*MI/dt * unsteady;
 //#ifdef FEP_HAS_OPENMP
 //      FEP_PRAGMA_OMP(critical)
@@ -2710,7 +2712,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         }
       }
 
-      if (true /*is_axis && is_sfip*/){// eliminating specific solid DOFS
+      // DOFS elimination //////////////////////////////////////////////////
+      if (s_dofs_elim /*is_axis && is_sfip*/){// eliminating specific solid DOFS
         MatrixXd PrjDOFS(n_dofs_z_per_facet,n_dofs_z_per_facet);
         MatrixXd PrjDOFSlz(LZ,LZ);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_facet,n_dofs_z_per_facet));

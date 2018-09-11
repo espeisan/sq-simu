@@ -164,6 +164,7 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
                      Vector const& Xc, double theta, double R1, double R2, int dim);
 double Flink(double t, int Nl);
 double DFlink(double t, int Nl);
+Vector Fdrag(int LZ);
 
 inline double sqr(double v) {return v*v;}
 
@@ -631,6 +632,7 @@ public:
   Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);
   Tensor grad_u_exacta(Vector const& X, double t, int tag);
+  PetscErrorCode ProjOrtMatrix(Matrix3d & Qn, int it, double eps);
   void computeForces(Vec const& Vec_x, Vec &Vec_up);
   void computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up);
   void printProblemInfo();
@@ -923,8 +925,8 @@ public:
   Vec                 Vec_ups_time_aux, Vec_x_time_aux;
 
   //mech. dofs printing information
-  ofstream            filg, filv;
-  char                gravc[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN];
+  ofstream            filg, filv, filr;
+  char                grac[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN], errc[PETSC_MAX_PATH_LEN];
 
   // For Luzia's methods
   double h_star, Q_star, beta_l, L_min, L_max, L_range, L_low, L_sup;

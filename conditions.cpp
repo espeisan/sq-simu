@@ -70,6 +70,7 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
                      Vector const& Xc, double theta, double R1, double R2, int dim);
 double Flink(double t, int Nl);
 double DFlink(double t, int Nl);
+Vector Fdrag(int LZ);
 
 // gota estática 2d/////////////////////////////////////////////////////////////
 #if (false)
@@ -274,7 +275,6 @@ Vector s_initial(int dim, int tag, int LZ)
 }
 
 #endif
-
 
 // solid asc 2d/////////////////////////////////////////////////////////////
 #if (false)
@@ -595,8 +595,8 @@ Vector u_exact(Vector const& X, double t, int tag)
   double umax = 1;
   Vector v(Vector::Zero(X.size()));
 
-  if (tag == 3 || tag == 2)
-  //if (tag == 2)
+  //if (tag == 3 || tag == 2)
+  if (tag == 2)
   {
     v(0) = umax*y*(2-y);
     v(1) = 0;
@@ -1615,7 +1615,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 
 #endif
 
-// rot solid 2d trap and channel/////////////////////////////////////////////////////////////
+// rot solid 2d trap and channel 2018/////////////////////////////////////////////////////////////
 #if (false)
 
 double pho(Vector const& X, int tag)
@@ -1692,7 +1692,7 @@ Vector u_exact(Vector const& X, double t, int tag)
   double x = X(0);
   double y = X(1);
   Vector v(Vector::Zero(X.size()));
-  double Um = 10e-6, H = 200e-6;
+  double Um = 10/*e-6*/, H = 200/*e-6*/;
   if (tag == 4){
     //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
     v(0) = Um*4*(H-y)*y/(H*H);
@@ -1715,8 +1715,6 @@ Tensor grad_u_exact(Vector const& X, double t, int tag)
 Vector s_exact(int dim, double t, int tag, int LZ)
 {
   double w2 = 0.0;
-  int dim = X.size();
-  int LZ = 3*(dim-1);
   Vector v(Vector::Zero(LZ)); //v << 0, 0, 10;
   if (t > 0){
     v(0) = 0.1;
@@ -1760,7 +1758,7 @@ Vector u_initial(Vector const& X, int tag)
 
 Vector s_initial(int dim, int tag, int LZ)
 {
-  return s_exact(X,0,tag,LZ);
+  return s_exact(dim,0,tag,LZ);
 }
 
 double p_initial(Vector const& X, int tag)
@@ -1892,7 +1890,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 #endif
 
 // rot solid 2d trap and channel/////////////////////////////////////////////////////////////
-#if (true)
+#if (false)
 
 double pho(Vector const& X, int tag)
 {
@@ -1905,16 +1903,20 @@ double pho(Vector const& X, int tag)
 //    else{
 //      return pow(10.0,2.0 + bet*(kst-alp1) + (1.0/(alp*alp) - bet/alp)*(kst-alp1)*(kst-alp1));
 //    }
-/*  double kst = (double)tag, p1 = 0.0, alp1 = 100.0, alp2 = 100.0, alp3 = 100.0;
+/*  double kst = (double)tag, p1 = 0, alp1 = 10.0, alp2 = 20.0, alp3 = 30.0, alp4 = 40.0, alp5 = 50.0;
   if (kst <= alp1)
-    return pow(10.0,p1) + kst*(pow(10.0,p1+1) - pow(10.0,p1))/alp1;
-  else if (kst > alp1 || kst <= alp2)
-    return pow(10.0,p1+1) + (kst-alp1)*(pow(10.0,p1+2) - pow(10.0,p1+1))/(alp2-alp1);
-  else if (kst > alp2 || kst <= alp3)
-    return pow(10.0,p1+2) + (kst-alp2)*(pow(10.0,p1+3) - pow(10.0,p1+2))/(alp3-alp2);
+    return pow(10,p1+0) + (kst     )*(pow(10,p1+1) - pow(10,p1+0))/(alp1     );
+  else if (kst > alp1 && kst <= alp2)
+    return pow(10,p1+1) + (kst-alp1)*(pow(10,p1+2) - pow(10,p1+1))/(alp2-alp1);
+  else if (kst > alp2 && kst <= alp3)
+    return pow(10,p1+2) + (kst-alp2)*(pow(10,p1+3) - pow(10,p1+2))/(alp3-alp2);
+  else if (kst > alp3 && kst <= alp4)
+    return pow(10,p1+3) + (kst-alp3)*(pow(10,p1+4) - pow(10,p1+3))/(alp4-alp3);
+  else if (kst > alp4 && kst <= alp5)
+    return pow(10,p1+4) + (kst-alp4)*(pow(10,p1+5) - pow(10,p1+4))/(alp5-alp4);
   else
     return -1000000;*/
-  return 1.0;
+  return 0.0;
 //  }
 //  else
 //  {
@@ -2201,10 +2203,8 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 #endif
 
 
-
-
 // General functions/////////////////////////////////////////////////////////////
-
+#if (true)
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI)
 {
   TensorZ MI(TensorZ::Zero(3*(dim-1),3*(dim-1)));
@@ -2292,7 +2292,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
 
   if (false && dim == 2)
   {
-    double B1 = 0.5, B2 = +0.25*0.0;
+    double B1 = -1.0/*+0.5*/, B2 = -0*0.25;
     //theta = pi/2;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
@@ -2316,7 +2316,7 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
   tau(0) = -normal(1); tau(1) = normal(0);
 
   Vector f(Vector::Zero(X.size()));
-  if (true && dim == 2)
+  if (false && dim == 2)
   {
     double B1 = 1.0, B2 = 0.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
@@ -2626,7 +2626,7 @@ double Flink(double t, int Nl){
     }
   }
 
-  if (true){
+  if (false){
     double P = 4;
     double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
     if (Nl == 0){
@@ -2689,7 +2689,7 @@ double DFlink(double t, int Nl){
     }
   }
 
-  if (true){
+  if (false){
     double P = 4;
     double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
     if (Nl == 0){
@@ -2708,3 +2708,288 @@ double DFlink(double t, int Nl){
 
   return d;
 }
+
+Vector Fdrag(int LZ){
+  double visc = 1.0, R = 1.0, v = 1.0/3.0;
+  Vector F(Vector::Zero(LZ));
+  //F(1) = 6.0*pi*visc*R*v;
+  //F(1) = 6.0*pi;
+  return F;
+}
+#endif
+
+// junction /////////////////////////////////////////////////////////////
+#if (true)
+
+double pho(Vector const& X, int tag)
+{
+  return 1000.0;
+}
+
+double cos_theta0()
+{
+  return 0.0;
+}
+
+double zeta(double u_norm, double angle)
+{
+  return 0.0;
+}
+
+double beta_diss()
+{
+  return 0.0;
+}
+
+double gama(Vector const& X, double t, int tag)
+{
+  return 0.0;
+}
+
+double muu(int tag)
+{
+    return 0.001;
+}
+
+Vector force(Vector const& X, double t, int tag)//gravity*pho
+{
+  double x = X(0);
+  double y = X(1);
+
+  Vector f(Vector::Zero(X.size()));
+  f(1) = 0;
+  return f;
+}
+
+Vector gravity(Vector const& X, int dim){
+  double x = X(0);
+  double y = X(1);
+
+  Vector f(Vector::Zero(3*(dim-1)));
+  if (dim == 2){
+    f(1) = 0; //-1;//-980.0;//-8e-4;  //*1e3;
+  }
+  else if (dim == 3){
+    f(2) = -980.0;  //-8e-4*1e4;
+  }
+  return f;
+}
+
+Vector u_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+  Vector v(Vector::Zero(X.size()));
+  double Um = 1e-6, H = 10e-6;
+  if ( true && (tag == 2) ){
+    //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
+    //v(0) = Um*4*(H-y)*y/(H*H); v(1) = 0.0;
+    v(0) = Um*(H-y)*(H+y)/(H*H);
+  }
+  if ( true && (tag == 3) ){
+    //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
+    //v(0) = Um*4*(H-y)*y/(H*H); v(1) = 0.0;
+    v(0) = -Um*(H-y)*(H+y)/(H*H);
+  }
+  return v;
+}
+
+Tensor grad_u_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+  double w2 = 2.0, Um = 0.1, H = 2e-6;
+  Tensor dxU(Tensor::Zero(X.size(), X.size()));
+  //dxU(0,0) = 0; dxU(0,1) = Um/H - Um*2.0*y/H;
+  //dxU(1,0) = 0; dxU(1,1) = 0;
+
+  return dxU;
+}
+
+Vector s_exact(int dim, double t, int tag, int LZ)
+{//for inertialess case, this MUST be zero at t = 0;
+  double w2 = 0.0;
+  Vector v(Vector::Zero(LZ)); //v << 1, 1, 0;
+  //Vector v(Vector::Ones(LZ));
+  return v;
+}
+
+double p_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+
+  return 0.0; //3.5;
+}
+
+Vector grad_p_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+  Vector dxP(X.size());
+
+  return dxP;
+}
+
+Vector traction(Vector const& X, Vector const& normal, double t, int tag)
+{
+  Vector T(Vector::Zero(X.size()));
+  //T(0) = -p_exact(X,t,tag);
+  //T(1) = muu(tag)*(cos(w_*t) + sin(w_*t));
+  //Tensor dxU(grad_u_exact(X,t,tag));
+  //Tensor I(Tensor::Identity(2,2));
+  //T = (- p_exact(X,t,tag)*I +  muu(tag)*(dxU + dxU.transpose()))*normal;
+  return T;
+}
+
+Vector u_initial(Vector const& X, int tag)
+{
+  return u_exact(X,0,tag);
+}
+
+Vector s_initial(int dim, int tag, int LZ)
+{
+  return s_exact(dim,0,tag,LZ);
+}
+
+double p_initial(Vector const& X, int tag)
+{
+  return p_exact(X,0,tag);
+}
+
+Vector solid_normal(Vector const& X, double t, int tag)
+{
+  Vector N(Vector::Zero(X.size()));
+  return N;
+}
+
+Vector v_exact(Vector const& X, double t, int tag) //(X,t,tag)
+{
+  double const x = X(0);
+  double const y = X(1);
+  Vector v(Vector::Zero(X.size()));
+  //v(1) = 1.0;
+
+  return v;
+}
+
+// posição do contorno
+Vector x_exact(Vector const& X, double t, int tag)
+{
+  Vector r(Vector::Zero(X.size()));
+  return r;
+}
+
+Vector solid_veloc(Vector const& X, double t, int tag)
+{
+  Vector N(Vector::Zero(X.size()));
+  //if (tag == 2) {N(1) = 1;};
+  return N;
+}
+
+Tensor feature_proj(Vector const& X, double t, int tag)
+{
+  Tensor f(Tensor::Zero(X.size(), X.size()));
+  //if (true && (tag == 1 || tag == 5 || tag == 2 || tag == 4 || tag == 6 /*|| tag == 3 || tag == 1*/)){
+    //f(0,0) = 1; //imposes zero tangential velocity at the output of the channel
+                //or cartesian wall by eliminating the contribution of the momentum
+                //equation in the normal direction, allowing penetration with zero
+                //stress in the normal direction. In other words,
+                //indicates that the component 0 (x-direction) is free, and is going
+                //to be imposed zero velocity in the component 1 (y-direction)
+    //f(1,1) = 1;
+  //}
+  //else if (true && (tag == 3 || tag == 7)){
+  if (true && (tag == 4)){
+    f(1,1) = 1;
+  }
+  if (true && (tag == 5)){
+    f(1,1) = 1;
+  }
+  return f;
+}
+
+Vector force_pp(Vector const& Xi, Vector const& Xj, double Ri, double Rj,
+                 double ep1, double ep2, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = (Xi - Xj).norm();
+//  if (dij > Ri+Rj+zeta){
+//    return f;
+//  }
+  if (dij <= Ri+Rj){
+    f = (1/ep1)*(Ri+Rj-dij)*(Xi - Xj);
+  }
+  else if((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    f = (1/ep2)*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj);
+  }
+  return f;
+}
+
+Vector force_pw(Vector const& Xi, Vector const& Xj, double Ri,
+                 double ew1, double ew2, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double di = (Xi - Xj).norm();
+//  if (dij > Ri+Rj+zeta){
+//    return f;
+//  }
+  if (di <= 2*Ri){
+    f = (1/ew1)*(2*Ri-di)*(Xi - Xj);
+  }
+  else if((2*Ri <= di) && (di <= 2*Ri+zeta)){
+    f = (1/ew2)*(2*Ri+zeta-di)*(2*Ri+zeta-di)*(Xi - Xj);
+  }
+  return f;
+}
+
+Vector force_ppl(Vector const& Xi, Vector const& Xj, double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  f = (zeta/ep)*(Xi - Xj)/(Xi - Xj).norm();
+  return f;
+}
+
+Vector force_rga(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
+                 Vector const& Gr, double const masj, double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = (Xi - Xj).norm();;
+  double g = 0.0;
+  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    g   = Gr.norm();
+    f   = masj*g*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/(ep*zeta*zeta*dij);
+  }
+  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
+  return f;
+}
+
+Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
+                 Vector const& Gr, double const rhoj, double const rhof, double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = dij = (Xi - Xj).norm();
+  double g = 0.0;
+  double R = 0.0;
+  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    g   = Gr.norm();
+    R   = std::max(Ri,Rj);
+    f   = (rhoj-rhof)*pi*g*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/(ep*zeta*zeta*dij);
+  }
+  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
+  return f;
+}
+
+Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
+                 double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = (Xi - Xj).norm();;
+  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    f   = (Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/ep;
+  }
+  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
+  return f;
+}
+
+#endif

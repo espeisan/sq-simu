@@ -2322,13 +2322,16 @@ PetscErrorCode AppCtx::setInitialConditions()
   //Plot initial conditions, initial mesh velocity = 0, initial slip velocity distribution//////////////////////////////////////////////////
   if (family_files){plotFiles();}
   //Print mech. dofs info
-  sprintf(gravc,"%s/HistGrav.txt",filehist_out.c_str());
+  sprintf(grac,"%s/HistGra.txt",filehist_out.c_str());
   sprintf(velc,"%s/HistVel.txt",filehist_out.c_str());
+  sprintf(errc,"%s/HistErr.txt",filehist_out.c_str());
   if (fprint_hgv){
-    filg.open(gravc);
+    filg.open(grac);
     filv.open(velc);
+    filr.open(errc);
     filg.close();
     filv.close();
+    filr.close();
   }
   saveDOFSinfo();
   ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2354,7 +2357,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
     VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
 
-    if (true){
+    if (false){
       VectorXd v_coeffs_s(LZ);
       for (int l = 0; l < LZ; l++){
         dofs_fs(l) = n_unknowns_u + n_unknowns_p + l;
@@ -2383,7 +2386,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       cout << "-----System solver-----" << endl;
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); //Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");
       cout << "--------------------------------------------------" << endl;
-      if (true && is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
+      if (true && is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0))){
         cout << "-----Interaction force calculation------" << endl;
         ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
         cout << "-----Interaction force extracted------" << endl;
@@ -2399,12 +2402,14 @@ PetscErrorCode AppCtx::setInitialConditions()
       }
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    if (true){
-      if (pic != 0 && pic%4 == 0){
+    if (false){
+      //if (pic != 0 && pic%3 == 0){
         saveDOFSinfo_Re_Vel();
         plotFilesNT();
+        computeError(Vec_x_0,Vec_ups_1,current_time);
+        computeViscousDissipation(Vec_x_0,Vec_ups_1);
         time_step++;
-      }
+      //}
     }
 
   }// end Picard Iterartions loop //////////////////////////////////////////////////
@@ -2560,7 +2565,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   //VectorXd v_coeffs_s(LZ*n_solids);
   //VectorXi mapvs(LZ*n_solids);
   //int TT = 0;
-  //char gravc[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN];
+  //char grac[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN];
 
   for(;;)  // equivalent to forever or while(true), must be a break inside
   {
@@ -2789,6 +2794,8 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
   double              hmean = 0.;
   double              u_L2_facet_norm = 0.;
   double              u_inf_facet_norm = 0.;
+  double              u_exact_L2_norm = 0.;
+  double              u_exact_inf_norm = 0.;
 
   VectorXi            mapU_c(n_dofs_u_per_cell);
   VectorXi            mapU_f(n_dofs_u_per_facet);
@@ -2933,6 +2940,8 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       grad_p_L2_norm   += (grad_p_exact(Xqp, tt, tag) - dxP).squaredNorm()*JxW;
       u_inf_norm        = max(u_inf_norm, (u_exacta(Xqp, tt, tag) - Uqp).norm()); //cambiar a u_exact
       p_inf_norm        = max(p_inf_norm, fabs(p_exact(Xqp, tt, tag) - Pqp));
+      u_exact_L2_norm  += (u_exacta(Xqp, tt, tag)).squaredNorm()*JxW;
+      u_exact_inf_norm  = max(u_exact_inf_norm,(u_exacta(Xqp, tt, tag)).norm());
 
       volume += JxW;
     } // fim quadratura //////////////////////////////////////////////////
@@ -3098,6 +3107,13 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
   Stats.add_u_L2_facet_norm  (u_L2_facet_norm );
   Stats.add_u_inf_facet_norm (u_inf_facet_norm);
 
+  filr.open(errc,iostream::app);
+  filr.precision(15);
+  filr.setf(iostream::fixed, iostream::floatfield);
+  filr << pow(2.0,time_step-14) << " " << u_L2_norm << " " << p_L2_norm << " " << u_inf_norm << " " << p_inf_norm
+       << " " << u_L2_facet_norm << " " << u_inf_facet_norm << " " << u_exact_L2_norm << " " << u_exact_inf_norm;
+  filr << endl;
+  filr.close();
 
 }
 
@@ -3936,18 +3952,22 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
       XG_1[s] = XG_0[s] + vtheta*dt*U1;  //equiv. to XG_1[s] = (1.0+vtheta)*XG_0[s] - vtheta*XG_aux[s];
       theta_1[s] = theta_0[s] + vtheta*dt*omega1;  //equiv. to theta_1[s] = (1.0+vtheta)*theta_0[s] - vtheta*theta_aux[s];
       if (dim == 3){//TODO
-        Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
-        invert(Qtmp,dim);
-        Q_1[s] = Qtmp*Q_0[s];
+        //Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
+        //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
+        Qtmp = Q_0[s] + dt*vtheta*SkewMatrix(Z1.tail(3),dim);
+        ProjOrtMatrix(Qtmp, 1e4, 1e-8);
+        Q_1[s] = Qtmp;
       }
     }
     else if (is_mr_ab && time_step > 0){
       XG_1[s] = XG_0[s] + dt*((1.0+vtheta)*U1 - vtheta*U0);
       theta_1[s] = theta_0[s] + dt*((1.0+vtheta)*omega1 - vtheta*omega0);
       if (dim == 3){//TODO
-        Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
-        invert(Qtmp,dim);
-        Q_1[s] = Qtmp*Q_0[s];
+        //Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
+        //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
+        Qtmp = Q_0[s] + dt*((1.0+vtheta)*SkewMatrix(Z1.tail(3),dim) - vtheta*SkewMatrix(Z0.tail(3),dim));
+        ProjOrtMatrix(Qtmp, 1e4, 1e-8);
+        Q_1[s] = Qtmp;
       }
     }
     else if (is_bdf3 && time_step > 1){
@@ -4364,7 +4384,7 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
     v(0) = uth*(-y/r);
     v(1) = uth*(x/r);
   }
-  if (true)
+  if (false)
   {
     Vector Xc(2), Y(2);
     double rb, thetab;
@@ -4385,6 +4405,7 @@ Tensor AppCtx::grad_u_exacta(Vector const& X, double t, int tag)
   double r, z, /*rb,*/ thetab;
   Tensor dxU(Tensor::Zero(dim,dim));
   Vector Xc(2), Y(2);
+  if (is_sfip){
   Xc << XG_0[0](0), XG_0[0](1);
   Y = X - Xc;
   r = Y(0); z = Y(1);
@@ -4413,8 +4434,20 @@ Tensor AppCtx::grad_u_exacta(Vector const& X, double t, int tag)
              +(1.0/3.0)*cos(thetab) *                          pow(r*r + z*z,-2) *                (-1)
              +(1.0/6.0)*cos(thetab) * ( r)*pow(r*r + z*z,-1) * pow(r*r + z*z,-2) *                (-r)
              +(1.0/6.0)*sin(thetab) *                          (-2.0)*pow(r*r + z*z,-1)*(2.0*z) * (-r);
-
+  }
   return dxU;
+}
+
+PetscErrorCode AppCtx::ProjOrtMatrix(Matrix3d & Qn, int it, double eps){
+  Matrix3d E(Matrix3d::Zero(3,3));
+  Matrix3d Id(Matrix3d::Identity(3,3));
+  for (int k = 0; k < it; k++){
+    E = Id - Qn.transpose()*Qn;
+    Qn = Qn + 0.5*Qn*E;
+    if (E.norm() < eps)
+      break;
+  }
+  PetscFunctionReturn(0);
 }
 
 PetscErrorCode AppCtx::calcSlipVelocity(Vec const& Vec_x_1_, Vec& Vec_slipv){
@@ -4687,7 +4720,7 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
         mapvs[S] = n_unknowns_u + n_unknowns_p + S;
       }
       VecGetValues(Vec_ups_1,mapvs.size(),mapvs.data(),v_coeffs_s.data());
-      filg.open(gravc,iostream::app);
+      filg.open(grac,iostream::app);
       filg.precision(15);
       filg.setf(iostream::fixed, iostream::floatfield);
       filv.open(velc,iostream::app);
@@ -4701,13 +4734,14 @@ PetscErrorCode AppCtx::saveDOFSinfo(){
         filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1) << " " << v_coeffs_s(LZ*S+2) << " ";
       }
       Xgg = XG_0[n_solids-1];
-      filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[n_solids-1] << endl;//" " << VV[n_solids-1] << endl;
+      filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta_0[n_solids-1];//" " << VV[n_solids-1] << endl;
       filv << v_coeffs_s(LZ*(n_solids-1)) << " " << v_coeffs_s(LZ*(n_solids-1)+1) << " "
            << v_coeffs_s(LZ*(n_solids-1)+2);
       if (dim == 3){
         filv << " " << v_coeffs_s(LZ*(n_solids-1)+3) << " " << v_coeffs_s(LZ*(n_solids-1)+4) << " "
             << v_coeffs_s(LZ*(n_solids-1)+5);
       }
+      filg << endl;
       filv << endl;
       filg.close();  //TT++;
       filv.close();
@@ -4730,7 +4764,7 @@ PetscErrorCode AppCtx::saveDOFSinfo_Re_Vel(){
         mapvs[S] = n_unknowns_u + n_unknowns_p + S;
       }
       VecGetValues(Vec_ups_1,mapvs.size(),mapvs.data(),v_coeffs_s.data());
-      filg.open(gravc,iostream::app);
+      filg.open(grac,iostream::app);
       filg.precision(15);
       filg.setf(iostream::fixed, iostream::floatfield);
       filv.open(velc,iostream::app);
@@ -4750,23 +4784,32 @@ PetscErrorCode AppCtx::saveDOFSinfo_Re_Vel(){
         filv << pow(10.0,2.0 + bet*(kst-alp1) + (1.0/(alp*alp) - bet/alp)*(kst-alp1)*(kst-alp1)) << " ";
       }*/
 
-      double kst = (double)time_step, p1 = 0.0, alp1 = 100.0, alp2 = 100.0, alp3 = 100.0;
+      double kst = (double)time_step, p1 = 0.0, alp1 = 10.0, alp2 = 20.0, alp3 = 30.0, alp4 = 40.0, alp5 = 50.0;
       if (kst <= alp1){
-        filg <<  pow(10.0,p1) + kst*(pow(10.0,p1+1) - pow(10.0,p1))/alp1 << " ";
-        filv <<  pow(10.0,p1) + kst*(pow(10.0,p1+1) - pow(10.0,p1))/alp1 << " ";
+        filg <<  pow(10.0,p1  ) + (kst     )*(pow(10.0,p1+1) - pow(10.0,p1  ))/(alp1     ) << " ";
+        filv <<  pow(10.0,p1  ) + (kst     )*(pow(10.0,p1+1) - pow(10.0,p1  ))/(alp1     ) << " ";
       }
-      else if (kst > alp1 || kst <= alp2){
+      else if (kst > alp1 && kst <= alp2){
         filg <<  pow(10.0,p1+1) + (kst-alp1)*(pow(10.0,p1+2) - pow(10.0,p1+1))/(alp2-alp1) << " ";
         filv <<  pow(10.0,p1+1) + (kst-alp1)*(pow(10.0,p1+2) - pow(10.0,p1+1))/(alp2-alp1) << " ";
       }
-      else if (kst > alp2 || kst <= alp3){
+      else if (kst > alp2 && kst <= alp3){
         filg <<  pow(10.0,p1+2) + (kst-alp2)*(pow(10.0,p1+3) - pow(10.0,p1+2))/(alp3-alp2) << " ";
         filv <<  pow(10.0,p1+2) + (kst-alp2)*(pow(10.0,p1+3) - pow(10.0,p1+2))/(alp3-alp2) << " ";
+      }
+      else if (kst > alp3 && kst <= alp4){
+        filg <<  pow(10.0,p1+3) + (kst-alp3)*(pow(10.0,p1+4) - pow(10.0,p1+3))/(alp4-alp3) << " ";
+        filv <<  pow(10.0,p1+3) + (kst-alp3)*(pow(10.0,p1+4) - pow(10.0,p1+3))/(alp4-alp3) << " ";
+      }
+      else if (kst > alp4 && kst <= alp5){
+        filg <<  pow(10.0,p1+4) + (kst-alp4)*(pow(10.0,p1+5) - pow(10.0,p1+4))/(alp5-alp4) << " ";
+        filv <<  pow(10.0,p1+4) + (kst-alp4)*(pow(10.0,p1+5) - pow(10.0,p1+4))/(alp5-alp4) << " ";
       }
       else{
         filg <<  -1000000 << " ";
         filv <<  -1000000 << " ";
       }
+
 
       for (int S = 0; S < (n_solids-1); S++){
         Xgg = XG_0[S];
@@ -5165,12 +5208,11 @@ int main(int argc, char **argv)
   // solve time problem //////////////////////////////////////////////////
   user.solveTimeProblem();
 
+  // free memory and finalizying //////////////////////////////////////////////////
   cout << "\n";
   user.timer.printTimes();
-
   user.freePetscObjs();
   PetscFinalize();
-
   //cout << "\a" << endl;
   return 0;
 }

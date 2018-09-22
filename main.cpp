@@ -2086,6 +2086,15 @@ PetscErrorCode AppCtx::setUPInitialGuess()
       U1.setZero();
       VecSetValues(Vec_ups_1, dim, u_dofs_fs.data(), U1.data(), INSERT_VALUES);
     }
+    else if (is_in(tag, slipvel_tags))
+    {
+      int nod_vs = is_in_id(tag,slipvel_tags);
+      Vector Nr(dim), Vs(dim);
+      VecGetValues(Vec_normal, dim, x_dofs.data(), Nr.data());
+      Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], current_time+unsteady*dt);
+      VecSetValues(Vec_slipv_1, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
+      VecSetValues(Vec_slipv_0, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
+    }
 
   } // end for point
 
@@ -2248,7 +2257,7 @@ PetscErrorCode AppCtx::setInitialConditions()
               Vs = BFields_from_file(pID,2);
             }
             else{
-              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1]);  //ojo antes solo nod_vs//here nod_vs=0
+              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], current_time);  //ojo antes solo nod_vs//here nod_vs=0
             }
             VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
@@ -2357,6 +2366,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
     VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
 
+    //For Re advancing//////////////////////////////////////////////////
     if (false){
       VectorXd v_coeffs_s(LZ);
       for (int l = 0; l < LZ; l++){
@@ -2366,7 +2376,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //if (pic == 0){v_coeffs_s(1) = -0.315364702750772;}
       VecScale(Vec_v_mid, v_coeffs_s(1));
       View(Vec_v_mid,"matrizes/vmid0.m","vm");
-    }
+    }////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // extrapolation and compatibilization of the mesh
     //VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
@@ -2402,15 +2412,24 @@ PetscErrorCode AppCtx::setInitialConditions()
       }
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    //For Re advancing//////////////////////////////////////////////////
     if (false){
-      //if (pic != 0 && pic%3 == 0){
+      if (pic != 0 && pic%3 == 0){
         saveDOFSinfo_Re_Vel();
         plotFilesNT();
         computeError(Vec_x_0,Vec_ups_1,current_time);
         computeViscousDissipation(Vec_x_0,Vec_ups_1);
         time_step++;
-      //}
-    }
+      }
+    }////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    //For virtual only time advancing (i.e. not moving mesh)//////////////////////////////////////////////////
+    if (true){
+      saveDOFSinfo();
+      plotFilesNT();
+      current_time += dt;
+      cout << "current time: " << current_time << endl;
+    }////////////////////////////////////////////////////////////////////////////////////////////////////
 
   }// end Picard Iterartions loop //////////////////////////////////////////////////
   copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
@@ -2447,6 +2466,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
     cout << InTen[K] << endl;
   }
   cout << endl;
+
+  //SarclTest();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Solve nonlinear system
@@ -4320,7 +4341,7 @@ void AppCtx::getFromBSV() //Body Slip Velocity
       Tg(0) = x_coefs_f.transpose()(0,1)-x_coefs_f.transpose()(0,0);
       Tg(1) = x_coefs_f.transpose()(1,1)-x_coefs_f.transpose()(1,0);
 
-      Vs = SlipVel(Xqp, XG_0[is_slipvel+is_fsi-1], Nr, dim, tag, theta_ini[is_slipvel+is_fsi-1]);
+      Vs = SlipVel(Xqp, XG_0[is_slipvel+is_fsi-1], Nr, dim, tag, theta_ini[is_slipvel+is_fsi-1], current_time);
       //cout << Vs.dot(Nr) << "   " << Vs.dot(Xqp) << "   " << endl;
       //cout << Xqp.transpose() << "   " << Nr.transpose() << "   " << Tg.transpose() << "   " << Vs.transpose() << endl << endl;
       //cout << x_coefs_f.transpose() << endl << endl;
@@ -4373,6 +4394,8 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
       v(1) =  w2*x;
     }
   }
+
+  if (is_axis){
   if (false && t > 0){
     for (int i = 0; i < 702; i++){
       if (r <= RR[i]) break;
@@ -4395,6 +4418,7 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
     nor = -Y/rb; tau(0) = -nor(1); tau(1) = nor(0);
     thetab = atan2(Y(1),Y(0))+pi/2.0;
     v = cos(thetab)/(3.0*rb*rb*rb)*nor + sin(thetab)/(6.0*rb*rb*rb)*tau;
+  }
   }
 
   return v;
@@ -4784,7 +4808,7 @@ PetscErrorCode AppCtx::saveDOFSinfo_Re_Vel(){
         filv << pow(10.0,2.0 + bet*(kst-alp1) + (1.0/(alp*alp) - bet/alp)*(kst-alp1)*(kst-alp1)) << " ";
       }*/
 
-      double kst = (double)time_step, p1 = 0.0, alp1 = 10.0, alp2 = 20.0, alp3 = 30.0, alp4 = 40.0, alp5 = 50.0;
+      double kst = (double)time_step, p1 = -3.0, alp1 = 10.0, alp2 = 20.0, alp3 = 30.0, alp4 = 40.0, alp5 = 50.0;
       if (kst <= alp1){
         filg <<  pow(10.0,p1  ) + (kst     )*(pow(10.0,p1+1) - pow(10.0,p1  ))/(alp1     ) << " ";
         filv <<  pow(10.0,p1  ) + (kst     )*(pow(10.0,p1+1) - pow(10.0,p1  ))/(alp1     ) << " ";
@@ -4854,8 +4878,7 @@ PetscErrorCode AppCtx::extractFdForce(){
   filfd_info << "Point ID   Theta   Force Fd(dim)   Force Ft(dim)   Slip Vel(dim)   Normal(dim)   Tangent(dim)   PointCoords(dim)";
   filfd_info.close();
 
-  for (int j = 0; j < n_nodes_total; j++)
-  {
+  for (int j = 0; j < n_nodes_total; j++){
     point = mesh->getNodePtr(j);
     tag = point->getTag();
     nod_id = is_in_id(tag,flusoli_tags);
@@ -4912,6 +4935,33 @@ PetscErrorCode AppCtx::extractFdForce(){
   }
   filfd.close();
 
+  PetscFunctionReturn(0);
+}
+
+PetscErrorCode AppCtx::SarclTest(){
+  int tag, nod_id, nod_vs, pID;
+  Point const* point(NULL);//, point_i(NULL);
+  const int n_nodes_total = mesh->numNodesTotal();
+  Vector  Xj(dim);
+  Vector3d XG;
+
+  for (int j = 0; j < n_nodes_total; j++){
+    point = mesh->getNodePtr(j);
+    tag = point->getTag();
+    nod_id = is_in_id(tag,flusoli_tags);
+    nod_vs = is_in_id(tag,slipvel_tags);
+    if (!nod_vs && !nod_id)
+      continue;
+
+    pID = mesh->getPointId(&*point);
+    point->getCoord(Xj.data(),dim);
+    XG = XG_0[nod_vs+nod_id-1];
+
+    double S = S_arcl(Xj(1), XG(1));
+
+    cout << "For point " << pID << " coord " << Xj(0) << " " << Xj(1) << " centre " << XG(0) << " " << XG(1) << " arc length " << S << endl;
+
+  }
   PetscFunctionReturn(0);
 }
 

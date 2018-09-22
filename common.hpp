@@ -136,8 +136,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
-//Vector SlipVel(Vector const& X, Vector const& XG, int dim, int tag);
-Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double t);
 Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
@@ -165,6 +164,9 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
 double Flink(double t, int Nl);
 double DFlink(double t, int Nl);
 Vector Fdrag(int LZ);
+
+double Ellip_arcl_integrand(double zi);
+double S_arcl(double z, double zc);
 
 inline double sqr(double v) {return v*v;}
 
@@ -437,7 +439,7 @@ inline void getTangents(Vector& T, Vector &B, Vector const& N, int dim){
   B.setZero();
 
   if (dim == 2){
-    T(0) = -N(1); T(1) = N(0);
+    T(0) = +N(1); T(1) = -N(0);  //T(0) = -N(1); T(1) = +N(0);
   }
   else if (dim == 3){//TODO
     //T = I - N*N.transpose();
@@ -636,6 +638,7 @@ public:
   void computeForces(Vec const& Vec_x, Vec &Vec_up);
   void computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up);
   void printProblemInfo();
+  PetscErrorCode SarclTest();
   //void printContactAngle(bool _print);
 
   void computeError(Vec const& Vec_x, Vec &Vec_up_1, double tt);

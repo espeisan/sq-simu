@@ -1117,7 +1117,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         if (is_sfip) VecGetValues(Vec_ups_m2,  mapU_t.size(), mapU_t.data(), u_coefs_c_om2c.data()); // bdf3
       }
 
-      if (!is_unksv && SVI){//TODO check if is necessary
+      if (!is_unksv && SVI){//TODO check if is necessary (is used in the next lines, look for vs_coefs_c_mid_trans)
         VecGetValues(Vec_slipv_0,  mapU_t.size(), mapU_t.data(), vs_coefs_c_old.data()); // bdf2,bdf3
         VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); // bdf2,bdf3
         VecGetValues(Vec_slipv_m1, mapU_t.size(), mapU_t.data(), vs_coefs_c_om1.data()); // bdf2,bdf3
@@ -1655,7 +1655,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             for (int c = 0; c < dim; ++c){
               FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c);// - is_unksv*vs_coefs_c_mid_trans(c,i);
               if (SV_c[i]){
-                FUloc_vs(i*dim + c) += - vs_coefs_c_mid_trans(c,i);
+                FUloc_vs(i*dim + c) += - vs_coefs_c_mid_trans(c,i);  //cout << vs_coefs_c_mid_trans(c,i) << " ";
               }
               for (int D = 0; D < LZ; D++){
                 RotfJ  = SolidVel(XIp, XIg, IdZ.col(D), dim);

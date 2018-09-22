@@ -42,7 +42,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
-Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta);
+Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double t);
 Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
@@ -71,6 +71,9 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
 double Flink(double t, int Nl);
 double DFlink(double t, int Nl);
 Vector Fdrag(int LZ);
+
+double Ellip_arcl_integrand(double zi);
+double S_arcl(double z, double zc);
 
 // gota estática 2d/////////////////////////////////////////////////////////////
 #if (false)
@@ -1889,8 +1892,8 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 
 #endif
 
-// rot solid 2d trap and channel/////////////////////////////////////////////////////////////
-#if (false)
+// rot solid 2d axis: Reynolds calculations/////////////////////////////////////////////////////////////
+#if (true)
 
 double pho(Vector const& X, int tag)
 {
@@ -1903,7 +1906,7 @@ double pho(Vector const& X, int tag)
 //    else{
 //      return pow(10.0,2.0 + bet*(kst-alp1) + (1.0/(alp*alp) - bet/alp)*(kst-alp1)*(kst-alp1));
 //    }
-/*  double kst = (double)tag, p1 = 0, alp1 = 10.0, alp2 = 20.0, alp3 = 30.0, alp4 = 40.0, alp5 = 50.0;
+/*  double kst = (double)tag, p1 = -3, alp1 = 10.0, alp2 = 20.0, alp3 = 30.0, alp4 = 40.0, alp5 = 50.0;
   if (kst <= alp1)
     return pow(10,p1+0) + (kst     )*(pow(10,p1+1) - pow(10,p1+0))/(alp1     );
   else if (kst > alp1 && kst <= alp2)
@@ -1948,7 +1951,7 @@ double muu(int tag)
 {
 //  if (tag == 15)
 //  {
-    return 1.0;//1.0/3.0;//1.0*0.1;
+    return 1e-3;//1.0/3.0;//1.0*0.1;
 //  }
 //  else
 //  {
@@ -2202,6 +2205,281 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 
 #endif
 
+// junction /////////////////////////////////////////////////////////////
+#if (false)
+
+double pho(Vector const& X, int tag)
+{
+  return 1000.0;
+}
+
+double cos_theta0()
+{
+  return 0.0;
+}
+
+double zeta(double u_norm, double angle)
+{
+  return 0.0;
+}
+
+double beta_diss()
+{
+  return 0.0;
+}
+
+double gama(Vector const& X, double t, int tag)
+{
+  return 0.0;
+}
+
+double muu(int tag)
+{
+    return 0.001;
+}
+
+Vector force(Vector const& X, double t, int tag)//gravity*pho
+{
+  double x = X(0);
+  double y = X(1);
+
+  Vector f(Vector::Zero(X.size()));
+  f(1) = 0;
+  return f;
+}
+
+Vector gravity(Vector const& X, int dim){
+  double x = X(0);
+  double y = X(1);
+
+  Vector f(Vector::Zero(3*(dim-1)));
+  if (dim == 2){
+    f(1) = 0; //-1;//-980.0;//-8e-4;  //*1e3;
+  }
+  else if (dim == 3){
+    f(2) = -980.0;  //-8e-4*1e4;
+  }
+  return f;
+}
+
+Vector u_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+  Vector v(Vector::Zero(X.size()));
+  double Um = 1e-6, H = 10e-6;
+  if ( true && (tag == 2) ){
+    //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
+    //v(0) = Um*4*(H-y)*y/(H*H); v(1) = 0.0;
+    v(0) = Um*(H-y)*(H+y)/(H*H);
+  }
+  if ( true && (tag == 3) ){
+    //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
+    //v(0) = Um*4*(H-y)*y/(H*H); v(1) = 0.0;
+    v(0) = -Um*(H-y)*(H+y)/(H*H);
+  }
+  return v;
+}
+
+Tensor grad_u_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+  double w2 = 2.0, Um = 0.1, H = 2e-6;
+  Tensor dxU(Tensor::Zero(X.size(), X.size()));
+  //dxU(0,0) = 0; dxU(0,1) = Um/H - Um*2.0*y/H;
+  //dxU(1,0) = 0; dxU(1,1) = 0;
+
+  return dxU;
+}
+
+Vector s_exact(int dim, double t, int tag, int LZ)
+{//for inertialess case, this MUST be zero at t = 0;
+  double w2 = 0.0;
+  Vector v(Vector::Zero(LZ)); //v << 1, 1, 0;
+  //Vector v(Vector::Ones(LZ));
+  return v;
+}
+
+double p_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+
+  return 0.0; //3.5;
+}
+
+Vector grad_p_exact(Vector const& X, double t, int tag)
+{
+  double x = X(0);
+  double y = X(1);
+  Vector dxP(X.size());
+
+  return dxP;
+}
+
+Vector traction(Vector const& X, Vector const& normal, double t, int tag)
+{
+  Vector T(Vector::Zero(X.size()));
+  //T(0) = -p_exact(X,t,tag);
+  //T(1) = muu(tag)*(cos(w_*t) + sin(w_*t));
+  //Tensor dxU(grad_u_exact(X,t,tag));
+  //Tensor I(Tensor::Identity(2,2));
+  //T = (- p_exact(X,t,tag)*I +  muu(tag)*(dxU + dxU.transpose()))*normal;
+  return T;
+}
+
+Vector u_initial(Vector const& X, int tag)
+{
+  return u_exact(X,0,tag);
+}
+
+Vector s_initial(int dim, int tag, int LZ)
+{
+  return s_exact(dim,0,tag,LZ);
+}
+
+double p_initial(Vector const& X, int tag)
+{
+  return p_exact(X,0,tag);
+}
+
+Vector solid_normal(Vector const& X, double t, int tag)
+{
+  Vector N(Vector::Zero(X.size()));
+  return N;
+}
+
+Vector v_exact(Vector const& X, double t, int tag) //(X,t,tag)
+{
+  double const x = X(0);
+  double const y = X(1);
+  Vector v(Vector::Zero(X.size()));
+  //v(1) = 1.0;
+
+  return v;
+}
+
+// posição do contorno
+Vector x_exact(Vector const& X, double t, int tag)
+{
+  Vector r(Vector::Zero(X.size()));
+  return r;
+}
+
+Vector solid_veloc(Vector const& X, double t, int tag)
+{
+  Vector N(Vector::Zero(X.size()));
+  //if (tag == 2) {N(1) = 1;};
+  return N;
+}
+
+Tensor feature_proj(Vector const& X, double t, int tag)
+{
+  Tensor f(Tensor::Zero(X.size(), X.size()));
+  //if (true && (tag == 1 || tag == 5 || tag == 2 || tag == 4 || tag == 6 /*|| tag == 3 || tag == 1*/)){
+    //f(0,0) = 1; //imposes zero tangential velocity at the output of the channel
+                //or cartesian wall by eliminating the contribution of the momentum
+                //equation in the normal direction, allowing penetration with zero
+                //stress in the normal direction. In other words,
+                //indicates that the component 0 (x-direction) is free, and is going
+                //to be imposed zero velocity in the component 1 (y-direction)
+    //f(1,1) = 1;
+  //}
+  //else if (true && (tag == 3 || tag == 7)){
+  if (true && (tag == 4)){
+    f(1,1) = 1;
+  }
+  if (true && (tag == 5)){
+    f(1,1) = 1;
+  }
+  return f;
+}
+
+Vector force_pp(Vector const& Xi, Vector const& Xj, double Ri, double Rj,
+                 double ep1, double ep2, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = (Xi - Xj).norm();
+//  if (dij > Ri+Rj+zeta){
+//    return f;
+//  }
+  if (dij <= Ri+Rj){
+    f = (1/ep1)*(Ri+Rj-dij)*(Xi - Xj);
+  }
+  else if((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    f = (1/ep2)*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj);
+  }
+  return f;
+}
+
+Vector force_pw(Vector const& Xi, Vector const& Xj, double Ri,
+                 double ew1, double ew2, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double di = (Xi - Xj).norm();
+//  if (dij > Ri+Rj+zeta){
+//    return f;
+//  }
+  if (di <= 2*Ri){
+    f = (1/ew1)*(2*Ri-di)*(Xi - Xj);
+  }
+  else if((2*Ri <= di) && (di <= 2*Ri+zeta)){
+    f = (1/ew2)*(2*Ri+zeta-di)*(2*Ri+zeta-di)*(Xi - Xj);
+  }
+  return f;
+}
+
+Vector force_ppl(Vector const& Xi, Vector const& Xj, double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  f = (zeta/ep)*(Xi - Xj)/(Xi - Xj).norm();
+  return f;
+}
+
+Vector force_rga(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
+                 Vector const& Gr, double const masj, double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = (Xi - Xj).norm();;
+  double g = 0.0;
+  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    g   = Gr.norm();
+    f   = masj*g*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/(ep*zeta*zeta*dij);
+  }
+  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
+  return f;
+}
+
+Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
+                 Vector const& Gr, double const rhoj, double const rhof, double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = dij = (Xi - Xj).norm();
+  double g = 0.0;
+  double R = 0.0;
+  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    g   = Gr.norm();
+    R   = std::max(Ri,Rj);
+    f   = (rhoj-rhof)*pi*g*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/(ep*zeta*zeta*dij);
+  }
+  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
+  return f;
+}
+
+Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
+                 double ep, double zeta)
+{
+  Vector f(Vector::Zero(Xi.size()));
+  double dij = (Xi - Xj).norm();;
+  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
+    f   = (Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/ep;
+  }
+  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
+  return f;
+}
+
+#endif
 
 // General functions/////////////////////////////////////////////////////////////
 #if (true)
@@ -2242,7 +2520,8 @@ Matrix3d RotM(double theta, int dim)
   return M;
 }
 
-Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta)
+Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
+               int dim, int tag, double theta, double t)
 {
   Vector V(Vector::Zero(dim));
   Vector X3(Vector::Zero(3));
@@ -2292,16 +2571,51 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim,
 
   if (false && dim == 2)
   {
-    double B1 = -1.0/*+0.5*/, B2 = -0*0.25;
+    double B1 = +0.5, B2 = +5.0/2.0;
     //theta = pi/2;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
     double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
-    V(0) = -normal(1); V(1) = normal(0);
+    V(0) = +normal(1); V(1) = -normal(0);   //V(0) = -normal(1); V(1) = +normal(0);
     V = uthe*V;
     //if ( X(1)-XG(1) < 0.0 )
     //  V = Vector::Zero(dim);
     //else
     //  V = V*(X(1)-XG(1))/0.2;
+  }
+
+  if (false && dim == 2)
+  {
+    double B1 = 0.0, B2 = 0.0;
+    double omega = 1.0, k = 1.0, phi = pi/2.0, a0 = 1.0, b0 = 1.0;
+    psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
+    B1 = 0.5*omega*k*(b0*b0 + 2*a0*b0*cos(theta-psi) - a0*a0);
+    double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
+    V(0) = +normal(1); V(1) = -normal(0);   //V(0) = -normal(1); V(1) = +normal(0);
+    V = 0*uthe*V;
+  }
+
+  if (true && dim == 2)
+  {
+    double uthe = 0.0;
+    double a = 110.0e-0, A = 1.0e-0, omega = 2*pi, eta = 10;
+    double W = S_arcl(X(1), XG(1)), S;
+    double L = S_arcl(XG(1)-a,XG(1));  //cout << S << "  " << L << endl;
+    double K = 0.015*L;
+    double alpha = 9, k = 2*pi/L * alpha;
+    //uthe = tanh(eta*sin(pi*S/L)) * A*omega*sin(k*S - omega*t);
+
+    S = W;
+    for (int ni = 0; ni < 100; ni++){
+      double F0 = S + K*tanh(eta*sin(pi*S/L))*cos(k*S-omega*t) - W;
+      double F1 = 1 + (pi*K*eta/L)*(1 - pow(tanh(eta*sin(pi*S/L)),2.0))*cos(pi*S/L)*cos(k*S-omega*t)
+                  - k*K*tanh(eta*sin(pi*S/L))*sin(k*S-omega*t);
+      S = S - F0/F1;
+    }
+
+    uthe = K*tanh(eta*sin(pi*S/L))*omega*sin(k*S - omega*t);
+    V(0) = +normal(1); V(1) = -normal(0);   //V(0) = -normal(1); V(1) = +normal(0);
+    V = uthe*V;
+    //cout << V.transpose() << endl;
   }
 
   return V;
@@ -2313,7 +2627,7 @@ Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int d
   double y = X(1);
   double psi = 0.0, k = 1.0;
   Vector tau(dim);
-  tau(0) = -normal(1); tau(1) = normal(0);
+  tau(0) = +normal(1); tau(1) = -normal(0);  //tau(0) = -normal(1); tau(1) = +normal(0);
 
   Vector f(Vector::Zero(X.size()));
   if (false && dim == 2)
@@ -2342,7 +2656,7 @@ double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int 
 {
   double k = 100;
   Vector tau(dim);
-  tau(0) = -normal(1); tau(1) = normal(0);
+  tau(0) = +normal(1); tau(1) = -normal(0);  //tau(0) = -normal(1); tau(1) = +normal(0);
   double duthe = 0.0;
   if (false){
       duthe = -Vs.dot(tau)/pow(k + Vs.dot(tau)*Vs.dot(tau),1.5);
@@ -2716,280 +3030,41 @@ Vector Fdrag(int LZ){
   //F(1) = 6.0*pi;
   return F;
 }
-#endif
 
-// junction /////////////////////////////////////////////////////////////
-#if (true)
-
-double pho(Vector const& X, int tag)
-{
-  return 1000.0;
+double Ellip_arcl_integrand(double zi){
+  double a = 110.0e-0, b = 40.0e-0, eb = 0.0, R;
+  //cout << -zi/(a*a) << "  " << 1.0-zi*zi/(a*a) << " " << sqrt(1.0-zi*zi/(a*a)) << endl;
+  R = sqrt(1.0*1.0 + b*b*pow(( (-zi/(a*a)) * 1.0/sqrt(1.0-zi*zi/(a*a)) - eb*(pi/a)*cos(pi*zi/a) ),2.0));
+  //cout << a << " " << b << " " << R << endl;
+  return R;
 }
 
-double cos_theta0()
-{
-  return 0.0;
-}
+double S_arcl(double z, double zc){
+  double a = 110.0e-0, S = 0.0;
+  double li = z - zc, ls = a;
+  if (ls-li < 1e-12)
+    return 0.0;
 
-double zeta(double u_norm, double angle)
-{
-  return 0.0;
-}
+  int is = 16;
+  double w16[16] = {0.1894506104550685,0.1894506104550685,0.1826034150449236,0.1826034150449236,
+                    0.1691565193950025,0.1691565193950025,0.1495959888165767,0.1495959888165767,
+                    0.1246289712555339,0.1246289712555339,0.0951585116824928,0.0951585116824928,
+                    0.0622535239386479,0.0622535239386479,0.0271524594117541,0.0271524594117541};
+  double x16[16] = {-0.0950125098376374,0.0950125098376374,-0.2816035507792589,0.2816035507792589,
+                    -0.4580167776572274,0.4580167776572274,-0.6178762444026438,0.6178762444026438,
+                    -0.7554044083550030,0.7554044083550030,-0.8656312023878318,0.8656312023878318,
+                    -0.9445750230732326,0.9445750230732326,-0.9894009349916499,0.9894009349916499};
+  //double w5[5] = {0.5688888888888889,0.4786286704993665,0.4786286704993665,0.2369268850561891,0.2369268850561891};
+  //double x5[5] = {0.0000000000000000,-0.5384693101056831,0.5384693101056831,-0.9061798459386640,0.9061798459386640};
 
-double beta_diss()
-{
-  return 0.0;
-}
-
-double gama(Vector const& X, double t, int tag)
-{
-  return 0.0;
-}
-
-double muu(int tag)
-{
-    return 0.001;
-}
-
-Vector force(Vector const& X, double t, int tag)//gravity*pho
-{
-  double x = X(0);
-  double y = X(1);
-
-  Vector f(Vector::Zero(X.size()));
-  f(1) = 0;
-  return f;
-}
-
-Vector gravity(Vector const& X, int dim){
-  double x = X(0);
-  double y = X(1);
-
-  Vector f(Vector::Zero(3*(dim-1)));
-  if (dim == 2){
-    f(1) = 0; //-1;//-980.0;//-8e-4;  //*1e3;
+  for (int i = 0; i < is; i++){
+    double eval = (ls-li)/2.0 * x16[i] + (ls+li)/2.0;
+    S = S + w16[i]*Ellip_arcl_integrand(eval);
+    //cout << S << " ";
   }
-  else if (dim == 3){
-    f(2) = -980.0;  //-8e-4*1e4;
-  }
-  return f;
-}
 
-Vector u_exact(Vector const& X, double t, int tag)
-{
-  double x = X(0);
-  double y = X(1);
-  Vector v(Vector::Zero(X.size()));
-  double Um = 1e-6, H = 10e-6;
-  if ( true && (tag == 2) ){
-    //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
-    //v(0) = Um*4*(H-y)*y/(H*H); v(1) = 0.0;
-    v(0) = Um*(H-y)*(H+y)/(H*H);
-  }
-  if ( true && (tag == 3) ){
-    //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
-    //v(0) = Um*4*(H-y)*y/(H*H); v(1) = 0.0;
-    v(0) = -Um*(H-y)*(H+y)/(H*H);
-  }
-  return v;
-}
-
-Tensor grad_u_exact(Vector const& X, double t, int tag)
-{
-  double x = X(0);
-  double y = X(1);
-  double w2 = 2.0, Um = 0.1, H = 2e-6;
-  Tensor dxU(Tensor::Zero(X.size(), X.size()));
-  //dxU(0,0) = 0; dxU(0,1) = Um/H - Um*2.0*y/H;
-  //dxU(1,0) = 0; dxU(1,1) = 0;
-
-  return dxU;
-}
-
-Vector s_exact(int dim, double t, int tag, int LZ)
-{//for inertialess case, this MUST be zero at t = 0;
-  double w2 = 0.0;
-  Vector v(Vector::Zero(LZ)); //v << 1, 1, 0;
-  //Vector v(Vector::Ones(LZ));
-  return v;
-}
-
-double p_exact(Vector const& X, double t, int tag)
-{
-  double x = X(0);
-  double y = X(1);
-
-  return 0.0; //3.5;
-}
-
-Vector grad_p_exact(Vector const& X, double t, int tag)
-{
-  double x = X(0);
-  double y = X(1);
-  Vector dxP(X.size());
-
-  return dxP;
-}
-
-Vector traction(Vector const& X, Vector const& normal, double t, int tag)
-{
-  Vector T(Vector::Zero(X.size()));
-  //T(0) = -p_exact(X,t,tag);
-  //T(1) = muu(tag)*(cos(w_*t) + sin(w_*t));
-  //Tensor dxU(grad_u_exact(X,t,tag));
-  //Tensor I(Tensor::Identity(2,2));
-  //T = (- p_exact(X,t,tag)*I +  muu(tag)*(dxU + dxU.transpose()))*normal;
-  return T;
-}
-
-Vector u_initial(Vector const& X, int tag)
-{
-  return u_exact(X,0,tag);
-}
-
-Vector s_initial(int dim, int tag, int LZ)
-{
-  return s_exact(dim,0,tag,LZ);
-}
-
-double p_initial(Vector const& X, int tag)
-{
-  return p_exact(X,0,tag);
-}
-
-Vector solid_normal(Vector const& X, double t, int tag)
-{
-  Vector N(Vector::Zero(X.size()));
-  return N;
-}
-
-Vector v_exact(Vector const& X, double t, int tag) //(X,t,tag)
-{
-  double const x = X(0);
-  double const y = X(1);
-  Vector v(Vector::Zero(X.size()));
-  //v(1) = 1.0;
-
-  return v;
-}
-
-// posição do contorno
-Vector x_exact(Vector const& X, double t, int tag)
-{
-  Vector r(Vector::Zero(X.size()));
-  return r;
-}
-
-Vector solid_veloc(Vector const& X, double t, int tag)
-{
-  Vector N(Vector::Zero(X.size()));
-  //if (tag == 2) {N(1) = 1;};
-  return N;
-}
-
-Tensor feature_proj(Vector const& X, double t, int tag)
-{
-  Tensor f(Tensor::Zero(X.size(), X.size()));
-  //if (true && (tag == 1 || tag == 5 || tag == 2 || tag == 4 || tag == 6 /*|| tag == 3 || tag == 1*/)){
-    //f(0,0) = 1; //imposes zero tangential velocity at the output of the channel
-                //or cartesian wall by eliminating the contribution of the momentum
-                //equation in the normal direction, allowing penetration with zero
-                //stress in the normal direction. In other words,
-                //indicates that the component 0 (x-direction) is free, and is going
-                //to be imposed zero velocity in the component 1 (y-direction)
-    //f(1,1) = 1;
-  //}
-  //else if (true && (tag == 3 || tag == 7)){
-  if (true && (tag == 4)){
-    f(1,1) = 1;
-  }
-  if (true && (tag == 5)){
-    f(1,1) = 1;
-  }
-  return f;
-}
-
-Vector force_pp(Vector const& Xi, Vector const& Xj, double Ri, double Rj,
-                 double ep1, double ep2, double zeta)
-{
-  Vector f(Vector::Zero(Xi.size()));
-  double dij = (Xi - Xj).norm();
-//  if (dij > Ri+Rj+zeta){
-//    return f;
-//  }
-  if (dij <= Ri+Rj){
-    f = (1/ep1)*(Ri+Rj-dij)*(Xi - Xj);
-  }
-  else if((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
-    f = (1/ep2)*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj);
-  }
-  return f;
-}
-
-Vector force_pw(Vector const& Xi, Vector const& Xj, double Ri,
-                 double ew1, double ew2, double zeta)
-{
-  Vector f(Vector::Zero(Xi.size()));
-  double di = (Xi - Xj).norm();
-//  if (dij > Ri+Rj+zeta){
-//    return f;
-//  }
-  if (di <= 2*Ri){
-    f = (1/ew1)*(2*Ri-di)*(Xi - Xj);
-  }
-  else if((2*Ri <= di) && (di <= 2*Ri+zeta)){
-    f = (1/ew2)*(2*Ri+zeta-di)*(2*Ri+zeta-di)*(Xi - Xj);
-  }
-  return f;
-}
-
-Vector force_ppl(Vector const& Xi, Vector const& Xj, double ep, double zeta)
-{
-  Vector f(Vector::Zero(Xi.size()));
-  f = (zeta/ep)*(Xi - Xj)/(Xi - Xj).norm();
-  return f;
-}
-
-Vector force_rga(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
-                 Vector const& Gr, double const masj, double ep, double zeta)
-{
-  Vector f(Vector::Zero(Xi.size()));
-  double dij = (Xi - Xj).norm();;
-  double g = 0.0;
-  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
-    g   = Gr.norm();
-    f   = masj*g*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/(ep*zeta*zeta*dij);
-  }
-  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
-  return f;
-}
-
-Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
-                 Vector const& Gr, double const rhoj, double const rhof, double ep, double zeta)
-{
-  Vector f(Vector::Zero(Xi.size()));
-  double dij = dij = (Xi - Xj).norm();
-  double g = 0.0;
-  double R = 0.0;
-  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
-    g   = Gr.norm();
-    R   = std::max(Ri,Rj);
-    f   = (rhoj-rhof)*pi*g*(Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/(ep*zeta*zeta*dij);
-  }
-  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
-  return f;
-}
-
-Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
-                 double ep, double zeta)
-{
-  Vector f(Vector::Zero(Xi.size()));
-  double dij = (Xi - Xj).norm();;
-  if ((Ri+Rj <= dij) && (dij <= Ri+Rj+zeta)){
-    f   = (Ri+Rj+zeta-dij)*(Ri+Rj+zeta-dij)*(Xi - Xj)/ep;
-  }
-  //else if (dij < Ri+Rj){cout << "ERROR: penetration!!!!!!!!!!!!!!!!" << endl;}
-  return f;
+  S = abs((ls-li)/2.0 * S);
+  return S;
 }
 
 #endif

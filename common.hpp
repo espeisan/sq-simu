@@ -953,6 +953,10 @@ public:
 
   Vector3d Vsol, Wsol;
 
+  //For paramecium test
+  int nforp;
+  double Kforp;
+
 };
 
 // tricks to avoid compiler error about OPENMP

@@ -227,6 +227,8 @@ void AppCtx::setUpDefaultOptions()
   boundary_smoothing     = PETSC_TRUE;
   dup_press_nod          = PETSC_FALSE;
   s_dofs_elim            = PETSC_FALSE;
+  nforp                  = 0;
+  Kforp                  = 0.0;
 
   is_mr_ab           = PETSC_FALSE;
   is_bdf3            = PETSC_FALSE;
@@ -295,6 +297,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
   PetscOptionsInt("-n_links", "number of links in swimmer", "main.cpp", n_links, &n_links, PETSC_NULL);
   PetscOptionsInt("-n_groups", "number of groups swimmers", "main.cpp", n_groups, &n_groups, PETSC_NULL);
+  PetscOptionsInt("-nforp", "wave number paramecium test", "main.cpp", nforp, &nforp, PETSC_NULL);
 //PetscOptionsScalar("-Re", "Reynolds number", "main.cpp", Re, &Re, PETSC_NULL);
   PetscOptionsScalar("-dt", "time step", "main.cpp", dt, &dt, PETSC_NULL);
   PetscOptionsScalar("-utheta", "utheta value", "main.cpp", utheta, &utheta, PETSC_NULL);
@@ -304,6 +307,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsScalar("-beta1", "par vel do fluido", "main.cpp", beta1, &beta1, PETSC_NULL);
   PetscOptionsScalar("-beta2", "par vel elastica", "main.cpp", beta2, &beta2, PETSC_NULL);
   PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
+  PetscOptionsScalar("-Kforp", "wave constant paramecium test", "main.cpp", Kforp, &Kforp, PETSC_NULL);
   PetscOptionsBool("-print_to_matlab", "print jacobian to matlab", "main.cpp", print_to_matlab, &print_to_matlab, PETSC_NULL);
   PetscOptionsBool("-force_dirichlet", "force dirichlet bound cond", "main.cpp", force_dirichlet, &force_dirichlet, PETSC_NULL);
   PetscOptionsBool("-force_pressure", "force pressure", "main.cpp", force_pressure, &force_pressure, PETSC_NULL);
@@ -2091,7 +2095,8 @@ PetscErrorCode AppCtx::setUPInitialGuess()
       int nod_vs = is_in_id(tag,slipvel_tags);
       Vector Nr(dim), Vs(dim);
       VecGetValues(Vec_normal, dim, x_dofs.data(), Nr.data());
-      Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], current_time+unsteady*dt);
+      //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], current_time+unsteady*dt);//regular code
+      Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, nforp, Kforp, current_time+unsteady*dt);//for paramecium test
       VecSetValues(Vec_slipv_1, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
       VecSetValues(Vec_slipv_0, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
     }
@@ -2257,7 +2262,8 @@ PetscErrorCode AppCtx::setInitialConditions()
               Vs = BFields_from_file(pID,2);
             }
             else{
-              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], current_time);  //ojo antes solo nod_vs//here nod_vs=0
+              //Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], current_time);  //ojo antes solo nod_vs//here nod_vs=0
+              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, nforp, Kforp, current_time+unsteady*dt);//for paramecium test
             }
             VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
@@ -2364,7 +2370,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     }
     //Mesh compatibilization, elasticity problem and slip vel at extrap mesh//////////////////////////////////////////////////
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
-    VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
+    if (false) {VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);}  //FIXME: false for Re=0 static mesh
 
     //For Re advancing//////////////////////////////////////////////////
     if (false){
@@ -2467,7 +2473,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   }
   cout << endl;
 
-  //SarclTest();
+  SarclTest();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Solve nonlinear system
@@ -4945,6 +4951,15 @@ PetscErrorCode AppCtx::SarclTest(){
   Vector  Xj(dim);
   Vector3d XG;
 
+  char vspc[PETSC_MAX_PATH_LEN];
+  sprintf(vspc,"%s/HistVsp.txt",filehist_out.c_str());
+  ofstream filp;
+
+  filp.open(vspc);
+  filp.close();
+  filp.open(vspc,iostream::app);
+  filp.precision(15);
+
   for (int j = 0; j < n_nodes_total; j++){
     point = mesh->getNodePtr(j);
     tag = point->getTag();
@@ -4956,12 +4971,37 @@ PetscErrorCode AppCtx::SarclTest(){
     pID = mesh->getPointId(&*point);
     point->getCoord(Xj.data(),dim);
     XG = XG_0[nod_vs+nod_id-1];
+    //double S = S_arcl(Xj(1), XG(1));
+        //cout << "For point " << pID << " coord " << Xj(0) << " " << Xj(1) <<
+        //        " centre " << XG(0) << " " << XG(1) << " arc length " << S << endl;
 
-    double S = S_arcl(Xj(1), XG(1));
+    double W = S_arcl(Xj(1), XG(1));
+    filp << W << " " << Xj(1)-XG(1);
 
-    cout << "For point " << pID << " coord " << Xj(0) << " " << Xj(1) << " centre " << XG(0) << " " << XG(1) << " arc length " << S << endl;
+    for (int tsp = 0; tsp < PI+1; tsp++){
+      double t = dt*tsp;
+      double uthe = 0.0;
+      double a = 110.0e-0, omega = 2*pi, eta = 10;
+      double S;
+      double L = S_arcl(XG(1)-a,XG(1));  //cout << "for " << X(1) << "  " << S << "  " << L << endl;
+      double K = Kforp*L;  //0.015*L;
+      double n = (double)nforp /*9*/, k = 2*pi/L * n;
+      //uthe = tanh(eta*sin(pi*S/L)) * A*omega*sin(k*S - omega*t);
 
+      S = W;
+      for (int ni = 0; ni < 100; ni++){
+        double F0 = S + K*tanh(eta*sin(pi*S/L))*cos(k*S-omega*t) - W;
+        double F1 = 1 + (pi*K*eta/L)*(1 - pow(tanh(eta*sin(pi*S/L)),2.0))*cos(pi*S/L)*cos(k*S-omega*t)
+                    - k*K*tanh(eta*sin(pi*S/L))*sin(k*S-omega*t);
+        S = S - F0/F1;
+      }
+
+      uthe = K*tanh(eta*sin(pi*S/L))*omega*sin(k*S - omega*t);
+      filp << " " << uthe;
+    }
+    filp << endl;
   }
+  filp.close();
   PetscFunctionReturn(0);
 }
 

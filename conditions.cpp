@@ -2594,14 +2594,14 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
     V = 0*uthe*V;
   }
 
-  if (true && dim == 2)
-  {
+  if (true && dim == 2)//for metachronal waves
+  { //use tag variable to control n, and theta varible to control K
     double uthe = 0.0;
     double a = 110.0e-0, A = 1.0e-0, omega = 2*pi, eta = 10;
     double W = S_arcl(X(1), XG(1)), S;
-    double L = S_arcl(XG(1)-a,XG(1));  //cout << S << "  " << L << endl;
-    double K = 0.015*L;
-    double alpha = 9, k = 2*pi/L * alpha;
+    double L = S_arcl(XG(1)-a,XG(1));  //cout << "for " << X(1) << "  " << S << "  " << L << endl;
+    double K = theta*L;  //0.015*L;
+    double n = (double)tag /*9*/, k = 2*pi/L * n;
     //uthe = tanh(eta*sin(pi*S/L)) * A*omega*sin(k*S - omega*t);
 
     S = W;
@@ -2613,7 +2613,8 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
     }
 
     uthe = K*tanh(eta*sin(pi*S/L))*omega*sin(k*S - omega*t);
-    V(0) = +normal(1); V(1) = -normal(0);   //V(0) = -normal(1); V(1) = +normal(0);
+    V(0) = +normal(1); V(1) = -normal(0);  //this tangent goes in the direction of the parametrization
+    //V(0) = -normal(1); V(1) = +normal(0);//this tangent goes against the parametrization
     V = uthe*V;
     //cout << V.transpose() << endl;
   }
@@ -3032,7 +3033,7 @@ Vector Fdrag(int LZ){
 }
 
 double Ellip_arcl_integrand(double zi){
-  double a = 110.0e-0, b = 40.0e-0, eb = 0.0, R;
+  double a = 110.0e-0, b = 36.2940e-0, eb = 0.0, R;
   //cout << -zi/(a*a) << "  " << 1.0-zi*zi/(a*a) << " " << sqrt(1.0-zi*zi/(a*a)) << endl;
   R = sqrt(1.0*1.0 + b*b*pow(( (-zi/(a*a)) * 1.0/sqrt(1.0-zi*zi/(a*a)) - eb*(pi/a)*cos(pi*zi/a) ),2.0));
   //cout << a << " " << b << " " << R << endl;
@@ -3045,6 +3046,8 @@ double S_arcl(double z, double zc){
   if (ls-li < 1e-12)
     return 0.0;
 
+  if (false){
+  //Gauss quadrature (doesn't work very well, singularities)//////////////////////////////////////////////////
   int is = 16;
   double w16[16] = {0.1894506104550685,0.1894506104550685,0.1826034150449236,0.1826034150449236,
                     0.1691565193950025,0.1691565193950025,0.1495959888165767,0.1495959888165767,
@@ -3060,10 +3063,21 @@ double S_arcl(double z, double zc){
   for (int i = 0; i < is; i++){
     double eval = (ls-li)/2.0 * x16[i] + (ls+li)/2.0;
     S = S + w16[i]*Ellip_arcl_integrand(eval);
-    //cout << S << " ";
+  }
+  S = abs((ls-li)/2.0 * S);
+  }
+  else{
+  //Gauss Chebyshev (works very well, singularities)//////////////////////////////////////////////////
+  int Nroots = 50;
+
+  for (int i = 0; i < Nroots; i++){
+    double Xc = cos(pi*(2.0*(i+1)-1)/(2.0*(double)Nroots));
+    double eval = (ls-li)/2.0 * Xc + (ls+li)/2.0;
+    S = S + Ellip_arcl_integrand(eval)*sqrt(1-Xc*Xc);
+  }
+  S = abs((ls-li)/2.0 * S) * pi/(double)Nroots;
   }
 
-  S = abs((ls-li)/2.0 * S);
   return S;
 }
 

@@ -629,27 +629,31 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
     filesvfd.assign(iinaux);
     int pID = 0;
     int N = 0;
-    double theta = 0.0;
-    double fd1 = 0.0, fd2 = 0.0, fd3 = 0.0, sv1 = 0.0, sv2 = 0.0, sv3 = 0.0,
+    long double theta = 0.0, dID;
+    long double fd1 = 0.0, fd2 = 0.0, fd3 = 0.0, sv1 = 0.0, sv2 = 0.0, sv3 = 0.0,
            nr1 = 0.0, nr2 = 0.0, nr3 = 0.0, tg1 = 0.0, tg2 = 0.0, tg3 = 0.0,
-           ft1 = 0.0, ft2 = 0.0, ft3 = 0.0;
+           ft1 = 0.0, ft2 = 0.0, ft3 = 0.0, x = 0.0, y = 0.0;
     Vector3d FD, FT, SV, NR, TG;
     ifstream is;
     is.open(filesvfd.c_str(),ifstream::in);
     if (!is.good()) {cout << "svfd file not found" << endl; throw;}
     while(!is.eof()){
-      is >> pID; is >> theta;
+      is >> dID; is >> theta; pID = (int) dID;
       is >> fd1; is >> fd2; if(dim == 3){is >> fd3;}
       is >> ft1; is >> ft2; if(dim == 3){is >> ft3;}
       is >> sv1; is >> sv2; if(dim == 3){is >> sv3;}
       is >> nr1; is >> nr2; if(dim == 3){is >> nr3;}
       is >> tg1; is >> tg2; if(dim == 3){is >> tg3;}
+      is >> x;   is >> y;
       FD << fd1, fd2, fd3; FT << ft1, ft2, ft3; SV << sv1, sv2, sv3;
       NR << nr1, nr2, nr3; TG << tg1, tg2, tg3;
       FD_file.push_back(FD); FT_file.push_back(FT); SV_file.push_back(SV);
       NR_file.push_back(NR); TG_file.push_back(TG);
       pIDs.push_back(pID);
       N++;
+      cout << pID << " " << theta << " " << fd1 << " " << fd2 << " " << ft1 << " " << ft2
+          << " " << sv1 << " " << sv2 << " " << nr1 << " " << nr2
+          << " " << tg1 << " " << tg2 << " " << x << " " << y << endl;
     }
     is.close();
     FD_file.resize(N); FT_file.resize(N); SV_file.resize(N); NR_file.resize(N); TG_file.resize(N);
@@ -2095,8 +2099,14 @@ PetscErrorCode AppCtx::setUPInitialGuess()
       int nod_vs = is_in_id(tag,slipvel_tags);
       Vector Nr(dim), Vs(dim);
       VecGetValues(Vec_normal, dim, x_dofs.data(), Nr.data());
-      //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], current_time+unsteady*dt);//regular code
-      Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, nforp, Kforp, current_time+unsteady*dt);//for paramecium test
+      int pID = mesh->getPointId(&*point);
+      if (read_from_sv_fd){
+        Vs = BFields_from_file(pID,2);
+      }
+      else{
+        //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], current_time+unsteady*dt);//regular code
+        Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, nforp, Kforp, current_time+unsteady*dt);//for paramecium test
+      }
       VecSetValues(Vec_slipv_1, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
       VecSetValues(Vec_slipv_0, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
     }

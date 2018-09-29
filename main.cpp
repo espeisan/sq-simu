@@ -297,7 +297,6 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
   PetscOptionsInt("-n_links", "number of links in swimmer", "main.cpp", n_links, &n_links, PETSC_NULL);
   PetscOptionsInt("-n_groups", "number of groups swimmers", "main.cpp", n_groups, &n_groups, PETSC_NULL);
-  PetscOptionsInt("-nforp", "wave number paramecium test", "main.cpp", nforp, &nforp, PETSC_NULL);
 //PetscOptionsScalar("-Re", "Reynolds number", "main.cpp", Re, &Re, PETSC_NULL);
   PetscOptionsScalar("-dt", "time step", "main.cpp", dt, &dt, PETSC_NULL);
   PetscOptionsScalar("-utheta", "utheta value", "main.cpp", utheta, &utheta, PETSC_NULL);
@@ -308,6 +307,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsScalar("-beta2", "par vel elastica", "main.cpp", beta2, &beta2, PETSC_NULL);
   PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
   PetscOptionsScalar("-Kforp", "wave constant paramecium test", "main.cpp", Kforp, &Kforp, PETSC_NULL);
+  PetscOptionsScalar("-nforp", "wave number paramecium test", "main.cpp", nforp, &nforp, PETSC_NULL);
   PetscOptionsBool("-print_to_matlab", "print jacobian to matlab", "main.cpp", print_to_matlab, &print_to_matlab, PETSC_NULL);
   PetscOptionsBool("-force_dirichlet", "force dirichlet bound cond", "main.cpp", force_dirichlet, &force_dirichlet, PETSC_NULL);
   PetscOptionsBool("-force_pressure", "force pressure", "main.cpp", force_pressure, &force_pressure, PETSC_NULL);
@@ -2104,8 +2104,8 @@ PetscErrorCode AppCtx::setUPInitialGuess()
         Vs = BFields_from_file(pID,2);
       }
       else{
-        //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], current_time+unsteady*dt);//regular code
-        Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, nforp, Kforp, current_time+unsteady*dt);//for paramecium test
+        //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], 0.0, 0.0, current_time+unsteady*dt);//regular code
+        Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], Kforp, nforp, current_time+unsteady*dt);//for paramecium test
       }
       VecSetValues(Vec_slipv_1, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
       VecSetValues(Vec_slipv_0, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
@@ -2272,8 +2272,8 @@ PetscErrorCode AppCtx::setInitialConditions()
               Vs = BFields_from_file(pID,2);
             }
             else{
-              //Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], current_time);  //ojo antes solo nod_vs//here nod_vs=0
-              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, nforp, Kforp, current_time+unsteady*dt);//for paramecium test
+              //Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], 0.0, 0.0, current_time);  //ojo antes solo nod_vs//here nod_vs=0
+              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs-1], Kforp, nforp, current_time+unsteady*dt);//for paramecium test
             }
             VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
@@ -2380,7 +2380,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     }
     //Mesh compatibilization, elasticity problem and slip vel at extrap mesh//////////////////////////////////////////////////
     calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
-    if (false) {VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);}  //FIXME: false for Re=0 static mesh
+    if (unsteady) {VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);}  //FIXME: false for Re=0 static mesh
 
     //For Re advancing//////////////////////////////////////////////////
     if (false){
@@ -2440,7 +2440,17 @@ PetscErrorCode AppCtx::setInitialConditions()
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
     //For virtual only time advancing (i.e. not moving mesh)//////////////////////////////////////////////////
-    if (true){
+    if (false){
+      if (true){//save velocity at infinity constant vector field in vec_v_mid
+        VectorXd v_coeffs_s(LZ);
+        for (int l = 0; l < LZ; l++){
+          dofs_fs(l) = n_unknowns_u + n_unknowns_p + l;
+        }
+        VecGetValues(Vec_ups_1,dofs_fs.size(),dofs_fs.data(),v_coeffs_s.data());
+        //if (pic == 0){v_coeffs_s(1) = -0.315364702750772;}
+        VecScale(Vec_v_mid, v_coeffs_s(1));
+        //View(Vec_v_mid,"matrizes/vmid0.m","vm");
+      }
       saveDOFSinfo();
       plotFilesNT();
       current_time += dt;
@@ -2483,7 +2493,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
   }
   cout << endl;
 
-  SarclTest();
+  //SarclTest();
 
   // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   // Solve nonlinear system
@@ -2730,9 +2740,9 @@ PetscErrorCode AppCtx::solveTimeProblem()
       break;
     }
   }
-  //
+  // ///////////////////////////////////////////////////////////////////////////
   // END TIME LOOP
-  //
+  // ///////////////////////////////////////////////////////////////////////////
 
   VecCopy(Vec_ups_1, Vec_ups_0);
   if (family_files){plotFiles();}
@@ -4357,7 +4367,7 @@ void AppCtx::getFromBSV() //Body Slip Velocity
       Tg(0) = x_coefs_f.transpose()(0,1)-x_coefs_f.transpose()(0,0);
       Tg(1) = x_coefs_f.transpose()(1,1)-x_coefs_f.transpose()(1,0);
 
-      Vs = SlipVel(Xqp, XG_0[is_slipvel+is_fsi-1], Nr, dim, tag, theta_ini[is_slipvel+is_fsi-1], current_time);
+      Vs = SlipVel(Xqp, XG_0[is_slipvel+is_fsi-1], Nr, dim, tag, theta_ini[is_slipvel+is_fsi-1], 0.0, 0.0, current_time);
       //cout << Vs.dot(Nr) << "   " << Vs.dot(Xqp) << "   " << endl;
       //cout << Xqp.transpose() << "   " << Nr.transpose() << "   " << Tg.transpose() << "   " << Vs.transpose() << endl << endl;
       //cout << x_coefs_f.transpose() << endl << endl;

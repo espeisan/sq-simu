@@ -136,7 +136,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
-Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double t);
+Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t);
 Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
@@ -954,7 +954,7 @@ public:
   Vector3d Vsol, Wsol;
 
   //For paramecium test
-  int nforp;
+  double nforp;
   double Kforp;
 
 };

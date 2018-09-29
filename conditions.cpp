@@ -42,7 +42,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
-Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double t);
+Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t);
 Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
@@ -2521,7 +2521,7 @@ Matrix3d RotM(double theta, int dim)
 }
 
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
-               int dim, int tag, double theta, double t)
+               int dim, int tag, double theta, double Kforp, double nforp, double t)
 {
   Vector V(Vector::Zero(dim));
   Vector X3(Vector::Zero(3));
@@ -2594,14 +2594,14 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
     V = 0*uthe*V;
   }
 
-  if (true && dim == 2)//for metachronal waves
+  if (false && dim == 2)//for metachronal waves
   { //use tag variable to control n, and theta varible to control K
     double uthe = 0.0;
     double a = 110.0e-0, A = 1.0e-0, omega = 2*pi, eta = 10;
     double W = S_arcl(X(1), XG(1)), S;
     double L = S_arcl(XG(1)-a,XG(1));  //cout << "for " << X(1) << "  " << S << "  " << L << endl;
-    double K = theta*L;  //0.015*L;
-    double n = (double)tag /*9*/, k = 2*pi/L * n;
+    double K = Kforp*L;  //0.015*L;
+    double n = nforp /*(double)tag*/, k = 2*pi/L * n;
     //uthe = tanh(eta*sin(pi*S/L)) * A*omega*sin(k*S - omega*t);
 
     S = W;
@@ -2613,6 +2613,39 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
     }
 
     uthe = K*tanh(eta*sin(pi*S/L))*omega*sin(k*S - omega*t);
+    V(0) = +normal(1); V(1) = -normal(0);  //this tangent goes in the direction of the parametrization
+    //V(0) = -normal(1); V(1) = +normal(0);//this tangent goes against the parametrization
+    V = uthe*V;
+    //cout << V.transpose() << endl;
+  }
+
+  if (true && dim == 2 && tag == 101)//for metachronal waves
+  { //use aux variable to control n, and theta varible to control K
+    Matrix3d Qr(Matrix3d::Zero(3,3));
+    Vector3d Xref(Vector3d::Zero(3)), X3(Vector::Zero(3));
+    X3(0) = X(0); X3(1) = X(1);
+    Xref = RotM(theta,Qr,dim).transpose()*(X3 - XG);
+    double uthe = 0.0;
+    double a = 2.0e-0, Tp = 1.0, omega = 2*pi/Tp, eta = 10;
+    double W = S_arcl(Xref(0), 0.0), S;  //cout << S_arcl(Xref(0), 0.0) << "  " << S_arcl(a, 0.0) << "  " << S_arcl(-a, 0.0) << endl;
+    double L = S_arcl(-a,0.0);  //cout << "for " << Xref(0) << "  " << W << "  " << L << endl;
+    double K = Kforp*L;  //0.015*L;
+    double n = nforp /*(double)tag*/, k = 2*pi/L * n;
+
+    S = W;
+    for (int ni = 0; ni < 100; ni++){
+      double F0 = S + K*tanh(eta*sin(pi*S/L))*cos(k*S-omega*t) - W;
+      double F1 = 1 + (pi*K*eta/L)*(1 - pow(tanh(eta*sin(pi*S/L)),2.0))*cos(pi*S/L)*cos(k*S-omega*t)
+                  - k*K*tanh(eta*sin(pi*S/L))*sin(k*S-omega*t);
+      S = S - F0/F1;
+    }
+
+    if (Xref(1) <= 0){
+      uthe = K*tanh(eta*sin(pi*S/L))*omega*sin(k*S - omega*t);
+    }
+    else{
+      uthe = -K*tanh(eta*sin(pi*S/L))*omega*sin(k*S - omega*t);
+    }
     V(0) = +normal(1); V(1) = -normal(0);  //this tangent goes in the direction of the parametrization
     //V(0) = -normal(1); V(1) = +normal(0);//this tangent goes against the parametrization
     V = uthe*V;
@@ -2668,7 +2701,7 @@ double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int 
 VectorXi DOFS_elimination(int LZ)
 { //0 for component to eliminate, 1 for component to compute
   VectorXi s_DOFS(LZ);
-  s_DOFS << 0, 1, 0;
+  //s_DOFS << 0, 1, 0;
   return s_DOFS;
 }
 
@@ -3033,49 +3066,53 @@ Vector Fdrag(int LZ){
 }
 
 double Ellip_arcl_integrand(double zi){
-  double a = 110.0e-0, b = 36.2940e-0, eb = 0.0, R;
-  //cout << -zi/(a*a) << "  " << 1.0-zi*zi/(a*a) << " " << sqrt(1.0-zi*zi/(a*a)) << endl;
-  R = sqrt(1.0*1.0 + b*b*pow(( (-zi/(a*a)) * 1.0/sqrt(1.0-zi*zi/(a*a)) - eb*(pi/a)*cos(pi*zi/a) ),2.0));
-  //cout << a << " " << b << " " << R << endl;
+  double R = 0;
+  if (true){
+    //double a = 110.0e-0, b = 36.2940e-0, eb = 0.0, R;
+    double a = 2.0e-0, b = 1.0e-0, eb = 0.0;
+    //cout << -zi/(a*a) << "  " << 1.0-zi*zi/(a*a) << " " << sqrt(1.0-zi*zi/(a*a)) << endl;
+    R = sqrt(1.0*1.0 + b*b*pow(( (-zi/(a*a)) * 1.0/sqrt(1.0-zi*zi/(a*a)) - eb*(pi/a)*cos(pi*zi/a) ),2.0));
+    //cout << a << " " << b << " " << R << endl;
+  }
   return R;
 }
 
 double S_arcl(double z, double zc){
-  double a = 110.0e-0, S = 0.0;
+  //double a = 110.0e-0, S = 0.0;
+  double a = 2.0e-0, S = 0.0;
   double li = z - zc, ls = a;
   if (ls-li < 1e-12)
     return 0.0;
 
   if (false){
-  //Gauss quadrature (doesn't work very well, singularities)//////////////////////////////////////////////////
-  int is = 16;
-  double w16[16] = {0.1894506104550685,0.1894506104550685,0.1826034150449236,0.1826034150449236,
-                    0.1691565193950025,0.1691565193950025,0.1495959888165767,0.1495959888165767,
-                    0.1246289712555339,0.1246289712555339,0.0951585116824928,0.0951585116824928,
-                    0.0622535239386479,0.0622535239386479,0.0271524594117541,0.0271524594117541};
-  double x16[16] = {-0.0950125098376374,0.0950125098376374,-0.2816035507792589,0.2816035507792589,
-                    -0.4580167776572274,0.4580167776572274,-0.6178762444026438,0.6178762444026438,
-                    -0.7554044083550030,0.7554044083550030,-0.8656312023878318,0.8656312023878318,
-                    -0.9445750230732326,0.9445750230732326,-0.9894009349916499,0.9894009349916499};
-  //double w5[5] = {0.5688888888888889,0.4786286704993665,0.4786286704993665,0.2369268850561891,0.2369268850561891};
-  //double x5[5] = {0.0000000000000000,-0.5384693101056831,0.5384693101056831,-0.9061798459386640,0.9061798459386640};
-
-  for (int i = 0; i < is; i++){
-    double eval = (ls-li)/2.0 * x16[i] + (ls+li)/2.0;
-    S = S + w16[i]*Ellip_arcl_integrand(eval);
-  }
-  S = abs((ls-li)/2.0 * S);
+    //Gauss quadrature (doesn't work very well, singularities)//////////////////////////////////////////////////
+    int is = 16;
+    double w16[16] = {0.1894506104550685,0.1894506104550685,0.1826034150449236,0.1826034150449236,
+                      0.1691565193950025,0.1691565193950025,0.1495959888165767,0.1495959888165767,
+                      0.1246289712555339,0.1246289712555339,0.0951585116824928,0.0951585116824928,
+                      0.0622535239386479,0.0622535239386479,0.0271524594117541,0.0271524594117541};
+    double x16[16] = {-0.0950125098376374,0.0950125098376374,-0.2816035507792589,0.2816035507792589,
+                      -0.4580167776572274,0.4580167776572274,-0.6178762444026438,0.6178762444026438,
+                      -0.7554044083550030,0.7554044083550030,-0.8656312023878318,0.8656312023878318,
+                      -0.9445750230732326,0.9445750230732326,-0.9894009349916499,0.9894009349916499};
+    //double w5[5] = {0.5688888888888889,0.4786286704993665,0.4786286704993665,0.2369268850561891,0.2369268850561891};
+    //double x5[5] = {0.0000000000000000,-0.5384693101056831,0.5384693101056831,-0.9061798459386640,0.9061798459386640};
+    for (int i = 0; i < is; i++){
+      double eval = (ls-li)/2.0 * x16[i] + (ls+li)/2.0;
+      S = S + w16[i]*Ellip_arcl_integrand(eval);
+    }
+    S = abs((ls-li)/2.0 * S);
   }
   else{
-  //Gauss Chebyshev (works very well, singularities)//////////////////////////////////////////////////
-  int Nroots = 50;
-
-  for (int i = 0; i < Nroots; i++){
-    double Xc = cos(pi*(2.0*(i+1)-1)/(2.0*(double)Nroots));
-    double eval = (ls-li)/2.0 * Xc + (ls+li)/2.0;
-    S = S + Ellip_arcl_integrand(eval)*sqrt(1-Xc*Xc);
-  }
-  S = abs((ls-li)/2.0 * S) * pi/(double)Nroots;
+    //Gauss Chebyshev (works very well, singularities)//////////////////////////////////////////////////
+    int Nroots = 50;
+    for (int i = 0; i < Nroots; i++){
+      double Xc = cos(pi*(2.0*(i+1)-1)/(2.0*(double)Nroots));
+      double eval = (ls-li)/2.0 * Xc + (ls+li)/2.0;
+      S = S + Ellip_arcl_integrand(eval)*sqrt(1-Xc*Xc);
+    }
+    S = abs((ls-li)/2.0 * S) * pi/(double)Nroots;
+    //cout << S << endl;
   }
 
   return S;

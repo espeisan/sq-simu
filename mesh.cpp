@@ -2964,7 +2964,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     for (int v = 0; v < L; ++v)  //for each vector to interpolate
     {
       if (is_sfip){
-        if ((is_mr_ab || is_basic || is_mr_qextrap) && (v == 5 || v == 6 || v == 7 || v == 10 || v == 11))
+        if ((is_mr_ab || is_basic || is_mr_qextrap) && (v == 5 || /*v == 6 ||*/ v == 7 || v == 10 || v == 11))
           continue;
         else if (is_bdf2 && (v == 5 || v == 7 || v == 11))
           continue;
@@ -3058,6 +3058,9 @@ PetscErrorCode AppCtx::meshAdapt_s()
         }//end v
       }//end sfip
 
+      //no interpolation for slip velocity vector////////////////////
+      if (v == 8 || v == 9 || v == 10 || v == 11){continue;}
+      //////////////////////////////////////////////////
 
       //interpolate values at new points//////////////////////////////////////////////////
       std::list<EdgeVtcs>::iterator it     = adde_vtcs.begin();

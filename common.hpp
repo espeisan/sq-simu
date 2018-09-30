@@ -624,11 +624,11 @@ public:
   PetscErrorCode moveSolidDOFs(double vtheta);
   PetscErrorCode updateSolidMesh();
   PetscErrorCode velNoSlip(Vec const& Vec_uzp, Vec const& Vec_sv, Vec &Vec_ups_ns);
-  PetscErrorCode plotFiles();
+  PetscErrorCode plotFiles(int step);
   PetscErrorCode plotFilesNT();
   Vector vectorSolidMesh(int const K, Point const* point, int const vs);
   void getFromBSV();
-  PetscErrorCode saveDOFSinfo();
+  PetscErrorCode saveDOFSinfo(int step);
   PetscErrorCode saveDOFSinfo_Re_Vel();
   PetscErrorCode extractFdForce();
   Vector BFields_from_file(int pID, int opt);
@@ -639,6 +639,7 @@ public:
   void computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up);
   void printProblemInfo();
   PetscErrorCode SarclTest();
+  PetscErrorCode CheckInvertedElement();
   //void printContactAngle(bool _print);
 
   void computeError(Vec const& Vec_x, Vec &Vec_up_1, double tt);
@@ -720,6 +721,7 @@ public:
   PetscBool   force_pressure;
   PetscBool   dup_press_nod;
   PetscBool   s_dofs_elim;
+  PetscBool   inverted_elem;
   double      dt;
   double      steady_tol;
   double      utheta;

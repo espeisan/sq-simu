@@ -2619,14 +2619,14 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
     //cout << V.transpose() << endl;
   }
 
-  if (true && dim == 2 && tag == 101)//for metachronal waves
+  if (true && dim == 2 && (tag == 101 || tag == 102/*144 || tag == 142*/))//for metachronal waves
   { //use aux variable to control n, and theta varible to control K
     Matrix3d Qr(Matrix3d::Zero(3,3));
     Vector3d Xref(Vector3d::Zero(3)), X3(Vector::Zero(3));
     X3(0) = X(0); X3(1) = X(1);
     Xref = RotM(theta,Qr,dim).transpose()*(X3 - XG);
     double uthe = 0.0;
-    double a = 2.0e-0, Tp = 1.0, omega = 2*pi/Tp, eta = 10;
+    double a = 2.0e-0, Tp = 0.05, omega = -2*pi/Tp, eta = 10;
     double W = S_arcl(Xref(0), 0.0), S;  //cout << S_arcl(Xref(0), 0.0) << "  " << S_arcl(a, 0.0) << "  " << S_arcl(-a, 0.0) << endl;
     double L = S_arcl(-a,0.0);  //cout << "for " << Xref(0) << "  " << W << "  " << L << endl;
     double K = Kforp*L;  //0.015*L;

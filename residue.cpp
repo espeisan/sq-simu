@@ -366,7 +366,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
   // NOTE: solve elasticity problem in the mesh at time step n
   // NOTE: The mesh used is the Vec_x_0 or Vec_x_1, look for MESH CHOISE
-  // WARNING: this function assumes that the boundary conditions was already applied
+  // WARNING: this function assumes that the boundary conditions were already applied
 
   Mat *JJ = &Mat_Jac_m;
   VecZeroEntries(Vec_fun);
@@ -442,7 +442,7 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
 
         weight = quadr_cell->weight(qp);
         JxW = J*weight;  //parece que no es necesario, ver 2141 (JxW/JxW)
-        MuE = 1.0/*1*1.0/(pow(JxW,1.0))*/;  LambE = -MuE/*1*1.0/(pow(JxW,1.0))*/;  ChiE = 2.0;  Jx0 = 1.0;
+        MuE = 1.0/(pow(JxW,1.0));  LambE = -MuE/*1*1.0/(pow(JxW,1.0))*/;  ChiE = 0.0;  Jx0 = 1.0;
         //gives problems the second term un Floc and Aloc if it is not zero, ie, if LambE =! -Mue
 
         for (int i = 0; i < n_dofs_v_per_cell/dim; ++i)  //sobre cantidad de funciones de forma
@@ -598,6 +598,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
   double utheta = AppCtx::utheta;
   double vtheta = AppCtx::vtheta;
   if (is_mr_qextrap){utheta = 1.0;}
+  //inverted_elem = PETSC_FALSE;
 
   VecSetOption(Vec_fun_fs, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
   VecSetOption(Vec_ups_k, VEC_IGNORE_NEGATIVE_INDICES, PETSC_TRUE);
@@ -1457,8 +1458,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             cout << "cell Contig id: " << mesh->getCellContigId( mesh->getCellId(&*cell) ) << endl;
             cout << "cell nodes:\n" << cell_nodes.transpose() << endl;
             cout << "mapM :\n" << mapM_c.transpose() << endl;
-            freePetscObjs();
-            PetscFinalize();
+            //inverted_elem = PETSC_TRUE;
+            //PetscFunctionReturn(0);
+            //freePetscObjs();
+            //PetscFinalize();
             throw;
           }
         }
@@ -1766,6 +1769,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
   }
   // end LOOP NAS CÉLULAS Parallel (uncomment it) //////////////////////////////////////////////////
 
+  //if (inverted_elem){ PetscFunctionReturn(0);} //This doesn't solve the petsc thrown exception TODO
 
   // LOOP FOR SOLID-ONLY CONTRIBUTION //////////////////////////////////////////////////
   if (is_sfip /*&& unsteady*/)

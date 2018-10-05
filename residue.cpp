@@ -575,8 +575,8 @@ PetscErrorCode AppCtx::formFunction_mesh(SNES /*snes_m*/, Vec Vec_v, Vec Vec_fun
     }
   }
 
-  Assembly(*JJ); View(*JJ, "matrizes/jac.m", "Jacm"); //MatView(*JJ,PETSC_VIEWER_STDOUT_WORLD);
-  Assembly(Vec_fun);  View(Vec_fun, "matrizes/rhs.m", "resm");
+  Assembly(*JJ); //View(*JJ, "matrizes/jac.m", "Jacm"); //MatView(*JJ,PETSC_VIEWER_STDOUT_WORLD);
+  Assembly(Vec_fun);  //View(Vec_fun, "matrizes/rhs.m", "resm");
   //View(*JJ, "ElastOp", "JJ");
   //double val; VecNorm(Vec_fun,NORM_2,&val); cout << "norma residuo " << val <<endl;
   //cout << "Mesh calculation:" << endl;
@@ -1458,10 +1458,13 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             cout << "cell Contig id: " << mesh->getCellContigId( mesh->getCellId(&*cell) ) << endl;
             cout << "cell nodes:\n" << cell_nodes.transpose() << endl;
             cout << "mapM :\n" << mapM_c.transpose() << endl;
+            saveDOFSinfo(1);
+            if (family_files){plotFiles(1);}
             //inverted_elem = PETSC_TRUE;
             //PetscFunctionReturn(0);
-            //freePetscObjs();
-            //PetscFinalize();
+            freePetscObjs();
+            PetscFinalize();
+            cout << "Petsc Objects Destroyed. Saving Inverted Mesh." << endl;
             throw;
           }
         }
@@ -2617,8 +2620,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         {
           int K = is_fsi;
           Xg = XG_mid[K-1];
-          Ftau = force_Ftau(Xqp, Xg, normal, dim, tag, theta_1[K-1], Usqp); //normal points OUT the fluid, see definition of normal above
-          DFtau = Dforce_Ftau(Xqp, Xg, normal, dim, tag, theta_1[K-1], Usqp); //cout << Ftau.transpose() << "       " << DFtau << endl;
+          Ftau = force_Ftau(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time, Usqp); //normal points OUT the fluid, see definition of normal above
+          DFtau = Dforce_Ftau(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time, Usqp); //cout << Ftau.transpose() << "       " << DFtau << endl;
 
           //from velocity test functions (see variational formulation)//////////////////////////////////////////////////
           for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)

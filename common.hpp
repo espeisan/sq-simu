@@ -137,8 +137,8 @@ TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t);
-Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
-double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, Vector const& Vs);
+Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t, Vector const& Vs);
+double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t, Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
@@ -630,7 +630,7 @@ public:
   void getFromBSV();
   PetscErrorCode saveDOFSinfo(int step);
   PetscErrorCode saveDOFSinfo_Re_Vel();
-  PetscErrorCode extractFdForce();
+  PetscErrorCode extractForces(bool print);
   Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);
   Tensor grad_u_exacta(Vector const& X, double t, int tag);
@@ -639,7 +639,7 @@ public:
   void computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up);
   void printProblemInfo();
   PetscErrorCode SarclTest();
-  PetscErrorCode CheckInvertedElement();
+  PetscErrorCode CheckInvertedElements();
   //void printContactAngle(bool _print);
 
   void computeError(Vec const& Vec_x, Vec &Vec_up_1, double tt);

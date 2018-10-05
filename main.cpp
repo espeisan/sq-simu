@@ -2111,6 +2111,21 @@ PetscErrorCode AppCtx::setUPInitialGuess()
       VecSetValues(Vec_slipv_1, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
       VecSetValues(Vec_slipv_0, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
     }
+    else if (is_in(tag, flusoli_tags))
+    {
+      int nod_vs = is_in_id(tag,flusoli_tags);
+      Vector Nr(dim), Ft(dim);
+      VecGetValues(Vec_normal, dim, x_dofs.data(), Nr.data());
+      int pID = mesh->getPointId(&*point);
+      if (read_from_sv_fd){
+        Ft = BFields_from_file(pID,1);
+      }
+      else{
+        //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], 0.0, 0.0, current_time+unsteady*dt);//regular code
+        Ft = force_Ftau(X1, XG_1[nod_vs-1], Nr, dim, tag, theta_1[nod_vs-1], Kforp, nforp, current_time+unsteady*dt, 0*Nr);//for paramecium test
+      }
+      VecSetValues(Vec_ftau_0, dim, x_dofs.data(), Ft.data(), INSERT_VALUES);
+    }
 
   } // end for point
 
@@ -2284,7 +2299,7 @@ PetscErrorCode AppCtx::setInitialConditions()
             }
             else{
               Vs.setZero();
-              Ftau = force_Ftau(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], Vs);
+              Ftau = force_Ftau(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], Kforp, nforp, current_time+unsteady*dt, Vs);
             }
             VecSetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ftau.data(), INSERT_VALUES);
           }
@@ -2419,12 +2434,6 @@ PetscErrorCode AppCtx::setInitialConditions()
       cout << "-----System solver-----" << endl;
       ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); //Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");
       cout << "--------------------------------------------------" << endl;
-      if (true && is_sfip && (pic+1 == PI) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0))){
-        cout << "-----Interaction force calculation------" << endl;
-        ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
-        cout << "-----Interaction force extracted------" << endl;
-        extractFdForce();
-      }
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
     if (is_sfip){// update mesh and mech. dofs//////////////////////////////////////////////////
@@ -2485,7 +2494,16 @@ PetscErrorCode AppCtx::setInitialConditions()
   }// end Picard Iterartions loop //////////////////////////////////////////////////
   //copyMesh2Vec(Vec_x_0); // at this point X^{0} is the original mesh, and X^{1} the next mesh
 
+  // calculate interaction force ///////////////////////////////////////////////////////////////////
+  if (false && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
+    cout << "-----Interaction force calculation------" << endl;
+    ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
+    cout << "-----Interaction force extracted------" << endl;
+    extractForces(true);
+  }
+
   // save data for current time ///////////////////////////////////////////////////////////////////
+  extractForces(false);
   saveDOFSinfo(1);
   if (family_files){plotFiles(1);}
   ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2698,7 +2716,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
       // if found inverted element continue ///////////////////////////////////////////////////////////////////
       if (time_adapt){
-        CheckInvertedElement();
+        CheckInvertedElements();
         if (inverted_elem){
           break;
         }
@@ -2738,10 +2756,6 @@ PetscErrorCode AppCtx::solveTimeProblem()
         ierr = SNESGetIterationNumber(snes_fs,&its);     CHKERRQ(ierr);
         //cout << "# snes iterations: " << its << endl
         cout << "--------------------------------------------------" << endl;
-        if (false && is_sfip && (pic+1 == PIs) && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) && true){
-          cout << "-----Interaction force calculation-----" << endl;
-          ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
-        }
       }////////////////////////////////////////////////////////////////////////////////////////////////////
 
       if (is_sfip){// update mesh and mech. dofs//////////////////////////////////////////////////
@@ -2769,7 +2783,15 @@ PetscErrorCode AppCtx::solveTimeProblem()
       }
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    // calculate interaction force ///////////////////////////////////////////////////////////////////
+    if (false && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PIs)*/){
+      cout << "-----Interaction force calculation-----" << endl;
+      ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
+      cout << "-----Interaction force extracted------" << endl;
+      extractForces(true);
+    }
     // save data for current time ///////////////////////////////////////////////////////////////////
+    extractForces(false);
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4060,8 +4082,8 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
       if (dim == 3){//TODO
         //Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
         //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
-        Qtmp = Q_0[s] + dt*vtheta*SkewMatrix(Z1.tail(3),dim);
-        ProjOrtMatrix(Qtmp, 1e4, 1e-8);
+        Qtmp = Q_0[s] + dt*vtheta*SkewMatrix(Z1.tail(3),dim)*Q_0[s];
+        ProjOrtMatrix(Qtmp, 0/*1e4*/, 1e-8);
         Q_1[s] = Qtmp;
       }
     }
@@ -4071,8 +4093,8 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const vtheta)
       if (dim == 3){//TODO
         //Qtmp = Id3 - vtheta*dt*SkewMatrix(Z1.tail(3),dim);
         //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
-        Qtmp = Q_0[s] + dt*((1.0+vtheta)*SkewMatrix(Z1.tail(3),dim) - vtheta*SkewMatrix(Z0.tail(3),dim));
-        ProjOrtMatrix(Qtmp, 1e4, 1e-8);
+        Qtmp = Q_0[s] + dt*((1.0+vtheta)*SkewMatrix(Z1.tail(3),dim)*Q_0[s] - vtheta*SkewMatrix(Z0.tail(3),dim)*Q_aux[s]);
+        ProjOrtMatrix(Qtmp, 0/*1e4*/, 1e-8);
         Q_1[s] = Qtmp;
       }
     }
@@ -4562,11 +4584,19 @@ Tensor AppCtx::grad_u_exacta(Vector const& X, double t, int tag)
 PetscErrorCode AppCtx::ProjOrtMatrix(Matrix3d & Qn, int it, double eps){
   Matrix3d E(Matrix3d::Zero(3,3));
   Matrix3d Id(Matrix3d::Identity(3,3));
-  for (int k = 0; k < it; k++){
-    E = Id - Qn.transpose()*Qn;
-    Qn = Qn + 0.5*Qn*E;
-    if (E.norm() < eps)
-      break;
+
+  if (it == 0){
+    JacobiSVD<Matrix3d> svd(Qn, ComputeThinU | ComputeThinV);
+    Matrix3d U = svd.matrixU(); Matrix3d V = svd.matrixV();
+    Qn = U*V.transpose();
+  }
+  else{
+    for (int k = 0; k < it; k++){
+      E = Id - Qn.transpose()*Qn;
+      Qn = Qn + 0.5*Qn*E;
+      if (E.norm() < eps)
+        break;
+    }
   }
   PetscFunctionReturn(0);
 }
@@ -4955,7 +4985,7 @@ PetscErrorCode AppCtx::saveDOFSinfo_Re_Vel(){
  PetscFunctionReturn(0);
 }
 
-PetscErrorCode AppCtx::extractFdForce(){
+PetscErrorCode AppCtx::extractForces(bool print){
   int tag, nod_id, nod_vs, pID;
   double theta;
   Point const* point(NULL);//, point_i(NULL);
@@ -4967,14 +4997,17 @@ PetscErrorCode AppCtx::extractFdForce(){
 
   ofstream filfd, filfd_info;
   char fdc[PETSC_MAX_PATH_LEN], fdc_info[PETSC_MAX_PATH_LEN];
-  sprintf(fdc,"%s/theta_Fd_file.txt",filehist_out.c_str());
-  sprintf(fdc_info,"%s/theta_Fd_file_info.txt",filehist_out.c_str());
-  filfd.open(fdc);
-  filfd.precision(15);
 
-  filfd_info.open(fdc_info);
-  filfd_info << "Point ID   Theta   Force Fd(dim)   Force Ft(dim)   Slip Vel(dim)   Normal(dim)   Tangent(dim)   PointCoords(dim)";
-  filfd_info.close();
+  if (print){
+    sprintf(fdc,"%s/theta_Fd_file_%06d.txt",filehist_out.c_str(),time_step);
+    sprintf(fdc_info,"%s/theta_Fd_file_info.txt",filehist_out.c_str());
+    filfd.open(fdc);
+    filfd.precision(15);
+
+    filfd_info.open(fdc_info);
+    filfd_info << "Point ID   Theta   Force Fd(dim)   Force Ft(dim)   Slip Vel(dim)   Normal(dim)   Tangent(dim)   PointCoords(dim)";
+    filfd_info.close();
+  }
 
   for (int j = 0; j < n_nodes_total; j++){
     point = mesh->getNodePtr(j);
@@ -5010,28 +5043,31 @@ PetscErrorCode AppCtx::extractFdForce(){
       VecGetValues(Vec_ups_1, dim, dofs_U.data(), U.data());
       Sv = U - Uf;  //cout << VS.transpose() << endl;
       VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Sv.data(), INSERT_VALUES);// before Vec_slipv_1
+      VecSetValues(Vec_slipv_1, dim, dofs_mesh.data(), Sv.data(), INSERT_VALUES);// before Vec_slipv_1
       if (is_unksv){
-        Ft = force_Ftau(Xj, XG, Nr, dim, tag, theta_ini[nod_vs+nod_id-1], Sv);
+        Ft = force_Ftau(Xj, XG, Nr, dim, tag, theta_ini[nod_vs+nod_id-1], Kforp, nforp, current_time, Sv);
         VecSetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ft.data(), INSERT_VALUES);// before Vec_slipv_1
       }
     }
-
-    if (j == n_nodes_total-1)
-      filfd << pID << " " << theta << " " << Fd(0) << " " << Fd(1) << " "
-                                          << Ft(0) << " " << Ft(1) << " "
-                                          << Sv(0) << " " << Sv(1) << " "
-                                          << Nr(0) << " " << Nr(1) << " "
-                                          << Tg(0) << " " << Tg(1) << " "
-                                          << Xj(0) << " " << Xj(1);
-    else
-      filfd << pID << " " << theta << " " << Fd(0) << " " << Fd(1) << " "
-                                          << Ft(0) << " " << Ft(1) << " "
-                                          << Sv(0) << " " << Sv(1) << " "
-                                          << Nr(0) << " " << Nr(1) << " "
-                                          << Tg(0) << " " << Tg(1) << " "
-                                          << Xj(0) << " " << Xj(1) << endl;
+    if (print){
+      if (j == n_nodes_total-1)
+        filfd << pID << " " << theta << " " << Fd(0) << " " << Fd(1) << " "
+                                            << Ft(0) << " " << Ft(1) << " "
+                                            << Sv(0) << " " << Sv(1) << " "
+                                            << Nr(0) << " " << Nr(1) << " "
+                                            << Tg(0) << " " << Tg(1) << " "
+                                            << Xj(0) << " " << Xj(1);
+      else
+        filfd << pID << " " << theta << " " << Fd(0) << " " << Fd(1) << " "
+                                            << Ft(0) << " " << Ft(1) << " "
+                                            << Sv(0) << " " << Sv(1) << " "
+                                            << Nr(0) << " " << Nr(1) << " "
+                                            << Tg(0) << " " << Tg(1) << " "
+                                            << Xj(0) << " " << Xj(1) << endl;
+    }
   }
-  filfd.close();
+  if (print)
+    filfd.close();
 
   PetscFunctionReturn(0);
 }
@@ -5097,7 +5133,7 @@ PetscErrorCode AppCtx::SarclTest(){
   PetscFunctionReturn(0);
 }
 
-PetscErrorCode AppCtx::CheckInvertedElement(){
+PetscErrorCode AppCtx::CheckInvertedElements(){
   MatrixXd            x_coefs_c_mid_trans(dim, nodes_per_cell); // n+utheta
   MatrixXd            x_coefs_c_new(nodes_per_cell, dim);       // n+1
   MatrixXd            x_coefs_c_new_trans(dim, nodes_per_cell); // n+1
@@ -5452,7 +5488,7 @@ int main(int argc, char **argv)
   // solve time problem //////////////////////////////////////////////////
   user.solveTimeProblem();
 
-  // free memory and finalizying //////////////////////////////////////////////////
+  // free memory and finalizing //////////////////////////////////////////////////
   cout << "\n";
   user.timer.printTimes();
   user.freePetscObjs();

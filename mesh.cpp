@@ -1454,7 +1454,7 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
     } // end for point
     //VecView(Vec_v_mid,PETSC_VIEWER_STDOUT_WORLD); VecView(Vec_up_0,PETSC_VIEWER_STDOUT_WORLD); VecView(Vec_up_1,PETSC_VIEWER_STDOUT_WORLD);
   } // b.c.  //NOTE: at t=0 results Vec_v_mid=
-  Assembly(Vec_v_mid); View(Vec_v_mid,"matrizes/vmid1.m","vmidm1");
+  Assembly(Vec_v_mid); //View(Vec_v_mid,"matrizes/vmid1.m","vmidm1");
   //char buf1[50], buf2[50];
   //sprintf(buf1,"matrizes/vmid1_%d.m",time_step); sprintf(buf2,"vmidm1_%d",time_step); View(Vec_v_mid, buf1, buf2);
   if (!force_mesh_velocity)
@@ -3393,7 +3393,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
 
   checkConsistencyTri(&*mesh);
 
-  printf("Mesh adapted.");
+  printf("Mesh adapted.\n");
 
   PetscFunctionReturn(0);
 }

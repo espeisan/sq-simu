@@ -247,15 +247,15 @@ void AppCtx::setUpDefaultOptions()
 
   //Luzia's part for meshAdapt_l()
   h_star = 0.02;
-  Q_star = 0.6;
+  Q_star = 0.9;//0.6;
   beta_l = 4.00;
-  L_min  = 0.3; //0.02;//h_star*sqrt(3)/3.0;
-  L_max = 1;
-  L_range = 0.3;
-  L_low = 0.577350269;//1.0*L_min/L_max;
-  L_sup = 1.732050808; //1.0/L_low;
+  L_min  = 3.7113111772657698672617243573768;//1.0;//0.3; //0.02;//h_star*sqrt(3)/3.0;
+  L_max  = 639.78926362886295464704744517803; //sqrt(3);// 1;
+  L_range = 200.0;//0.3;
+  L_low = 0.1; //0.1;//L_min/L_max;// + 0.01; //0.577350269;//1.0*L_min/L_max;
+  L_sup = 10.0;//1.732050808; //L_max/L_min - 0.01; //1.732050808; //1.0/L_low;
 
-  TOLad = 0.6;  //for meshAdapt_s()
+  TOLad = 0.1;  //for meshAdapt_s()
 
   n_unknowns_z      = 0; n_unknowns_f        = 0; n_unknowns_s        = 0;
   n_nodes_fsi       = 0; n_nodes_fo          = 0; n_nodes_so          = 0;
@@ -2415,9 +2415,10 @@ PetscErrorCode AppCtx::setInitialConditions()
     //if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
 
     //Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal//////////////////////////////////////////////////
-    if (mesh_adapt && time_step > 0){meshAdapt_s();} //meshAdapt()_l;
+    if (mesh_adapt && time_step >= 0){meshAdapt_s();} //meshAdapt()_l; // time_step >= 0 just for mesh tests FIXME
     copyVec2Mesh(Vec_x_1);
-    if (mesh_adapt && time_step > 0){meshFlipping_s();}
+    if (mesh_adapt && time_step >= 0){meshFlipping_s();} // time_step >= 0 just for mesh tests FIXME
+    if (true) {CheckInvertedElements();}  //true just for mesh tests FIXME
     //////////////////////////////////////////////////
 
     //Calculate normals//////////////////////////////////////////////////
@@ -2499,11 +2500,11 @@ PetscErrorCode AppCtx::setInitialConditions()
     cout << "-----Interaction force calculation------" << endl;
     ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
     cout << "-----Interaction force extracted------" << endl;
-    extractForces(true);
+    extractForce(true);
   }
 
   // save data for current time ///////////////////////////////////////////////////////////////////
-  extractForces(false);
+  extractForce(false);
   saveDOFSinfo(1);
   if (family_files){plotFiles(1);}
   ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2788,10 +2789,10 @@ PetscErrorCode AppCtx::solveTimeProblem()
       cout << "-----Interaction force calculation-----" << endl;
       ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
-      extractForces(true);
+      extractForce(true);
     }
     // save data for current time ///////////////////////////////////////////////////////////////////
-    extractForces(false);
+    extractForce(false);
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
     ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4985,7 +4986,7 @@ PetscErrorCode AppCtx::saveDOFSinfo_Re_Vel(){
  PetscFunctionReturn(0);
 }
 
-PetscErrorCode AppCtx::extractForces(bool print){
+PetscErrorCode AppCtx::extractForce(bool print){
   int tag, nod_id, nod_vs, pID;
   double theta;
   Point const* point(NULL);//, point_i(NULL);
@@ -5184,10 +5185,11 @@ PetscErrorCode AppCtx::CheckInvertedElements(){
         cout << "cell nodes:\n" << cell_nodes.transpose() << endl;
         cout << "mapM :\n" << mapM_c.transpose() << endl;
         inverted_elem = PETSC_TRUE;
-        PetscFunctionReturn(0);
-        //freePetscObjs();
-        //PetscFinalize();
-        //throw;
+        freePetscObjs();
+        PetscFinalize();
+        cout << "Petsc Objects Destroyed. Saving Inverted Mesh." << endl;
+        throw;
+        //PetscFunctionReturn(0);
       }
     }//end for qp
   }//end for cell

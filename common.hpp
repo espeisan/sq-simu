@@ -630,7 +630,7 @@ public:
   void getFromBSV();
   PetscErrorCode saveDOFSinfo(int step);
   PetscErrorCode saveDOFSinfo_Re_Vel();
-  PetscErrorCode extractForces(bool print);
+  PetscErrorCode extractForce(bool print);
   Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);
   Tensor grad_u_exacta(Vector const& X, double t, int tag);

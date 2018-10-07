@@ -1877,19 +1877,37 @@ double AppCtx::sizeField(double *coords)
 
 double AppCtx::quality_f(Vector a_coord, Vector b_coord)
 {
-  double La = sizeField_s(a_coord), Lb = sizeField_s(b_coord);
+  double L = 0.0;
   double e = (a_coord-b_coord).norm();
+  if (false){
+    double La = sizeField_s(a_coord), Lb = sizeField_s(b_coord);
+    if( La == Lb ) return e/La;
+    L = e/(La-Lb)*log(La/Lb);
+  }
+  if (true){
+    //Gauss Chebyshev (works very well, singularities)//////////////////////////////////////////////////
+    double ls = 1.0, li = 0.0;//, Len = 0.0, Gen = 0.0;
+    int Nroots = 100;
+    for (int i = 0; i < Nroots; i++){
+      double Xc = cos(pi*(2.0*(i+1)-1)/(2.0*(double)Nroots));
+      double eval = (ls-li)/2.0 * Xc + (ls+li)/2.0;
+      Vector XC = a_coord + eval*(b_coord - a_coord);
+      L = L + 1.0/sizeField_s(XC)*sqrt(1-Xc*Xc)*e;
+      //Len = Len + 1.0*sqrt(1-Xc*Xc)*e;
+    }
+    L = (ls-li)/2.0 * abs(L) * pi/(double)Nroots;
+    //Len = (ls-li)/2.0 * abs(Len) * pi/(double)Nroots;
+    //cout << "Edge length = " << e << ", estimated = " << Len <<
+    //        ", for " << a_coord.transpose() << "  " << b_coord.transpose() << endl;
 
-  if( La == Lb ) return e/La;
-
-  double L = e/(La-Lb)*log(La/Lb);
-
+  }
+  //cout << e << endl;
   return L;
 }
 
 double AppCtx::sizeField_s(Vector coords)
 {
-  double Lc = 0, dist = 1.0, L_range = 10*h_star;
+  double Lc = 0, dist = 1.0;//L_range = 10*h_star;
   Vector3d Xg, C(Vector3d::Zero(3));
   for(int i = 0; i < n_solids; i++)
   {
@@ -1897,8 +1915,14 @@ double AppCtx::sizeField_s(Vector coords)
     C(0) = coords(0); C(1) = coords(1);
     if (coords.size() == 3) {C(2) = coords(2);}
     double d = (C-Xg).norm();
-    d=((d-RV[i](0))>0)?(d-RV[i](0)):0.0;
-
+    //d=((d-RV[i].maxCoeff())>0)?(d-RV[i].maxCoeff()):0.0;
+    if ( d <= RV[i].maxCoeff() )
+      d = 0.0;
+    else if ( (d > RV[i].maxCoeff()) && (d < RV[i].maxCoeff()+L_range) )
+      d = (d-RV[i].maxCoeff());
+    else
+      d = 1e12;
+    //d = 0.0;
     dist *= fmin(1.0,d/(L_range));
   }
   //Lc = 1.2*L_min + (4*h_star-L_min)*(dist);
@@ -2765,12 +2789,12 @@ PetscErrorCode AppCtx::meshAdapt_s()
   //int counter = 0;
   if ((Qmesh < Q_star) /*&& (counter < 4)*/ /*true*/){
 
-    cout << "Entering Mesh quality test " << Qmesh << " < " << Q_star << endl;
+    cout << "Entering Mesh quality test: " << Qmesh << " < " << Q_star << "." << endl;
 
 //    for (int na = 0; na < 5; na++){
     for (int is_splitting = 0; is_splitting < 2 ; ++is_splitting)
     {
-      // FOR OVER EDGES' ID'S//////////////////////////////////////////////////
+      // FOR OVER EDGES' ID'S //////////////////////////////////////////////////
       int const n_edges_total = (dim==2) ? mesh->numFacetsTotal() : mesh->numCornersTotal();
       for (int eid = 0; eid < n_edges_total; ++eid)
       {
@@ -2795,6 +2819,8 @@ PetscErrorCode AppCtx::meshAdapt_s()
           continue;
         //if ((is_in(tag_e, flusoli_tags) || is_in(tag_e, solidonly_tags)) && (!is_splitting))
         //  continue;
+        if (is_in(tag_e, dirichlet_tags))
+          continue;
         if (!(tag_a == tag_b && tag_b == tag_e) && (is_splitting == 0))  //only collapse edges inside the same type of domain
           continue;                                                //(ex: inside fluid)
 
@@ -2809,8 +2835,29 @@ PetscErrorCode AppCtx::meshAdapt_s()
         h          = (Xa-Xb).norm();
         expected_h = .5*(mesh_sizes[edge_nodes[0]] + mesh_sizes[edge_nodes[1]]);
 
-        //Splitting (after Collapsing)
-        if (is_splitting)//&& (time_step%2==0))
+
+        //Collapsing (before Splitting)//////////////////////////////////////////////////
+        if(!is_splitting)//&& !(time_step%2==0)) // is collapsing
+        {
+          //cout << edge_nodes[0] << " " << edge_nodes[1] << " " << h << endl;
+/*          if (is_in(tag_a, flusoli_tags) || is_in(tag_b, flusoli_tags)){
+            if (quality_f(Xa, Xb) < 0.5){
+              mesh_was_changed = true;
+              int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
+              printf("COLLAPSED %d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", pt_id);
+            }
+          }*/
+          //if ( (h-expected_h)/expected_h < -TOLad )
+          if (  quality_f(Xa, Xb)        < L_low  )
+          {
+            mesh_was_changed = true;
+            int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
+            //printf("COLLAPSED %d !!!!!!!!!!\n", pt_id);
+            //mesh->getNodePtr(pt_id)->setMarkedTo(true); //gives error for the Collapsing
+          }
+        }
+        //Splitting (after Collapsing)//////////////////////////////////////////////////
+        else if (true && is_splitting)//&& (time_step%2==0))
         {
           if (false && is_in(tag_e, dirichlet_tags)){
             //if (false && (quality_f(Xa, Xb) > 1.2)){
@@ -2832,7 +2879,8 @@ PetscErrorCode AppCtx::meshAdapt_s()
               }
             //}
           }
-          else if ( ((h-expected_h)/expected_h > TOLad) /*|| (quality_f(Xa, Xb) > L_sup)*/ )
+          //else if ( (h-expected_h)/expected_h > TOLad )
+          else if (  quality_f(Xa, Xb)        > L_sup )
           {
             mesh_was_changed = true;
             int pt_id = MeshToolsTri::insertVertexOnEdge(edge->getIncidCell(), edge->getPosition(), 0.5, &*mesh);
@@ -2852,24 +2900,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
             }
           }
         }
-        //Collapsing (before Splitting)
-        else if(!is_splitting)//&& !(time_step%2==0)) // is collapsing
-        {
-/*          if (is_in(tag_a, flusoli_tags) || is_in(tag_b, flusoli_tags)){
-            if (quality_f(Xa, Xb) < 0.5){
-              mesh_was_changed = true;
-              int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
-              printf("COLLAPSED %d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", pt_id);
-            }
-          }*/
-          if ( ((h-expected_h)/expected_h < -TOLad) /*|| (quality_f(Xa, Xb) < L_low)*/ )
-          {
-            mesh_was_changed = true;
-            int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 1.0, &*mesh);
-            //printf("COLLAPSED %d !!!!!!!!!!\n", pt_id);
-            //mesh->getNodePtr(pt_id)->setMarkedTo(true);
-          }
-        }
+
       }
       // end n_edges_total //////////////////////////////////////////////////
     }
@@ -2878,9 +2909,9 @@ PetscErrorCode AppCtx::meshAdapt_s()
     //Qmesh = quality_m(&*mesh);  counter++;
   }
   // end if Qmesh //////////////////////////////////////////////////
-
+  //cin.get();
   if (!mesh_was_changed){
-    cout << "Mesh not adpated" << endl;
+    cout << "Mesh not adapted: Qmesh " << " > " << Q_star << " or not necessary." << endl;
     PetscFunctionReturn(0);
   }
 

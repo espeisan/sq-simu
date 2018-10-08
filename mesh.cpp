@@ -1907,23 +1907,47 @@ double AppCtx::quality_f(Vector a_coord, Vector b_coord)
 
 double AppCtx::sizeField_s(Vector coords)
 {
-  double Lc = 0, dist = 1.0;//L_range = 10*h_star;
+  double Lc = 0, dist = 1.0e10;//L_range = 10*h_star;
   Vector3d Xg, C(Vector3d::Zero(3));
-  for(int i = 0; i < n_solids; i++)
-  {
-    Xg = XG_1[i];
-    C(0) = coords(0); C(1) = coords(1);
-    if (coords.size() == 3) {C(2) = coords(2);}
-    double d = (C-Xg).norm();
-    //d=((d-RV[i].maxCoeff())>0)?(d-RV[i].maxCoeff()):0.0;
+  if (false){
+    for(int i = 0; i < n_solids; i++)
+    {
+      Xg = XG_1[i];
+      C(0) = coords(0); C(1) = coords(1);
+      if (coords.size() == 3) {C(2) = coords(2);}
+      double d = (C-Xg).norm();
+      //d=((d-RV[i].maxCoeff())>0)?(d-RV[i].maxCoeff()):0.0;
+      if ( d <= RV[i].maxCoeff() )
+        d = 0.0;
+      else if ( (d > RV[i].maxCoeff()) && (d < RV[i].maxCoeff()+L_range) )
+        d = (d-RV[i].maxCoeff());
+      else
+        d = 1e12;
+      //d = 0.0;
+      dist *= fmin(1.0,d/L_range);
+    }
+  }
+  if (true){
+    int j = 0;
+    for(int i = 0; i < n_solids; i++)
+    {
+      Xg = XG_1[i];
+      C(0) = coords(0); C(1) = coords(1);
+      if (coords.size() == 3) {C(2) = coords(2);}
+      double d = (C-Xg).norm();
+      if (d < dist){
+        dist = d;
+        j = i;
+      }
+    }
+    double d = dist; int i = j;
     if ( d <= RV[i].maxCoeff() )
       d = 0.0;
     else if ( (d > RV[i].maxCoeff()) && (d < RV[i].maxCoeff()+L_range) )
       d = (d-RV[i].maxCoeff());
     else
       d = 1e12;
-    //d = 0.0;
-    dist *= fmin(1.0,d/(L_range));
+    dist = fmin(1.0,d/L_range);
   }
   //Lc = 1.2*L_min + (4*h_star-L_min)*(dist);
   Lc = L_min + (L_max-L_min)*(dist);
@@ -2821,8 +2845,10 @@ PetscErrorCode AppCtx::meshAdapt_s()
         //  continue;
         if (is_in(tag_e, dirichlet_tags))
           continue;
-        if (!(tag_a == tag_b && tag_b == tag_e) && (is_splitting == 0))  //only collapse edges inside the same type of domain
-          continue;                                                //(ex: inside fluid)
+        //if ( !(tag_a == tag_b && tag_b == tag_e) && !is_splitting )  //only collapse edges inside the same type of domain
+        //  continue;                                                //(ex: inside fluid)
+        if (!is_in(tag_e,fluidonly_tags) && !is_splitting)  //only collapse edges inside fluid
+          continue;
 
         Point const* pt_a = mesh->getNodePtr(edge_nodes[0]);
         Point const* pt_b = mesh->getNodePtr(edge_nodes[1]);
@@ -2839,49 +2865,81 @@ PetscErrorCode AppCtx::meshAdapt_s()
         //Collapsing (before Splitting)//////////////////////////////////////////////////
         if(!is_splitting)//&& !(time_step%2==0)) // is collapsing
         {
+          bool collapsed = false, collapsed_surface = false;
+          bool a_in_surface = (is_in(tag_a,slipvel_tags)||is_in(tag_a,flusoli_tags));
+          bool b_in_surface = (is_in(tag_b,slipvel_tags)||is_in(tag_b,flusoli_tags));
           //cout << edge_nodes[0] << " " << edge_nodes[1] << " " << h << endl;
-/*          if (is_in(tag_a, flusoli_tags) || is_in(tag_b, flusoli_tags)){
-            if (quality_f(Xa, Xb) < 0.5){
-              mesh_was_changed = true;
-              int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
-              printf("COLLAPSED %d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", pt_id);
-            }
-          }*/
+          //if ( is_in(tag_e, solidonly_tags) || is_in(tag_e, flusoli_tags) || is_in(tag_e, slipvel_tags) )
+          //  continue;
           //if ( (h-expected_h)/expected_h < -TOLad )
           if (  quality_f(Xa, Xb)        < L_low  )
           {
+            collapsed = true;
+          }
+          else if ( ( a_in_surface && is_in(tag_b,fluidonly_tags)) ||
+                    ( b_in_surface && is_in(tag_a,fluidonly_tags)) )
+          {
+            Cell *cell_A = mesh->getCellPtr(edge->getIncidCell());
+            if (quality_c(cell_A) < 0.8){
+              collapsed = true;
+              //if (a_in_surface){mesh->getNodePtr(edge_nodes[0])->setBlockedTo(true);}
+              //if (b_in_surface){mesh->getNodePtr(edge_nodes[1])->setBlockedTo(true);}
+              cout << "small cell at the boundary collapsed: "
+                   << "v = " << edge_nodes[0] << "," << edge_nodes[1]
+                   << ", c = " << edge->getIncidCell();
+              collapsed_surface = true;
+            }
+          }
+
+          if (collapsed){//////////////////////////////////////////////////
             mesh_was_changed = true;
-            int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
+            //int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
+            if (collapsed_surface){
+              //int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
+              int pt_id = collapseEdge2d_s(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
+              //int tag_tmp = tag_a*a_in_surface + tag_b*b_in_surface;
+              //edge->setTag(10);
+              //mesh->getNodePtr(pt_id)->setTag(10);
+              cout << " id collapsed = " << pt_id;
+              if (pt_id > 0){cout << ", v tag = " << mesh->getNodePtr(pt_id)->getTag();}
+              cout << ", edge tag = " << edge->getTag() << ", c new = " << edge->getIncidCell() << endl;
+            }
+            else
+              int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
             //printf("COLLAPSED %d !!!!!!!!!!\n", pt_id);
             //mesh->getNodePtr(pt_id)->setMarkedTo(true); //gives error for the Collapsing
-          }
+            //mesh->getNodePtr(edge_nodes[0])->setBlockedTo(false);
+            //mesh->getNodePtr(edge_nodes[1])->setBlockedTo(false);
+            //break;
+          }//mesh was changed//////////////////////////////////////////////////
         }
         //Splitting (after Collapsing)//////////////////////////////////////////////////
         else if (true && is_splitting)//&& (time_step%2==0))
         {
+          bool splitted = false;
           if (false && is_in(tag_e, dirichlet_tags)){
             //if (false && (quality_f(Xa, Xb) > 1.2)){
-              mesh_was_changed = true;
-              int pt_id = MeshToolsTri::insertVertexOnEdge(edge->getIncidCell(), edge->getPosition(), 0.5, &*mesh);
-              printf("INSERTED %d !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n", pt_id);
-              adde_vtcs.push_back(make_tuple(pt_id, edge_nodes[0], edge_nodes[1]));
-              mesh->getNodePtr(pt_id)->setMarkedTo(true);
-              if (pt_id < (int)mesh_sizes.size())
-                mesh_sizes[pt_id] = expected_h;
-              else
-              {
-                if (pt_id > (int)mesh_sizes.size())
-                {
-                  printf("ERROR: Something with mesh_sizes is wrong!!\n");
-                  throw;
-                }
-                mesh_sizes.push_back(expected_h);
-              }
+            splitted = true;
             //}
           }
           //else if ( (h-expected_h)/expected_h > TOLad )
           else if (  quality_f(Xa, Xb)        > L_sup )
           {
+            splitted = true;
+          }
+          else if ( (abs(is_in_id(tag_a,slipvel_tags)-is_in_id(tag_b,slipvel_tags)) > 0) ||
+                    (abs(is_in_id(tag_a,flusoli_tags)-is_in_id(tag_b,flusoli_tags)) > 0)  )
+          {
+            //if (time_step == 0){
+            //  splitted = true;
+            //}
+            if ( (fmin(is_in_id(tag_a,slipvel_tags),is_in_id(tag_b,slipvel_tags)) > 0) ||
+                 (fmin(is_in_id(tag_a,flusoli_tags),is_in_id(tag_b,flusoli_tags)) > 0) ){
+              splitted = true;
+            }
+          }
+
+          if (splitted){//////////////////////////////////////////////////
             mesh_was_changed = true;
             int pt_id = MeshToolsTri::insertVertexOnEdge(edge->getIncidCell(), edge->getPosition(), 0.5, &*mesh);
             //printf("INSERTED %d BETWEEN %d AND %d !!!!!!!!!!", pt_id, edge_nodes[0], edge_nodes[1]); cout << " " << Xa.transpose() << " and " << Xb.transpose() << endl;
@@ -2898,8 +2956,8 @@ PetscErrorCode AppCtx::meshAdapt_s()
               }
               mesh_sizes.push_back(expected_h);
             }
-          }
-        }
+          }//mesh was changed//////////////////////////////////////////////////
+        }//end else if//////////////////////////////////////////////////
 
       }
       // end n_edges_total //////////////////////////////////////////////////
@@ -3525,4 +3583,394 @@ PetscErrorCode AppCtx::orthogTest(Vec const& Vec_0, Vec const& Vec_1)
     }
   }
   PetscFunctionReturn(0);
+}
+
+int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
+{
+    int const  sdim = mesh->spaceDim();
+
+    // ============================== Ids das celulas opostas à aresta =================================================
+    Cell const *cell_A = mesh->getCellPtr(cell_A_id);
+    int const cell_B_id = cell_A->getIncidCell(face_Am_id);
+    Cell *cell_B = NULL;
+
+    // ================================ Teste se a aresta é de bordo ===================================================
+    const bool edge_in_boundary = cell_B_id < 0;
+
+    // ================================= Ainda não tratei este caso ====================================================
+    //const bool highm_order = mesh->numNodesPerCell() > mesh->numVerticesPerCell();
+
+    // =============================== Ids locais das arestas das celulas ==============================================
+    int face_Abr_id = (face_Am_id+1)%3,
+        face_Atr_id = (face_Am_id+2)%3,
+        face_Bbl_id = -1,
+        face_Btl_id = -1,
+        face_Bm_id   = -1;
+
+    if ( !edge_in_boundary )
+    { // Trata o caso onde a aresta não é de bordo
+        cell_B       = mesh->getCellPtr(cell_B_id);  // Ponteiro para a celula B
+        face_Bm_id   = cell_A->getIncidCellPos(face_Am_id);
+        face_Btl_id  = (face_Bm_id+1)%3;
+        face_Bbl_id  = (face_Bm_id+2)%3;
+    }
+
+    // =============================== Ids dos vertices ================================================================
+    int const vtx_t_id = cell_A->getNodeId(face_Am_id);
+    int const vtx_b_id = cell_A->getNodeId(face_Abr_id);
+    int const vtx_r_id = cell_A->getNodeId(face_Atr_id);
+    int       vtx_l_id = -1;
+    if ( !edge_in_boundary )
+    { // Trata o caso onde a aresta não é de bordo
+        vtx_l_id = cell_B->getNodeId(face_Bbl_id);
+    }
+
+
+    // ================================ Id global das arestas ==========================================================
+    int const edge_m_id  = cell_A->getFacetId(face_Am_id); // = old edge
+    int       edge_br_id = cell_A->getFacetId(face_Abr_id); // Aresta que segue o vertice vtx_b
+    int       edge_tr_id = cell_A->getFacetId(face_Atr_id); // Aresta que segue o vtx_l
+    int       edge_bl_id = -1; // Aresta que segue o vertice vtx_r
+    int       edge_tl_id = -1; // Aresta entre o vertices vtx_b e vtx_r
+
+    if ( !edge_in_boundary )
+    { // Trata o caso onde a aresta não é de bordo
+        edge_bl_id = cell_B->getFacetId(face_Bbl_id);
+        edge_tl_id = cell_B->getFacetId(face_Btl_id);
+    }
+
+
+    // ========================== Guada o Id global das celulas vizinhas ===============================================
+    int const cell_AT_id = cell_A->getIncidCell(face_Atr_id),
+              cell_AB_id = cell_A->getIncidCell(face_Abr_id);
+    int       cell_BT_id = -1,
+              cell_BB_id = -1;
+    if ( !edge_in_boundary )
+    { // Trata o caso onde a aresta não é de bordo
+        cell_BT_id = cell_B->getIncidCell(face_Btl_id);
+        cell_BB_id = cell_B->getIncidCell(face_Bbl_id);
+    }
+
+    // =========================== Guarda o Id local das faces nas celulas vizinhas ====================================
+    int const face_ATtr_id = cell_A->getIncidCellPos(face_Atr_id),
+              face_ABbr_id = cell_A->getIncidCellPos(face_Abr_id);
+    int       face_BTtl_id = -1,
+              face_BBbl_id = -1;
+    if ( !edge_in_boundary )
+    { // Trata o caso onde a aresta não é de bordo
+        face_BTtl_id = cell_B->getIncidCellPos(face_Btl_id);
+        face_BBbl_id = cell_B->getIncidCellPos(face_Bbl_id);
+    }
+
+    // TO DO
+    // ================================ Trata as componentes conexa e de bordo =========================================
+    // int bdr=mesh->getFacetPtr(edge_tr_id)->getBoundaryComponentId();
+
+    // ================================ Mover os vertices vtx_t e vtx_b para a posição de colapso ======================
+    Point *vtx_t = mesh->getNodePtr(vtx_t_id),
+          *vtx_b = mesh->getNodePtr(vtx_b_id),
+          *vtx_r = mesh->getNodePtr(vtx_r_id),
+          *vtx_l = NULL;
+
+    if( !edge_in_boundary) vtx_l = mesh->getNodePtr(vtx_l_id);
+
+    // testes para identificar se algum dos vertices está bloqueado
+    Real coords_t[3], coords_b[3];
+    Real coords_m[3], t_aux=t;
+
+    vtx_t->getCoord(coords_t, sdim);
+    vtx_b->getCoord(coords_b, sdim);
+
+    if( (vtx_t->isBlocked()) && (!vtx_b->isBlocked()) )
+    {
+        t_aux=1;
+    }
+    if( (!vtx_t->isBlocked()) && (vtx_b->isBlocked()) )
+    {
+        t_aux=0;
+    }
+    if(  (vtx_t->isBlocked()) && (vtx_b->isBlocked()) &&
+         ((vtx_b->getTag()!=vtx_t->getTag()) || ((vtx_b->getTag()==vtx_t->getTag())&&(vtx_b->getTag()!=mesh->getFacetPtr(edge_m_id)->getTag())) ) ) return -1;
+
+    for (int i = 0; i < sdim; ++i)
+        coords_m[i] = t_aux*(coords_t[i] - coords_b[i]) + coords_b[i];
+
+    vtx_t->setCoord(coords_m,sdim);
+    vtx_b->setCoord(coords_m,sdim);
+
+    // ================================ Pegar a estrela do vertice que vai ser substituido =============================
+    int iCs_t[64],   // Ids das celulas da estrela
+        viCs_t[64],
+        iCs_b[64],
+        viCs_b[64];  // Ids locais do vertice nas celulas da estrela
+
+    mesh->vertexStar(cell_A_id, face_Am_id , iCs_t, viCs_t);
+    mesh->vertexStar(cell_A_id, (face_Am_id+1)%3 , iCs_b, viCs_b);
+
+    // testa se o colapso gera elementos invertidos
+    bool test=false;
+    for( int i=0; iCs_t[i]!=-1; i++)
+    {
+        if((iCs_t[i]!=cell_A_id)&&(iCs_t[i]!=cell_B_id)&&(area_s(mesh->getCellPtr(iCs_t[i]), mesh) < 1e-8) ) test = true;
+    }
+    for( int i=0; iCs_b[i]!=-1; i++)
+    {
+        if((iCs_b[i]!=cell_A_id)&&(iCs_b[i]!=cell_B_id)&&(area_s(mesh->getCellPtr(iCs_b[i]), mesh) < 1e-8) ) test = true;
+    }
+    if(test == true)
+    {
+        vtx_t->setCoord(coords_t, sdim);
+        vtx_b->setCoord(coords_b, sdim);
+        return -1;
+    }
+
+    // Indica a todas as celulas que continham vtx_t que vtx_b está na posição agora
+    for( int i=0; iCs_t[i] > -1; i++)
+    {
+       Cell *cell = mesh->getCellPtr(iCs_t[i]);
+       cell->setNodeId(viCs_t[i], vtx_b_id);
+    }
+
+    // =========================== Atribuir as adjacencias aos vertices ================================================
+    // vtx_t : será removido, logo não é necessário atualizar suas adjacencias
+    // Vertice vtx_r
+    if( vtx_r->getIncidCell() == cell_A_id )
+    {
+        int cell_incid = -1, cell_pos = -1;
+        if( cell_AT_id > -1 )
+        {
+            cell_incid  = cell_AT_id;
+            cell_pos    = (face_ATtr_id+1)%3;
+        }
+        else if( cell_AB_id > -1 )
+        {
+            cell_incid  = cell_AB_id;
+            cell_pos    = face_ABbr_id;
+        }
+        vtx_r->setIncidence(cell_incid, cell_pos);
+    }
+
+    // Vertice vtx_b
+    if( (vtx_b->getIncidCell() == cell_A_id) || (vtx_b->getIncidCell() == cell_B_id) )
+    {
+        int cell_incid = -1, cell_pos = -1;
+        if( cell_AT_id > -1 )
+        {
+            cell_incid  = cell_AT_id;
+            cell_pos    = face_ATtr_id;
+        }
+        else if( cell_AB_id > -1 )
+        {
+            cell_incid  = cell_AB_id;
+            cell_pos    = (face_ABbr_id+1)%3;
+        }
+        else if( cell_BB_id > -1 )
+        {
+            cell_incid  = cell_BB_id;
+            cell_pos    = face_BBbl_id;
+        }
+        else if( cell_BT_id > -1 )
+        {
+            cell_incid  = cell_BT_id;
+            cell_pos    = (face_BTtl_id+1)%3;
+        }
+
+        vtx_b->setIncidence(cell_incid, cell_pos);
+    }
+
+    // Vertice vtx_l
+    if ( !edge_in_boundary )
+    {
+        if( vtx_l->getIncidCell() == cell_B_id )
+        {
+            int cell_incid = -1, cell_pos = -1;
+            if( cell_BT_id > -1 )
+            {
+                cell_incid  = cell_BT_id;
+                cell_pos    = face_BTtl_id;
+            }
+            else if( cell_BB_id > -1 )
+            {
+                cell_incid  = cell_BB_id;
+                cell_pos    = (face_BBbl_id+1)%3;
+            }
+            vtx_l->setIncidence(cell_incid, cell_pos);
+        }
+    }
+
+    // =========================== Atualizar as tags dos vertices ================================================
+    if (mesh->inBoundary(vtx_t)||(vtx_t->isBlocked()))
+    {
+        int tag = vtx_t->getTag();
+        vtx_b->setTag(tag);
+    }
+    else
+    {
+        int tag_t = vtx_t->getTag(),
+            tag_b = vtx_b->getTag();
+        if( tag_t > tag_b )
+            vtx_b->setTag(tag_t);
+    }
+
+    if(vtx_t->isBlocked())
+    {
+        vtx_b->setBlockedTo(true);
+    }
+
+    /* old
+    if( cell_AT_id > -1 )
+    {
+        if(! vtx_b->replacesIncidCell(cell_A_id, cell_AT_id, face_ATtr_id))
+        {
+            if( cell_BT_id > -1 )
+                vtx_b->replacesIncidCell(cell_B_id, cell_BT_id, (face_BTtl_id+1)%3 );
+            else
+                vtx_b->replacesIncidCell(cell_B_id, cell_BB_id, (face_BBbl_id) );
+        }
+
+        vtx_r->replacesIncidCell(cell_A_id, cell_AT_id, (face_ATtr_id+1)%3 );
+    }else
+    {
+        if(! vtx_b->replacesIncidCell(cell_A_id, cell_AB_id, (face_ABbr_id+1)%3))
+        {
+            if( cell_BT_id > -1 )
+                vtx_b->replacesIncidCell(cell_B_id, cell_BT_id, (face_BTtl_id+1)%3);
+            else
+                vtx_b->replacesIncidCell(cell_B_id, cell_BB_id, (face_BBbl_id)%3 );
+        }
+        vtx_r->replacesIncidCell(cell_A_id, cell_AB_id, (face_ABbr_id) );
+    }
+
+    if ( !edge_in_boundary )
+        vtx_l->replacesIncidCell(cell_B_id, cell_BT_id, face_BTtl_id);
+    */
+    // =========================== Atribuir as adjacencias das arestas =================================================
+
+    Facet *edge_br = mesh->getFacetPtr(edge_br_id),
+          *edge_tr = mesh->getFacetPtr(edge_tr_id);
+    Facet *edge_bl = NULL,
+          *edge_tl = NULL;
+
+    // Aresta edge_br
+    if(cell_AT_id > -1 ) edge_br->setIncidence(cell_AT_id, face_ATtr_id );
+    else                 edge_br->setIncidence(cell_AB_id, face_ABbr_id );
+    if(edge_tr->isBlocked()) edge_br->setBlockedTo(true);
+
+    // Aresta edge_bl
+    if ( !edge_in_boundary )
+    {
+        edge_bl=mesh->getFacetPtr(edge_bl_id);
+        edge_tl=mesh->getFacetPtr(edge_tl_id);
+        if(cell_BT_id>-1) edge_bl->setIncidence(cell_BT_id, face_BTtl_id);
+        else              edge_bl->setIncidence(cell_BB_id, face_BBbl_id);
+        if(edge_tl->isBlocked()) edge_bl->setBlockedTo(true);
+    }
+
+    // =========================== Atualizar as tags das arestas =======================================================
+    if (mesh->inBoundary(edge_tr) || edge_tr->isBlocked())
+    {
+        int tag = edge_tr->getTag();
+        edge_br->setTag(tag);
+    }
+    else
+    {
+        int tag_b = edge_br->getTag(),
+            tag_t = edge_tr->getTag();
+        if( tag_t > tag_b )
+            edge_br->setTag(tag_t);
+    }
+
+    if ( !edge_in_boundary )
+    {
+        if( mesh->inBoundary(edge_tl) || edge_tl->isBlocked() )
+        {
+            int tag = edge_tl->getTag();
+            edge_bl->setTag(tag);
+        }
+        else
+        {
+            int tag_b = edge_bl->getTag(),
+                tag_t = edge_tl->getTag();
+            if( tag_t > tag_b )
+            {
+                edge_bl->setTag(tag_t);
+            }
+        }
+    }
+
+    // ======= Fala para as celulas vizinhas o id das arestas que são suas faces, e quais são suas celulas vizinhas ====
+    // =======================================  ----- SetUp Neighbors --------------  ==================================
+
+    if ( cell_AT_id > -1 )
+    {
+        Cell *cell_AT = mesh->getCellPtr(cell_AT_id);
+        cell_AT->setIncidence(face_ATtr_id, cell_AB_id, face_ABbr_id);
+        cell_AT->setFacetId(face_ATtr_id, edge_br_id);
+    }
+    if ( cell_AB_id > -1 )
+    {
+        Cell *cell_AB = mesh->getCellPtr(cell_AB_id);
+        cell_AB->setIncidence(face_ABbr_id, cell_AT_id, face_ATtr_id);
+    }
+
+    if (!edge_in_boundary)
+    {
+        if(cell_BT_id > -1 )
+        {
+            Cell *cell_BT = mesh->getCellPtr(cell_BT_id);
+            cell_BT->setFacetId(face_BTtl_id, edge_bl_id);
+            cell_BT->setIncidence(face_BTtl_id, cell_BB_id, face_BBbl_id);
+        }
+        if(cell_BB_id > -1 )
+        {
+            Cell *cell_BB = mesh->getCellPtr(cell_BB_id);
+            cell_BB->setIncidence(face_BBbl_id, cell_BT_id, face_BTtl_id);
+        }
+    }
+
+    // ========================================== Caso de vtx_t estar no bordo ===========================================
+    // Se vtx_t esta no bordo, vtx_b tambem estara
+    if (mesh->inBoundary(vtx_t))
+        vtx_b->setAsBoundary(true);
+
+    // ================================ Deletar os elementos ===========================================================
+    mesh->disablePoint(vtx_t_id);
+
+    mesh->disableFacet(edge_tr_id);
+    mesh->disableFacet(edge_m_id);
+    if(!edge_in_boundary)
+        mesh->disableFacet(edge_tl_id);
+
+    mesh->disableCell(cell_A_id);
+    if(!edge_in_boundary)
+        mesh->disableCell(cell_B_id);
+
+    // Casos degenerados
+    if( ( cell_AT_id == -1 )&&( cell_AB_id ==-1 ) )
+    {
+        mesh->disableFacet(edge_br_id);
+        mesh->disablePoint(vtx_r_id);
+    }
+    if( ( cell_BT_id == -1 )&&( cell_BB_id ==-1 )&&(edge_bl_id!=-1))
+    {
+        mesh->disableFacet(edge_bl_id);
+        mesh->disablePoint(vtx_l_id);
+    }
+
+    return vtx_b_id;
+}
+
+Real AppCtx::area_s(Cell const* cell, Mesh const* mesh)
+{
+    Point const *a = mesh->getNodePtr(cell->getNodeId(0));
+    Point const *b = mesh->getNodePtr(cell->getNodeId(1));
+    Point const *c = mesh->getNodePtr(cell->getNodeId(2));
+
+    Real const ax = a->getCoord(0), ay = a->getCoord(1);
+    Real const bx = b->getCoord(0), by = b->getCoord(1);
+    Real const cx = c->getCoord(0), cy = c->getCoord(1);
+
+    Real At = 0.5 * ( ax*by + ay*cx + bx*cy - by*cx - ay*bx - ax*cy );
+
+    return At;
 }

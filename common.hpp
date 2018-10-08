@@ -944,7 +944,8 @@ public:
   double quality_f(Vector a_coord, Vector b_coord);
   double sizeField_s(Vector coords);
 
-
+  int collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh);
+  Real area_s(Cell const* cell, Mesh const* mesh);
   PetscErrorCode meshAdapt_s();
   PetscErrorCode meshFlipping_s();
   void smoothsMesh_s(Vec &Vec_normal_, Vec &Vec_x_);

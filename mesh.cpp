@@ -1438,11 +1438,11 @@ PetscErrorCode AppCtx::calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0,
         }
         else
         {
-          if (nodsum){ // enforces solid motion for the nodsum mesh nodes,
+          if (nodsum){//enforces solid motion for the nodsum mesh nodes,
             Vm = vectorSolidMesh(nodsum,&*point,nod_vs);  //to calculate mesh velocity //ojo antes solo nod_vs
             tmp(0) = Vm(0); tmp(1) = Vm(1); if (dim == 3) tmp(2) = Vm(2);
           }
-          else{
+          else{//this is just an initial shoot for the mesh velocity at fluid nodes
             VecGetValues(Vec_up_0, dim, node_dofs_fluid_fs.data(), U0.data());
             VecGetValues(Vec_up_1, dim, node_dofs_fluid_fs.data(), U1.data());
             tmp = vtheta*U1 + (1.-vtheta)*U0;  //VecNorm(difff,NORM_2,&nrm);  cout << "\n" << nrm << endl;
@@ -1524,7 +1524,8 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 
   if (is_mr_qextrap || is_mr_ab){
     VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X_0.data());
-    X_1 = XG_1[K-1] + RotM(theta_1[K-1],Q_1[K-1],dim)*RotM(theta_0[K-1],Q_1[K-1],dim).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
+    X_1 = XG_1[K-1] + RotM(theta_1[K-1],Q_1[K-1],thetaDOF)*RotM(theta_0[K-1],Q_0[K-1],thetaDOF).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
+    //X_1 = XG_1[K-1] + Q_1[K-1]*Q_0[K-1].transpose()*(X_0 - XG_0[K-1]); //here it should be solve the fixed point problem
     Vm = (-X_0 + X_1)/dt;
   }
   else if (is_bdf3 && time_step > 1){
@@ -1553,11 +1554,11 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
     Vm  = (X_1 - X_0)/dt;
   }
 
-  if (vs && !is_sslv){
-    VecGetValues(Vec_slipv_0, dim, dofs.data(), Vs.data());
-    Vs = RotM(theta_1[vs-1],dim)*RotM(theta_0[vs-1],dim).transpose()*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
-    VecSetValues(Vec_slipv_1, dim, dofs.data(), Vs.data(), INSERT_VALUES);
-  }
+  //if (vs && !is_sslv){
+  //  VecGetValues(Vec_slipv_0, dim, dofs.data(), Vs.data());
+  //  Vs = RotM(theta_1[vs-1],dim)*RotM(theta_0[vs-1],dim).transpose()*Vs;// + XG_1[nod_id+nod_is-1]; // - XG_0[nod_id+nod_is-1];
+  //  VecSetValues(Vec_slipv_1, dim, dofs.data(), Vs.data(), INSERT_VALUES);
+  //}
 
   return Vm;
 }
@@ -1593,7 +1594,7 @@ PetscErrorCode AppCtx::updateSolidMesh()
         XG_1[nodsum-1] = Xg;                               // if Zf = 0, then XG_1 = XG_0
         theta_1[nodsum-1] = theta_0[nodsum-1] + (dt/2.0)*Zf(LZ-1);  // if Zf = 0, then theta_1 = theta_0
         if (dim == 3){
-          Qtmp = Id3 - (dt/2.0)*SkewMatrix(Zf.tail(3),dim);
+          Qtmp = Id3 - (dt/2.0)*SkewMatrix(Zf.tail(3));
           invert(Qtmp,dim);
           Q_1[nodsum-1] = Qtmp*Q_0[nodsum-1];
         }
@@ -2872,49 +2873,67 @@ PetscErrorCode AppCtx::meshAdapt_s()
           //if ( is_in(tag_e, solidonly_tags) || is_in(tag_e, flusoli_tags) || is_in(tag_e, slipvel_tags) )
           //  continue;
           //if ( (h-expected_h)/expected_h < -TOLad )
-          if (  quality_f(Xa, Xb)        < L_low  )
-          {
-            collapsed = true;
+          if (tag_a == tag_b && tag_b == tag_e && true){
+            if (  quality_f(Xa, Xb)        < L_low  )
+            {
+              collapsed = true;
+            }
           }
-          else if ( ( a_in_surface && is_in(tag_b,fluidonly_tags)) ||
-                    ( b_in_surface && is_in(tag_a,fluidonly_tags)) )
+          else if ( (( a_in_surface && is_in(tag_b,fluidonly_tags)) ||
+                    ( b_in_surface && is_in(tag_a,fluidonly_tags))) && false )
           {
             Cell *cell_A = mesh->getCellPtr(edge->getIncidCell());
-            if (quality_c(cell_A) < 0.8){
+            Cell *cell_B = mesh->getCellPtr(cell_A->getIncidCell(edge->getPosition()));
+            if (quality_c(cell_A) < 0.2 || quality_c(cell_B) < 0.2){
               collapsed = true;
-              //if (a_in_surface){mesh->getNodePtr(edge_nodes[0])->setBlockedTo(true);}
-              //if (b_in_surface){mesh->getNodePtr(edge_nodes[1])->setBlockedTo(true);}
-              cout << "small cell at the boundary collapsed: "
-                   << "v = " << edge_nodes[0] << "," << edge_nodes[1]
-                   << ", c = " << edge->getIncidCell();
               collapsed_surface = true;
+              //if (a_in_surface){mesh->getNodePtr(edge_nodes[0])->setBlockedTo(true);}
+              //else             {mesh->getNodePtr(edge_nodes[0])->setBlockedTo(false);}
+              //if (b_in_surface){mesh->getNodePtr(edge_nodes[1])->setBlockedTo(true);}
+              //else             {mesh->getNodePtr(edge_nodes[1])->setBlockedTo(false);}
+              //cout << "small cell at the boundary collapsed: "
+              //     << "v = " << edge_nodes[0] << "," << edge_nodes[1]
+              //     << ", c = " << edge->getIncidCell();
+
             }
           }
 
           if (collapsed){//////////////////////////////////////////////////
             mesh_was_changed = true;
             //int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
-            if (collapsed_surface){
+            if (collapsed_surface && true){
               //int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
+              //double tcol = 0.0;
+              //if (is_in(tag_a,slipvel_tags)||is_in(tag_a,flusoli_tags))
+              //  tcol = 1.0;
+
               int pt_id = collapseEdge2d_s(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
               //int tag_tmp = tag_a*a_in_surface + tag_b*b_in_surface;
               //edge->setTag(10);
               //mesh->getNodePtr(pt_id)->setTag(10);
-              cout << " id collapsed = " << pt_id;
-              if (pt_id > 0){cout << ", v tag = " << mesh->getNodePtr(pt_id)->getTag();}
-              cout << ", edge tag = " << edge->getTag() << ", c new = " << edge->getIncidCell() << endl;
+              //mesh->getNodePtr(pt_id)->setMarkedTo(true); //gives error for the Collapsing
+              //mesh->getNodePtr(edge_nodes[0])->setBlockedTo(false);
+              //mesh->getNodePtr(edge_nodes[1])->setBlockedTo(false);
+              //cout << " id collapsed = " << pt_id;
+              //if (pt_id > 0){cout << ", v tag = " << mesh->getNodePtr(pt_id)->getTag();}
+              //cout << ", edge tag = " << edge->getTag() << ", c new = " << edge->getIncidCell() << endl;
+              //vtk_printer_test.writeVtk();
+              //vtk_printer_test.printPointTagVtk();
+              //vtk_printer_test.addCellIntVtk("cell_tag", GetDataCellTag(*this));
             }
-            else
+            else{
               int pt_id = MeshToolsTri::collapseEdge2d(edge->getIncidCell(), edge->getPosition(), 0.0, &*mesh);
             //printf("COLLAPSED %d !!!!!!!!!!\n", pt_id);
-            //mesh->getNodePtr(pt_id)->setMarkedTo(true); //gives error for the Collapsing
-            //mesh->getNodePtr(edge_nodes[0])->setBlockedTo(false);
-            //mesh->getNodePtr(edge_nodes[1])->setBlockedTo(false);
-            //break;
+              //cout << " id collapsed = " << pt_id;
+              //if (pt_id > 0){cout << ", v tag = " << mesh->getNodePtr(pt_id)->getTag();}
+              //cout << ", edge tag = " << edge->getTag() << ", c new = " << edge->getIncidCell() << endl;
+              //vtk_printer_test.writeVtk();
+              //vtk_printer_test.printPointTagVtk();
+            }
           }//mesh was changed//////////////////////////////////////////////////
         }
         //Splitting (after Collapsing)//////////////////////////////////////////////////
-        else if (true && is_splitting)//&& (time_step%2==0))
+        else if (is_splitting && true)//&& (time_step%2==0))
         {
           bool splitted = false;
           if (false && is_in(tag_e, dirichlet_tags)){
@@ -2972,6 +2991,8 @@ PetscErrorCode AppCtx::meshAdapt_s()
     cout << "Mesh not adapted: Qmesh " << " > " << Q_star << " or not necessary." << endl;
     PetscFunctionReturn(0);
   }
+
+  //if (true) {CheckInvertedElements();}
 
   meshAliasesUpdate();
 
@@ -3036,7 +3057,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     dof_handler_tmp[DH_UNKM].copy(dof_handler[DH_UNKM]);  //dof_handler_tmp[DH_UNKS].copy(dof_handler[DH_UNKS]);
     dofsUpdate();  //updates DH_ information: # variables u, z, p, mesh can change
     cout << " #u=" << n_unknowns_u << " #p=" << n_unknowns_p << " #z=" << n_unknowns_z << " #l=" << n_links << " #m=" << n_modes
-         << " #v=" << n_dofs_v_mesh  << " #n_fsi=" << n_nodes_fsi << endl;
+         << " #v=" << n_dofs_v_mesh  << " #n_fsi=" << n_nodes_fsi << " #n_facets_fsi=" << n_facets_fsi << " #n_nodes_surface=" << n_nodes_sv+n_nodes_fs << endl;
 
     Vec *petsc_vecs[] = {&Vec_ups_0,    &Vec_ups_1,    &Vec_x_0,      &Vec_x_1,      &Vec_v_mid,    &Vec_ups_m1,   &Vec_x_aux,    &Vec_ups_m2,   &Vec_slipv_0,  &Vec_slipv_1,  &Vec_slipv_m1, &Vec_slipv_m2};
     int DH_t[]        = {DH_UNKM,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_UNKM,       DH_MESH,       DH_MESH,       DH_MESH,       DH_MESH      };
@@ -3624,7 +3645,8 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
     { // Trata o caso onde a aresta não é de bordo
         vtx_l_id = cell_B->getNodeId(face_Bbl_id);
     }
-
+    int tag_tmp = mesh->getNodePtr(vtx_t_id)->getTag();
+    if (is_in(tag_tmp,slipvel_tags)||is_in(tag_tmp,flusoli_tags)) {/*cin.get();*/ return -1;}
 
     // ================================ Id global das arestas ==========================================================
     int const edge_m_id  = cell_A->getFacetId(face_Am_id); // = old edge
@@ -3638,8 +3660,19 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
         edge_bl_id = cell_B->getFacetId(face_Bbl_id);
         edge_tl_id = cell_B->getFacetId(face_Btl_id);
     }
-
-
+/*
+    VectorXi edge_nodes(3); cout << endl;// 3 nodes at most
+    mesh->getFacetNodesId(edge_m_id, edge_nodes.data());
+    cout << "facet id " << edge_m_id << " nodes " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+    mesh->getFacetNodesId(edge_br_id, edge_nodes.data());
+    cout << "facet id " << edge_br_id << " nodes " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+    mesh->getFacetNodesId(edge_tr_id, edge_nodes.data());
+    cout << "facet id " << edge_tr_id << " nodes " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+    mesh->getFacetNodesId(edge_bl_id, edge_nodes.data());
+    cout << "facet id " << edge_bl_id << " nodes " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+    mesh->getFacetNodesId(edge_tl_id, edge_nodes.data());
+    cout << "facet id " << edge_tl_id << " nodes " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+*/
     // ========================== Guada o Id global das celulas vizinhas ===============================================
     int const cell_AT_id = cell_A->getIncidCell(face_Atr_id),
               cell_AB_id = cell_A->getIncidCell(face_Abr_id);
@@ -3681,13 +3714,18 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
     vtx_t->getCoord(coords_t, sdim);
     vtx_b->getCoord(coords_b, sdim);
 
-    if( (vtx_t->isBlocked()) && (!vtx_b->isBlocked()) )
+    bool collapse_to_t = is_in(vtx_t->getTag(),slipvel_tags)||is_in(vtx_t->getTag(),flusoli_tags);
+    bool collapse_to_b = is_in(vtx_b->getTag(),slipvel_tags)||is_in(vtx_b->getTag(),flusoli_tags);
+
+    //if( (vtx_t->isBlocked()) && (!vtx_b->isBlocked()) )
+    if (collapse_to_t)
     {
-        t_aux=1;
+        t_aux=1.0;
     }
-    if( (!vtx_t->isBlocked()) && (vtx_b->isBlocked()) )
+    //if( (!vtx_t->isBlocked()) && (vtx_b->isBlocked()) )
+    if (collapse_to_b)
     {
-        t_aux=0;
+        t_aux=0.0;
     }
     if(  (vtx_t->isBlocked()) && (vtx_b->isBlocked()) &&
          ((vtx_b->getTag()!=vtx_t->getTag()) || ((vtx_b->getTag()==vtx_t->getTag())&&(vtx_b->getTag()!=mesh->getFacetPtr(edge_m_id)->getTag())) ) ) return -1;
@@ -3806,10 +3844,12 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
     }
     else
     {
-        int tag_t = vtx_t->getTag(),
-            tag_b = vtx_b->getTag();
-        if( tag_t > tag_b )
-            vtx_b->setTag(tag_t);
+        int tag_t = vtx_t->getTag();
+            //tag_b = vtx_b->getTag();
+        //if( tag_t > tag_b )
+        //    vtx_b->setTag(tag_t);
+        if (collapse_to_t)
+          vtx_b->setTag(tag_t);
     }
 
     if(vtx_t->isBlocked())
@@ -3865,7 +3905,19 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
         else              edge_bl->setIncidence(cell_BB_id, face_BBbl_id);
         if(edge_tl->isBlocked()) edge_bl->setBlockedTo(true);
     }
-
+/*
+    if (collapse_to_t){
+      VectorXi edge_nodes(3); cout << endl;// 3 nodes at most
+      mesh->getFacetNodesId(edge_br_id, edge_nodes.data());
+      cout << "edge_br: " << edge_br->getTag() << ", nodes: " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+      mesh->getFacetNodesId(edge_tr_id, edge_nodes.data());
+      cout << "edge_tr: " << edge_tr->getTag() << ", nodes: " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+      mesh->getFacetNodesId(edge_bl_id, edge_nodes.data());
+      cout << "edge_bl: " << edge_bl->getTag() << ", nodes: " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+      mesh->getFacetNodesId(edge_tl_id, edge_nodes.data());
+      cout << "edge_tl: " << edge_tl->getTag() << ", nodes: " << edge_nodes[0] << "," << edge_nodes[1] << endl;
+    }
+*/
     // =========================== Atualizar as tags das arestas =======================================================
     if (mesh->inBoundary(edge_tr) || edge_tr->isBlocked())
     {
@@ -3874,10 +3926,15 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
     }
     else
     {
-        int tag_b = edge_br->getTag(),
-            tag_t = edge_tr->getTag();
-        if( tag_t > tag_b )
-            edge_br->setTag(tag_t);
+        //int tag_b = edge_br->getTag(),
+        //    tag_t = edge_tr->getTag();
+        //if( tag_t > tag_b )
+        //    edge_br->setTag(tag_t);
+      if (collapse_to_b)
+        edge_br->setTag(vtx_r->getTag());
+      //else
+      //  if (edge_tr->getTag() != edge_br->getTag())
+      //    edge_br->setTag(edge_tr->getTag());
     }
 
     if ( !edge_in_boundary )
@@ -3889,12 +3946,17 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
         }
         else
         {
-            int tag_b = edge_bl->getTag(),
-                tag_t = edge_tl->getTag();
-            if( tag_t > tag_b )
-            {
-                edge_bl->setTag(tag_t);
-            }
+            //int tag_b = edge_bl->getTag(),
+            //    tag_t = edge_tl->getTag();
+            //if( tag_t > tag_b )
+            //{
+            //    edge_bl->setTag(tag_t);
+            //}
+          if (collapse_to_b)
+            edge_bl->setTag(vtx_l->getTag());
+          //else
+          //  if (edge_tl->getTag() != edge_bl->getTag())
+          //    edge_bl->setTag(edge_tl->getTag());
         }
     }
 
@@ -3940,6 +4002,13 @@ int AppCtx::collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh)
     mesh->disableFacet(edge_m_id);
     if(!edge_in_boundary)
         mesh->disableFacet(edge_tl_id);
+
+    if (false && collapse_to_t){
+      mesh->disableFacet(edge_br_id);
+      mesh->disableFacet(edge_m_id);
+      if(!edge_in_boundary)
+          mesh->disableFacet(edge_bl_id);
+    }
 
     mesh->disableCell(cell_A_id);
     if(!edge_in_boundary)

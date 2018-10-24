@@ -65,7 +65,7 @@ typedef Matrix<MatrixXd, Dynamic,1>  VecOfMat;
 typedef Matrix<double, Dynamic,1,0,6,1>              Vector;  //6 is _MaxRows in the dynamic option
 typedef Matrix<double, Dynamic,Dynamic,RowMajor,3,3> Tensor;
 typedef Matrix<double, 3, 3>                         Tensor3;
-typedef Matrix<double, Dynamic,Dynamic,RowMajor,6,6> TensorZ;
+typedef Matrix<double, Dynamic,Dynamic,RowMajor,6,6> TensorS;
 typedef Matrix<int, Dynamic,Dynamic,RowMajor,6,6>    TensorXi;
 
 template<class Vec, class T>
@@ -133,12 +133,17 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
                  Vector const& Gr, double const rhoj, double const rhof, double ep, double zeta);
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
-TensorZ MI_tensor(double M, double R, int dim, Tensor3 TI);
+TensorS MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
-Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t);
-Vector force_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t, Vector const& Vs);
-double Dforce_Ftau(Vector const& X, Vector const& XG, Vector const& normal, int dim, int tag, double theta, double Kforp, double nforp, double t, Vector const& Vs);
+Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
+               int dim, int tag, double theta, double Kforp, double nforp, double t);
+Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
+                 int dim, int tag, double theta, double Kforp, double nforp, double t,
+                 Vector const& Vs);
+double DFtauForce(Vector const& X, Vector const& XG, Vector const& normal,
+                  int dim, int tag, double theta, double Kforp, double nforp, double t,
+                  Vector const& Vs);
 VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
@@ -374,18 +379,16 @@ inline Vector LinksVel(Vector const& Xg, Vector const& Xgref, double thetaref, M
   return Z;
 }
 
-inline Matrix3d SkewMatrix(Vector const& X, int dim){
-  Matrix3d S(Matrix3d::Zero(dim,dim));
-  if (dim == 3){
-    S(0,1) = -X(2); S(1,0) =  X(2);
-    S(0,2) =  X(1); S(2,0) = -X(1);
-    S(1,2) = -X(0); S(2,1) =  X(0);
-  }
+inline Matrix3d SkewMatrix(Vector const& X){
+  Matrix3d S(Matrix3d::Zero(3,3));
+  S(0,1) = -X(2); S(1,0) =  X(2);
+  S(0,2) =  X(1); S(2,0) = -X(1);
+  S(1,2) = -X(0); S(2,1) =  X(0);
   return S;
 }
 
-inline TensorZ SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ){
-  TensorZ H = TensorZ::Zero(dim,LZ);
+inline TensorS SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ){
+  TensorS H = TensorS::Zero(dim,LZ);
   if (dim == 2){
     H(0,0) = 1.0; H(1,1) = 1.0;
     H(0,2) = -(X(1)-Xg(1));
@@ -393,21 +396,21 @@ inline TensorZ SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ
   }
   else if(dim == 3){
     H(0,0) = 1.0; H(1,1) = 1.0; H(2,2) = 1.0;
-    TensorZ S = SkewMatrix(X-Xg,dim);
+    TensorS S = SkewMatrix(X-Xg);
     H.block(0,dim,dim,dim) = -S;
     //H = Z.head(3) + cross(Z.tail(3),X-Xg);
   }
   return H;
 }
 
-inline TensorZ SolidVelGrad(Vector const& X, Vector const& Xg, int dim, int LZ){
-  TensorZ H = TensorZ::Identity(LZ,LZ);
+inline TensorS SolidVelGrad(Vector const& X, Vector const& Xg, int dim, int LZ){
+  TensorS H = TensorS::Identity(LZ,LZ);
   if (dim == 2){
     H(0,2) = -(X(1)-Xg(1));
     H(1,2) =  (X(0)-Xg(0));
   }
   else if(dim == 3){
-    TensorZ S = SkewMatrix(X-Xg,dim);
+    TensorS S = SkewMatrix(X-Xg);
     H.block(0,dim,dim,dim) = -S;
   }
   return H;
@@ -442,13 +445,20 @@ inline void getTangents(Vector& T, Vector &B, Vector const& N, int dim){
     T(0) = +N(1); T(1) = -N(0);  //T(0) = -N(1); T(1) = +N(0);
   }
   else if (dim == 3){//TODO
-    //T = I - N*N.transpose();
+    Vector Ref(3);
+    Ref(0) = 0.0; Ref(1) = 0.0; Ref(2) = -1;
+    Vector Tg = (I - N*N.transpose())*Ref;
+    double nTg = Tg.norm();
+    if (nTg < 1e-10){Tg(0) = 1.0; Tg(1) = 0.0; Tg(2) = 0.0;}
+    else {Tg = Tg/nTg;}
+
+    T = Tg;
     //cross(T2, N, T1);
   }
 }
 
 
-
+//////////////////////////////////////////////////
 class Statistics
 {
   template<class T>
@@ -512,12 +522,11 @@ public:
 
 
 };
+//////////////////////////////////////////////////
 
-
-
-//
+// //////////////////////////////////////////////////
 // User Class
-//
+// //////////////////////////////////////////////////
 class AppCtx
 {
 public:
@@ -631,10 +640,13 @@ public:
   PetscErrorCode saveDOFSinfo(int step);
   PetscErrorCode saveDOFSinfo_Re_Vel();
   PetscErrorCode extractForce(bool print);
+  PetscErrorCode importSurfaceInfo(int time_step);
   Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);
   Tensor grad_u_exacta(Vector const& X, double t, int tag);
-  PetscErrorCode ProjOrtMatrix(Matrix3d & Qn, int it, double eps);
+  Vector ftau_exacta(Vector const& X, Vector const& XG, Vector const& normal,
+                             double t, int tag, double theta);
+  PetscErrorCode ProjOrtMatrix(Matrix3d & Qn, int it, double eps, int dim);
   void computeForces(Vec const& Vec_x, Vec &Vec_up);
   void computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up);
   void printProblemInfo();
@@ -682,6 +694,7 @@ public:
   int         n_modes;
   int         n_links;
   int         n_groups;
+  int         thetaDOF;
   //double      Re;
   PetscBool   has_convec;
   PetscBool   unsteady;
@@ -697,6 +710,7 @@ public:
   PetscBool   fprint_ca, fprint_hgv; // print contact angle, gravity velocity solid
   PetscBool   nonlinear_elasticity;
   PetscBool   mesh_adapt;
+  PetscBool   static_mesh;
   PetscBool   time_adapt;
   PetscBool   is_mr_ab;
   PetscBool   is_bdf3;
@@ -730,6 +744,8 @@ public:
   double      finaltime;
   bool        pres_pres_block;
   bool        solve_the_sys;
+  bool        is_Stokes;
+  bool        is_NavierStokes;
   float       grow_factor;
   string      filename, filemass, filexas, filesvfd;
   string      filename_out, filehist_out;
@@ -748,7 +764,7 @@ public:
 
   DofHandler                   dof_handler[3];  //or 3
   MeshIoMsh                    msh_reader;
-  MeshIoVtk                    vtk_printer;
+  MeshIoVtk                    vtk_printer, vtk_printer_test;
   shared_ptr<Mesh>             mesh;
   // velocity
   shared_ptr<ShapeFunction>    shape_phi_c; // cell
@@ -852,6 +868,8 @@ public:
   int           n_nodes_fo;
   int           n_nodes_so;
   int           n_nodes_sv;
+  int           n_nodes_fs;
+  int           n_facets_fsi;
   
   int                    n_solids, LZ;
   std::vector<int>       NN_Solids, pIDs;
@@ -930,8 +948,10 @@ public:
   Vec                 Vec_ups_time_aux, Vec_x_time_aux;
 
   //mech. dofs printing information
-  ofstream            filg, filv, filr;
-  char                grac[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN], errc[PETSC_MAX_PATH_LEN];
+  ofstream            filg, filv, filr, filt, filf;
+  char                grac[PETSC_MAX_PATH_LEN], velc[PETSC_MAX_PATH_LEN],
+                      errc[PETSC_MAX_PATH_LEN], rotc[PETSC_MAX_PATH_LEN],
+                      forc[PETSC_MAX_PATH_LEN];
 
   // For Luzia's methods
   double h_star, Q_star, beta_l, L_min, L_max, L_range, L_low, L_sup;

@@ -43,13 +43,14 @@ TensorS MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
-               int dim, int tag, double theta, double Kforp, double nforp, double t);
+               int dim, int tag, double theta, double Kforp, double nforp, double t,
+               Matrix3d const& Q, int thetaDOF);
 Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
                  int dim, int tag, double theta, double Kforp, double nforp, double t,
-                 Vector const& Vs);
+                 Vector const& Vs, Matrix3d const& Q, int thetaDOF, double Kcte);
 double DFtauForce(Vector const& X, Vector const& XG, Vector const& normal,
                   int dim, int tag, double theta, double Kforp, double nforp, double t,
-                  Vector const& Vs);
+                  Vector const& Vs, double Kcte);
 VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
@@ -1956,7 +1957,7 @@ double muu(int tag)
 {
 //  if (tag == 15)
 //  {
-    return 1.0;//1.0e-3;//1.0/3.0;//1.0*0.1;
+    return 1.0e-3;//1.0/3.0;//1.0*0.1;
 //  }
 //  else
 //  {
@@ -2120,7 +2121,7 @@ Tensor feature_proj(Vector const& X, double t, int tag)
   //}
   //if (tag == 4 || tag == 5 || tag == 8){f(1,1) = 1;}
   //if (tag == 6 || tag == 5 || tag == 1 || tag == 8){
-    f(1,1) = 0;  //1
+    f(1,1) = 1.0;  //1
   //}
   return f;
 }
@@ -2504,7 +2505,7 @@ TensorS MI_tensor(double M, double R, int dim, Tensor3 TI)
 
 Matrix3d RotM(double theta, Matrix3d Qr, int thetaDOF)
 {
-  Matrix3d M(Matrix3d::Zero(3,3));
+  Matrix3d M(Matrix3d::Identity(3,3)); //Matrix3d M(Matrix3d::Zero(3,3));
   if (thetaDOF == 1){
     M(0,0) = cos(theta); M(0,1) = -sin(theta);
     M(1,0) = sin(theta); M(1,1) =  cos(theta);
@@ -2526,9 +2527,10 @@ Matrix3d RotM(double theta, int dim)
 }
 
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
-               int dim, int tag, double theta, double Kforp, double nforp, double t)
+               int dim, int tag, double theta, double Kforp, double nforp, double t,
+               Matrix3d const& Q, int thetaDOF)
 {
-  int cas = 3;
+  int cas = 6;
   Vector V(Vector::Zero(dim));
   Vector X3(Vector::Zero(3));
   Vector Xp(Vector::Zero(dim));
@@ -2576,12 +2578,11 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
   else if (cas == 3 && dim == 2)
   {//don't forget to put viscosity 1 for the unitary circular, spherical toy case
     double psi = 0.0;
-    double B1 = +1.0*0.5, B2 = +0.0*5.0/2.0;
-    //theta = pi/2;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
+    double B1 = +0.5, B2 = +3.0;
     double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
     //V(0) = +normal(1); V(1) = -normal(0);   //V(0) = -normal(1); V(1) = +normal(0);
-    V = uthe*tau; V = abs(uthe)*tau;
+    V = uthe*tau; V = uthe*tau;
     //if ( X(1)-XG(1) < 0.0 )
     //  V = Vector::Zero(dim);
     //else
@@ -2628,16 +2629,16 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
     V = uthe*tau;
     //cout << V.transpose() << endl;
   }
-  else if (cas == 6 && dim == 2 && (tag == 101 /*|| tag == 102*//*144 || tag == 142 || tag == 130*/))//for metachronal waves
-  {
-    Matrix3d Qr(Matrix3d::Zero(3,3));
+  else if (cas == 6 && dim == 2 && (tag == 101 || tag == 102/*144 || tag == 142 || tag == 130*/))
+  {//for metachronal waves full body
+    Matrix3d Qr = Q;//(Matrix3d::Zero(3,3));
     Vector3d Xref(Vector3d::Zero(3)), X3(Vector::Zero(3));
     X3(0) = X(0); X3(1) = X(1);
-    Xref = RotM(theta,Qr,dim).transpose()*(X3 - XG);
+    Xref = RotM(theta,Qr,thetaDOF).transpose()*(X3 - XG);
     //cout << Xref.transpose() << "  " << X3.transpose() << "  " << XG.transpose() << endl;
     double uthe = 0.0;
     //double a = 2.0e-0, Tp = 0.05, omega = -2*pi/Tp, eta = 10;
-    double a = 110.0e-0, Tp = 0.2, omega = -2*pi/Tp, eta = 4;
+    double a = 110.0e-0, Tp = 0.2, omega = -2*pi/Tp, eta = 5;
     //double a = 110.0e-0, Tp = 1.0/40.0, omega = -2*pi/Tp, eta = 4.0;
     double W = S_arcl(Xref(0), 0.0), S;  //cout << S_arcl(Xref(0), 0.0) << "  " << S_arcl(a, 0.0) << "  " << S_arcl(-a, 0.0) << endl;
     double L = S_arcl(-a,0.0);  //cout << "for " << Xref(0) << "  " << W << "  " << L << endl;
@@ -2669,7 +2670,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
 
 Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
                  int dim, int tag, double theta, double Kforp, double nforp, double t,
-                 Vector const& Vs)//
+                 Vector const& Vs, Matrix3d const& Q, int thetaDOF, double Kcte)//
 {
   double x = X(0);
   double y = X(1);
@@ -2682,12 +2683,12 @@ Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
 
   if (cas == 0 && dim == 2)//////////////////////////////////////////////////
   {//don't forget to put viscosity 1 for the unitary circular, spherical toy case
-    double psi = 0.0, k = 1.0;
-    double B1 = -1.0, B2 = 0.0;
+    double psi = 0.0;
+    double B1 = 1.0, B2 = -5.0, mu = muu(0), R = 1.0;
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
-    double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
+    double uthe = (-mu/R) * (2*B1*sin(theta-psi) + 5*B2*sin(theta-psi)*cos(theta-psi));
     //f(0) = k*normal(0); f(1) = k*normal(1);
-    f = k*uthe*tau;
+    f = uthe*tau;
     //if ( X(1)-XG(1) < 0.0 )
     //  f = Vector::Zero(dim);
     //else
@@ -2701,7 +2702,7 @@ Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
     f = uthe*tau;
   }
   else if (cas == 2 && dim == 2)//////////////////////////////////////////////////
-  {
+  {// For metachronal wave-like force
     Matrix3d Qr(Matrix3d::Zero(3,3));
     Vector3d Xref(Vector3d::Zero(3)), X3(Vector::Zero(3));
     X3(0) = X(0); X3(1) = X(1);
@@ -2732,8 +2733,10 @@ Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
   }
   else if (cas == 3)//////////////////////////////////////////////////
   {
-    double psi = 0.0, k = 1.0;
-    Vector Vmet = SlipVel(X, XG, normal, dim, tag, theta, Kforp, nforp, t);
+    double a = 110.0e-0;
+    double L = S_arcl(-a,0.0);
+    double k = Kcte*muu(0)/L;
+    Vector Vmet = SlipVel(X, XG, normal, dim, tag, theta, Kforp, nforp, t, Q, thetaDOF);
     double uthe = k*(Vs.dot(tau)-Vmet.dot(tau));
     f = uthe*tau;
   }
@@ -2743,9 +2746,11 @@ Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
 
 double DFtauForce(Vector const& X, Vector const& XG, Vector const& normal,
                   int dim, int tag, double theta, double Kforp, double nforp, double t,
-                  Vector const& Vs)
+                  Vector const& Vs, double Kcte)
 {
-  double k = 1.0;
+  double a = 110.0e-0;
+  double L = S_arcl(-a,0.0);
+  double k = Kcte*muu(0)/L;
   Vector tau(dim);
   tau(0) = +normal(1); tau(1) = -normal(0);  //tau(0) = -normal(1); tau(1) = +normal(0);
   double duthe = 0.0;

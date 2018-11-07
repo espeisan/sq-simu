@@ -328,9 +328,9 @@ void getProjectorFD(MatrixBase<Derived> & P, int n_nodes, int const* nodes, Vec 
     if (is_in(tag,flusoli_tags) || is_in(tag,slipvel_tags)) //non-penetration BC
     {
       P.block(i*dim,i*dim,dim,dim) = I; //cout << endl << P << endl << endl << dofs[0] << ", " << dofs[1] << endl;
-      if (is_in(tag,flusoli_tags) && app.is_axis && mesh->inBoundary(&*point)){
+      if (/*is_in(tag,flusoli_tags) &&*/ app.is_axis && mesh->inBoundary(&*point)){
         VecGetValues(Vec_x_, dim, dofs, X.data());
-        P.block(i*dim,i*dim,dim,dim) = feature_proj(X,t,tag)*P.block(i*dim,i*dim,dim,dim);
+        P.block(i*dim,i*dim,dim,dim) = I;// feature_proj(X,t,tag);//*P.block(i*dim,i*dim,dim,dim);
       }
     }
     else
@@ -2642,10 +2642,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           if (read_from_sv_fd)
             Ftau = ftau_coefs_f_mid_trans * qsi_f[qp];
           else
-            Ftau = FtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time, Usqp); //normal points OUT the fluid, see definition of normal above
+            Ftau = FtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time,
+                             Usqp, Q_1[K-1], thetaDOF, Kcte); //normal points OUT the fluid, see definition of normal above
 
           if (is_unksv)
-            DFtau = DFtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time, Usqp); //cout << Ftau.transpose() << "       " << DFtau << endl;
+            DFtau = DFtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time, Usqp, Kcte); //cout << Ftau.transpose() << "       " << DFtau << endl;
 
           //from velocity test functions (see variational formulation)//////////////////////////////////////////////////
           for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
@@ -3627,7 +3628,7 @@ PetscErrorCode AppCtx::formFunction_fd(SNES /*snes_m*/, Vec Vec_fd, Vec Vec_fun)
       }
 
     }//end for facet
-    cout << "Areas = " << areas << endl;
+    //cout << "Areas = " << areas << endl;
   }
   // end LOOP NAS FACES DO CONTORNO (Neum, Interf, Sol) //////////////////////////////////////////////////
 #endif

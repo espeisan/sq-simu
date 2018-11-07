@@ -210,6 +210,7 @@ void AppCtx::setUpDefaultOptions()
   n_groups               = 0;
   nforp                  = 0;
   Kforp                  = 0.0;
+  Kcte                   = 0.0;
   family_files           = PETSC_TRUE;
   has_convec             = PETSC_TRUE;
   renumber_dofs          = PETSC_FALSE;
@@ -319,6 +320,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsScalar("-finaltime", "the simulation ends at this time.", "main.cpp", finaltime, &finaltime, PETSC_NULL);
   PetscOptionsScalar("-Kforp", "wave constant paramecium test", "main.cpp", Kforp, &Kforp, PETSC_NULL);
   PetscOptionsScalar("-nforp", "wave number paramecium test", "main.cpp", nforp, &nforp, PETSC_NULL);
+  PetscOptionsScalar("-Kcte", "transition constant for linear tangent force", "main.cpp", Kcte, &Kcte, PETSC_NULL);
   PetscOptionsBool("-print_to_matlab", "print jacobian to matlab", "main.cpp", print_to_matlab, &print_to_matlab, PETSC_NULL);
   PetscOptionsBool("-force_dirichlet", "force dirichlet bound cond", "main.cpp", force_dirichlet, &force_dirichlet, PETSC_NULL);
   PetscOptionsBool("-force_pressure", "force pressure", "main.cpp", force_pressure, &force_pressure, PETSC_NULL);
@@ -594,15 +596,15 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
       rad << rad1, rad2, rad3;
       Xg << xg, yg, zg;
       MV.push_back(mass); RV.push_back(rad); VV.push_back(vol);
-      XG_0.push_back(Xg);      XG_1.push_back(Xg);      XG_aux.push_back(Xg);      XG_ini.push_back(Xg);
-      theta_0.push_back(the);  theta_1.push_back(the);  theta_aux.push_back(the);  theta_ini.push_back(the); //(rand()%6);
-      llink_0.push_back(llin); llink_1.push_back(llin); llink_aux.push_back(llin); llink_ini.push_back(llin); //(rand()%6);
+      XG_0.push_back(Xg);      XG_1.push_back(Xg);      XG_m1.push_back(Xg);      XG_ini.push_back(Xg);
+      theta_0.push_back(the);  theta_1.push_back(the);  theta_m1.push_back(the);  theta_ini.push_back(the); //(rand()%6);
+      llink_0.push_back(llin); llink_1.push_back(llin); llink_m1.push_back(llin); llink_ini.push_back(llin); //(rand()%6);
     }
     is.close();
     MV.resize(n_solids); RV.resize(n_solids); VV.resize(n_solids);
-    XG_0.resize(n_solids);    XG_1.resize(n_solids);    XG_aux.resize(n_solids);    XG_ini.resize(n_solids);
-    theta_0.resize(n_solids); theta_1.resize(n_solids); theta_aux.resize(n_solids); theta_ini.resize(n_solids);
-    llink_0.resize(n_links);  llink_1.resize(n_links);  llink_aux.resize(n_links);  llink_ini.resize(n_links);
+    XG_0.resize(n_solids);    XG_1.resize(n_solids);    XG_m1.resize(n_solids);    XG_ini.resize(n_solids);
+    theta_0.resize(n_solids); theta_1.resize(n_solids); theta_m1.resize(n_solids); theta_ini.resize(n_solids);
+    llink_0.resize(n_links);  llink_1.resize(n_links);  llink_m1.resize(n_links);  llink_ini.resize(n_links);
   }
 
   if (flg_sin){
@@ -1624,7 +1626,7 @@ PetscErrorCode AppCtx::allocPetscObjsDissForce()
   //ierr = SNESView(snes_fd, PETSC_VIEWER_STDOUT_WORLD);
   ierr = SNESMonitorSet(snes_fd, SNESMonitorDefault, 0, 0);                            CHKERRQ(ierr);
   //ierr = SNESMonitorSet(snes_m,Monitor,0,0);CHKERRQ(ierr);
-  ierr = SNESSetTolerances(snes_fd,1.e-11,1.e-11,1.e-11,10,PETSC_DEFAULT);             CHKERRQ(ierr);
+  ierr = SNESSetTolerances(snes_fd,1.e-16,1.e-16,1.e-16,100,PETSC_DEFAULT);             CHKERRQ(ierr);
   ierr = KSPMonitorSet(ksp_fd, KSPMonitorDefault, 0, 0); CHKERRQ(ierr);
 
   PetscFunctionReturn(0);
@@ -2093,7 +2095,7 @@ PetscErrorCode AppCtx::setUPInitialGuess()
     else if (is_in(tag, slipvel_tags))
     {
       int nod_vs = is_in_id(tag,slipvel_tags);
-      Vector Nr(dim), Vs(dim);
+      Vector Nr(dim), Vs(dim), Tg(dim), Bn(dim);
       VecGetValues(Vec_normal, dim, x_dofs.data(), Nr.data());
       int pID = mesh->getPointId(&*point);
       if (read_from_sv_fd){
@@ -2101,25 +2103,30 @@ PetscErrorCode AppCtx::setUPInitialGuess()
       }
       else{
         //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], 0.0, 0.0, current_time+unsteady*dt);//regular code
-        Vs = SlipVel(X1, XG_1[nod_vs-1], Nr, dim, tag, theta_1[nod_vs-1], Kforp, nforp, current_time+unsteady*dt);//for paramecium test
+        Vs = SlipVel(X1, XG_1[nod_vs-1], Nr, dim, tag, theta_1[nod_vs-1], Kforp, nforp, current_time+unsteady*dt,
+                     Q_1[nod_vs-1], thetaDOF);//for paramecium test
       }
       VecSetValues(Vec_slipv_1, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
       VecSetValues(Vec_slipv_0, dim, x_dofs.data(), Vs.data(), INSERT_VALUES);
+      getTangents(Tg,Bn,Nr,dim);
+      VecSetValues(Vec_tangent, dim, x_dofs.data(), Tg.data(), INSERT_VALUES);
     }
     else if (is_in(tag, flusoli_tags))
     {
       int nod_vs = is_in_id(tag,flusoli_tags);
-      Vector Nr(dim), Ft(dim);
+      Vector Nr(dim), Ft(dim), Tg(dim), Bn(dim);
       VecGetValues(Vec_normal, dim, x_dofs.data(), Nr.data());
       int pID = mesh->getPointId(&*point);
       if (read_from_sv_fd){
         Ft = BFields_from_file(pID,1);
       }
       else{
-        //Vs = SlipVel(X1, XG_0[nod_vs-1], Nr, dim, tag, theta_ini[nod_vs-1], 0.0, 0.0, current_time+unsteady*dt);//regular code
-        Ft = FtauForce(X1, XG_1[nod_vs-1], Nr, dim, tag, theta_1[nod_vs-1], Kforp, nforp, current_time+unsteady*dt, 0*Nr);//for paramecium test
+        Ft = FtauForce(X1, XG_1[nod_vs-1], Nr, dim, tag, theta_1[nod_vs-1], Kforp, nforp, current_time+unsteady*dt,
+                       0*Nr, Q_1[nod_vs-1], thetaDOF, Kcte);//for paramecium test
       }
       VecSetValues(Vec_ftau_0, dim, x_dofs.data(), Ft.data(), INSERT_VALUES);
+      getTangents(Tg,Bn,Nr,dim);
+      VecSetValues(Vec_tangent, dim, x_dofs.data(), Tg.data(), INSERT_VALUES);
     }
 
   } // end for point
@@ -2152,7 +2159,7 @@ PetscErrorCode AppCtx::setInitialConditions()
   vector<bool> SV(n_solids,false);  //solid visited history
   VectorXd  dllink(n_links);
 
-  // Zero Entries //////////////////////////////////////////////////
+  // Zero Entries ////////////////////////////////////////////////////////////////////////////////////////////////////
   VecZeroEntries(Vec_res_fs); //this size is the [U,P,S] sol vec size
   VecZeroEntries(Vec_res_m);
   VecZeroEntries(Vec_v_mid);  //this size(V) = size(X) = size(U)
@@ -2188,7 +2195,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     VecZeroEntries(Vec_ups_time_aux);
     VecZeroEntries(Vec_x_time_aux);
   }
-  //////////////////////////////////////////////////
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
 
   //if (dim == 3)
   //  VecZeroEntries(Vec_binormal);
@@ -2216,9 +2223,9 @@ PetscErrorCode AppCtx::setInitialConditions()
     //bool dimt = dim == 3;
     //Id3 = dimt*Id3; //cout << Id3 << endl;
     for (int i = 0; i < n_solids; i++){
-      Q_0.push_back(Id3); Q_1.push_back(Id3); Q_aux.push_back(Id3); Q_ini.push_back(Id3);
+      Q_0.push_back(Id3); Q_1.push_back(Id3); Q_m1.push_back(Id3); Q_ini.push_back(Id3);
     }
-    Q_0.resize(n_solids); Q_1.resize(n_solids); Q_aux.resize(n_solids); Q_ini.resize(n_solids);
+    Q_0.resize(n_solids); Q_1.resize(n_solids); Q_m1.resize(n_solids); Q_ini.resize(n_solids);
   }//////////////////////////////////////////////////
 
   // calculate derivatives for link problem //////////////////////////////////////////////////
@@ -2290,7 +2297,8 @@ PetscErrorCode AppCtx::setInitialConditions()
             }
             else{
               //Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], 0.0, 0.0, current_time);  //ojo antes solo nod_vs//here nod_vs=0
-              Vs = SlipVel(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs-1], Kforp, nforp, current_time+unsteady*dt);//for paramecium test
+              Vs = SlipVel(X, XG_0[nod_vs-1], Nr, dim, tag, theta_0[nod_vs-1], Kforp, nforp, current_time+unsteady*dt,
+                           Q_0[nod_vs-1], thetaDOF);//for paramecium test
             }
             VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
@@ -2300,7 +2308,8 @@ PetscErrorCode AppCtx::setInitialConditions()
             }
             else{
               Vs.setZero();
-              Ftau = FtauForce(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_ini[nod_vs+nod_id-1], Kforp, nforp, current_time+unsteady*dt, Vs);
+              Ftau = FtauForce(X, XG_0[nod_vs+nod_id-1], Nr, dim, tag, theta_0[nod_vs+nod_id-1], Kforp, nforp, current_time+unsteady*dt,
+                               Vs, Q_0[nod_vs+nod_id-1], thetaDOF, Kcte);
             }
             VecSetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ftau.data(), INSERT_VALUES);
           }
@@ -2458,7 +2467,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       if (pic != 0 && pic%3 == 0){
         saveDOFSinfo_Re_Vel();
         if (family_files){plotFiles(1);}
-        computeForces(Vec_x_0,Vec_ups_1);
+        //computeForces(Vec_x_0,Vec_ups_1);
         computeViscousDissipation(Vec_x_0,Vec_ups_1);
         computeError(Vec_x_0,Vec_ups_1,current_time);
         time_step += 1;
@@ -2473,9 +2482,10 @@ PetscErrorCode AppCtx::setInitialConditions()
       for (int l = 0; l < LZ; l++){
         dofs_fs(l) = n_unknowns_u + n_unknowns_p + l;
       }
+      calcMeshVelocity(Vec_x_0, Vec_ups_0, Vec_ups_1, 1.0, Vec_v_mid, 0.0);
       VecGetValues(Vec_ups_1,dofs_fs.size(),dofs_fs.data(),v_coeffs_s.data());
       //if (pic == 0){v_coeffs_s(1) = -0.315364702750772;}
-      VecScale(Vec_v_mid, v_coeffs_s(1));
+      VecScale(Vec_v_mid, max(v_coeffs_s(1),v_coeffs_s(0)));
       //View(Vec_v_mid,"matrizes/vmid0.m","vm");
       ////////////////////////////////////////////////////////////////////////////////////////////////////
       //calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
@@ -2488,7 +2498,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       // save data for current time ///////////////////////////////////////////////////////////////////
       saveDOFSinfo(0);
       if (family_files){plotFiles(1);}
-      computeForces(Vec_x_1,Vec_ups_1);
+      //computeForces(Vec_x_1,Vec_ups_1);
       computeViscousDissipation(Vec_x_1,Vec_ups_1);
       computeError(Vec_x_1,Vec_ups_1,current_time);
       current_time += dt;
@@ -2520,7 +2530,7 @@ PetscErrorCode AppCtx::setInitialConditions()
         //save data for current time///////////////////////////////////////////////////////////////////
         saveDOFSinfo(0);
         if (family_files){plotFiles(1);}
-        computeForces(Vec_x_1,Vec_ups_1);
+        //computeForces(Vec_x_1,Vec_ups_1);
         computeViscousDissipation(Vec_x_1,Vec_ups_1);
         computeError(Vec_x_1,Vec_ups_1,current_time);
         current_time += dt;
@@ -2532,8 +2542,8 @@ PetscErrorCode AppCtx::setInitialConditions()
         cout << "--------------------------------------------------";
         pic = pic-1;  //this implies that time_step=1 will be solved with complete picard iterations
 
-        //Prepare data for time_step=1
-        VecCopy(Vec_ups_1,Vec_ups_0);
+        //Prepare data for time_step=1///////////////////////////////////////////////////////////////////
+        VecCopy(Vec_ups_1,Vec_ups_0);//In Stokes the previously Vec_ups_0 has no important info at all
         ////////////////////////////////////////////////////////////////////////////////////////////////////
       }
     }////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2557,7 +2567,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
   }//////////////////////////////////////////////////
-  computeForces(Vec_x_1,Vec_ups_1);
+  //computeForces(Vec_x_1,Vec_ups_1);
   computeViscousDissipation(Vec_x_1,Vec_ups_1);
   computeError(Vec_x_1,Vec_ups_1,current_time);
 
@@ -2593,10 +2603,9 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
   SarclTest();
 
-  // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  // ////////////////////////////////////////////////////////////////////////////////////////////////////
   // Solve nonlinear system
-  //- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
+  // ////////////////////////////////////////////////////////////////////////////////////////////////////
   printf("Initial volume: %.15lf\n", initial_volume);
   printf("Initial quality mesh: %.15lf\n", Qmesh);
   printf("Num. of time iterations (maxts): %d\n",maxts);
@@ -2608,9 +2617,9 @@ PetscErrorCode AppCtx::solveTimeProblem()
   double Qmax = 0;
   double steady_error = 1;
 
-  //////////////////////////////////////////////////
+  //Solving the 0 and 1 time_step//////////////////////////////////////////////////
   setInitialConditions();  //called only here
-  //////////////////////////////////////////////////
+  /////////////////////////////////////////////////////////////////////////////////
 
   int its;
 
@@ -2714,27 +2723,25 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
   for(;;)  // equivalent to forever or while(true), must be a break inside
   {
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
     current_time += dt;
     time_step += 1;
     cout << "\n==================================================\n";
     cout << "current time: " << current_time << endl;
     cout << "time step: "    << time_step  << endl;
-    //cout << "steady error: " << steady_error << endl;
+    cout << "steady error: " << steady_error << endl;
     cout << "--------------------------------------------------";
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    if (maxts == 0)
-    {
-      computeError(Vec_x_0, Vec_ups_0,current_time);
-      break;
-    }
-
-    // Preparing data at time n //////////////////////////////////////////////////
+    //Preparing data at time n//////////////////////////////////////////////////
     VecCopy(Vec_x_0, Vec_x_aux);
     VecCopy(Vec_x_1, Vec_x_0);
-    XG_aux = XG_0; theta_aux = theta_0; Q_aux = Q_0;
+    XG_m1 = XG_0; theta_m1 = theta_0; Q_m1 = Q_0;
     XG_0   = XG_1; theta_0   = theta_1; Q_0   = Q_1;
     VecCopy(Vec_slipv_1, Vec_slipv_0);
+    VecCopy(Vec_ups_1,Vec_ups_m1);
     //copyVec2Mesh(Vec_x_1);
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // Saving and printing data //////////////////////////////////////////////////
     //saveDOFSinfo();
@@ -2781,6 +2788,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       if (mesh_adapt){meshAdapt_s();} //meshAdapt()_l;
       copyVec2Mesh(Vec_x_1);
       if (mesh_adapt){meshFlipping_s();}
+      if (true) {CheckInvertedElements();}  //true just for mesh tests FIXME
       //////////////////////////////////////////////////
 
       //Calculate normals//////////////////////////////////////////////////
@@ -2788,11 +2796,11 @@ PetscErrorCode AppCtx::solveTimeProblem()
       //////////////////////////////////////////////////
 
       //////////////////////////////////////////////////
-      //if ((pic+1) < PIs){
-      if (pic == 0){//copy n to n-1 just in the first Poincaré Iteration and save ups_0
-        VecCopy(Vec_ups_1, Vec_ups_0);
-        //if (family_files){plotFiles();}
-      }
+      ////if ((pic+1) < PIs){
+      //if (pic == 0){//copy n to n-1 just in the first Poincaré Iteration and save ups_0
+      //  VecCopy(Vec_ups_1, Vec_ups_0);
+      //  //if (family_files){plotFiles();}
+      //}
       //}//////////////////////////////////////////////////
 
       //Initial guess for non-linear solver//////////////////////////////////////////////////
@@ -2808,6 +2816,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
         cout << "--------------------------------------------------" << endl;
       }////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/*
       if (is_sfip){// update mesh and mech. dofs//////////////////////////////////////////////////
         if (is_mr_qextrap){
           moveSolidDOFs(1.0);
@@ -2815,6 +2824,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
           VecWAXPY(Vec_x_1, dt, Vec_v_mid, Vec_x_0);
         }
       }////////////////////////////////////////////////////////////////////////////////////////////////////
+*/
 
     }// end Picard Iterartions loop //////////////////////////////////////////////////
 
@@ -2838,23 +2848,27 @@ PetscErrorCode AppCtx::solveTimeProblem()
       cout << "-----Interaction force calculation-----" << endl;
       ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
-      extractForce(true);
+      extractForce(false);
     }
     // save data for current time ///////////////////////////////////////////////////////////////////
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
+    //computeForces(Vec_x_1,Vec_ups_1);
+    computeViscousDissipation(Vec_x_1,Vec_ups_1);
+    computeError(Vec_x_1,Vec_ups_1,current_time);
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    cout << "--------------------------------------------------" << endl;
+    //Prepare data for next time_step///////////////////////////////////////////////////////////////////
+    VecCopy(Vec_ups_m1,Vec_ups_0);
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    //cout << "--------------------------------------------------" << endl;
     // compute steady error //////////////////////////////////////////////////
     VecNorm(Vec_ups_1, NORM_1, &Qmax); //VecNorm(Vec_up_1, NORM_1, &Qmax);
     VecCopy(Vec_ups_0, Vec_res_fs); //VecCopy(Vec_up_0, Vec_res);
     VecAXPY(Vec_res_fs,-1.0,Vec_ups_1); //VecAXPY(Vec_res,-1.0,Vec_up_1);//steady_error = VecNorm(Vec_res, NORM_1)/(Qmax==0.?1.:Qmax);
     VecNorm(Vec_res_fs, NORM_1, &steady_error); //VecNorm(Vec_res, NORM_1, &steady_error);
     steady_error /= (Qmax==0.?1.:Qmax);
-    computeForces(Vec_x_0,Vec_ups_0);
-    computeViscousDissipation(Vec_x_0,Vec_ups_0);
-    computeError(Vec_x_0,Vec_ups_1,current_time);
 
     if(time_step+1 > maxts) {
       cout << "\n==================================================\n";
@@ -3115,7 +3129,7 @@ void AppCtx::computeError(Vec const& Vec_x, Vec &Vec_up, double tt)
       //cout << Xqp.transpose() << "   " << u_exacta(Xqp, tt, tag).transpose() << "   " << Uqp.transpose() << endl;
       //  note: norm(u, H1)^2 = norm(u, L2)^2 + norm(gradLphi_c, L2)^2
       u_L2_norm        += (u_exacta(Xqp, tt, tag) - Uqp).squaredNorm()*JxW;      //cambiar a u_exact
-      p_L2_norm        += sqr(p_exact(Xqp, tt, tag) - Pqp)*JxW;
+      p_L2_norm        += sqr(p_exacta(Xqp, tt, tag) - Pqp)*JxW;
       grad_u_L2_norm   += (grad_u_exacta(Xqp, tt, tag) - dxU).squaredNorm()*JxW;
       grad_p_L2_norm   += (grad_p_exact(Xqp, tt, tag) - dxP).squaredNorm()*JxW;
       u_inf_norm        = max(u_inf_norm, (u_exacta(Xqp, tt, tag) - Uqp).norm()); //cambiar a u_exact
@@ -3331,14 +3345,18 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
   MatrixXd            u_coefs_f(n_dofs_u_per_facet/dim, dim);
   VectorXd            p_coefs_f(n_dofs_p_per_facet);
   MatrixXd            x_coefs_f(nodes_per_facet, dim);
+  MatrixXd            ftau_coefs_f(nodes_per_facet, dim);
+  MatrixXd            sv_coefs_f(nodes_per_facet, dim);
   MatrixXd            u_coefs_f_trans(dim,n_dofs_u_per_facet/dim);
   MatrixXd            x_coefs_f_trans(dim, nodes_per_facet);
+  MatrixXd            ftau_coefs_f_trans(dim, nodes_per_facet);
+  MatrixXd            sv_coefs_f_trans(dim, nodes_per_facet);
   MatrixXd            dxphi_f(n_dofs_u_per_facet/dim, dim);
   Tensor              F_f(dim,dim-1), invF_f(dim-1,dim), fff(dim-1,dim-1), dxU_f(dim,dim);
-  Vector              normal(dim), Traction_(Vector::Zero(dim)), Xqp(dim);// Uqp(dim);
+  Vector              normal(dim), Traction_(Vector::Zero(dim)), Xqp(dim), ftauqp(dim), svqp(dim);// Uqp(dim);
   double              J, JxW, weight, areas = 0.0;
   //Tensor              I(Tensor::Identity(dim,dim));
-
+  double              VD = 0.0;  //viscous dissipation
 
   facet_iterator facet = mesh->facetBegin();
   facet_iterator facet_end = mesh->facetEnd();
@@ -3356,9 +3374,13 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
     VecGetValues(Vec_up, mapU_f.size(), mapU_f.data(), u_coefs_f.data());
     VecGetValues(Vec_up, mapP_f.size(), mapP_f.data(), p_coefs_f.data());
     VecGetValues(Vec_x,  mapM_f.size(), mapM_f.data(), x_coefs_f.data());
+    VecGetValues(Vec_ftau_0,  mapM_f.size(), mapM_f.data(), ftau_coefs_f.data());
+    VecGetValues(Vec_slipv_0,  mapM_f.size(), mapM_f.data(), sv_coefs_f.data());
 
     u_coefs_f_trans = u_coefs_f.transpose();
     x_coefs_f_trans = x_coefs_f.transpose();
+    ftau_coefs_f_trans = ftau_coefs_f.transpose();
+    sv_coefs_f_trans = sv_coefs_f.transpose();
 
     for (int qp = 0; qp < n_qpts_facet; ++qp)
     {
@@ -3380,8 +3402,10 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
         normal.normalize();
       }
 
-      Xqp  = x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+      Xqp     = x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
       //Uqp  = u_coefs_f_trans * phi_f[qp];
+      ftauqp  = ftau_coefs_f_trans * phi_f[qp];
+      svqp    = sv_coefs_f_trans * phi_f[qp];
 
       weight = quadr_facet->weight(qp);
       JxW = J*weight;
@@ -3393,33 +3417,35 @@ void AppCtx::computeForces(Vec const& Vec_x, Vec &Vec_up)
       dxU_f   = u_coefs_f_trans * dxphi_f; // n+utheta
       areas += JxW;
       Traction_ += JxW * ( -p_coefs_f.dot(psi_f[qp])*normal + muu(tag)*(dxU_f + dxU_f.transpose())*normal );
+      VD += JxW*(ftauqp.dot(svqp));
       //cout << Traction_.transpose() << "  " << areas << endl;
     }
   }
-  cout << "Traction Force = " << Traction_.transpose() << ". Area = " << areas << endl;
-  filf.open(forc,iostream::app);
-  filf.precision(15);
-  filf << current_time << " " << Traction_.transpose() << " ";
-  filf.close();
+  //cout << "Traction Force = " << Traction_.transpose() << ". Area = " << areas
+  //     << ". Viscous Dissipation from ftau*us = " << VD << endl;
+  //filf.open(forc,iostream::app);
+  //filf.precision(15);
+  //filf << current_time << " " << Traction_.transpose() << " " << VD << " ";
+  //filf.close();
 }
 
 void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
 {
   MatrixXd            u_coefs_c(n_dofs_u_per_cell/dim, dim);
   MatrixXd            u_coefs_c_trans(dim,n_dofs_u_per_cell/dim);
-  MatrixXd            u_coefs_f(n_dofs_u_per_facet/dim, dim);
-  MatrixXd            u_coefs_f_trans(dim,n_dofs_u_per_facet/dim);
+  //MatrixXd            u_coefs_f(n_dofs_u_per_facet/dim, dim);
+  //MatrixXd            u_coefs_f_trans(dim,n_dofs_u_per_facet/dim);
   VectorXd            p_coefs_c(n_dofs_p_per_cell);
   MatrixXd            x_coefs_c(nodes_per_cell, dim);
   MatrixXd            x_coefs_c_trans(dim, nodes_per_cell);
-  MatrixXd            x_coefs_f(nodes_per_facet, dim);
-  MatrixXd            x_coefs_f_trans(dim, nodes_per_facet);
+  //MatrixXd            x_coefs_f(nodes_per_facet, dim);
+  //MatrixXd            x_coefs_f_trans(dim, nodes_per_facet);
   Tensor              F_c(dim,dim), invF_c(dim,dim), invFT_c(dim,dim);
-  Tensor              F_f(dim,dim-1), invF_f(dim-1,dim), fff(dim-1,dim-1);
+  //Tensor              F_f(dim,dim-1), invF_f(dim-1,dim), fff(dim-1,dim-1);
   MatrixXd            dxphi_err(n_dofs_u_per_cell/dim, dim);
   MatrixXd            dxpsi_err(n_dofs_p_per_cell, dim);
   //MatrixXd            dxqsi_err(nodes_per_cell, dim);
-  Tensor              dxU(dim,dim); // grad u
+  Tensor              dxU(dim,dim), dxUs(dim,dim); // grad u
   Vector              dxP(dim);     // grad p
   Vector              Xqp(dim);
   Vector              Uqp(dim);
@@ -3430,13 +3456,13 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   int                 tag;
 
   VectorXi            mapU_c(n_dofs_u_per_cell);
-  VectorXi            mapU_f(n_dofs_u_per_facet);
-  VectorXi            mapU_r(n_dofs_u_per_corner);
+  //VectorXi            mapU_f(n_dofs_u_per_facet);
+  //VectorXi            mapU_r(n_dofs_u_per_corner);
   VectorXi            mapP_c(n_dofs_p_per_cell);
-  VectorXi            mapP_r(n_dofs_p_per_corner);
+  //VectorXi            mapP_r(n_dofs_p_per_corner);
   VectorXi            mapM_c(dim*nodes_per_cell);
-  VectorXi            mapM_f(dim*nodes_per_facet);
-  VectorXi            mapM_r(dim*nodes_per_corner);
+  //VectorXi            mapM_f(dim*nodes_per_facet);
+  //VectorXi            mapM_r(dim*nodes_per_corner);
 
   int                 tag_pt0, tag_pt1, tag_pt2, nPer = 0, ccell, nod_id;
   double const*       Xqpb;  //coordonates at the master element \hat{X}
@@ -3451,7 +3477,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   PerM12.block(0,0,6,6) = PerM6; PerM12.block(6,6,6,6) = PerM6;
   Tensor              F_f_curv(dim,dim-1);
 
-  double    VD = 0.0, visc;  //viscous dissipation
+  double    VD = 0.0, visc = 0.0, ND = 0.0;  //viscous dissipation
 
   VecSetOption(Vec_up, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE); //?
 
@@ -3492,6 +3518,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
     //mapeamento do local para o global//////////////////////////////////////////////////
     dof_handler[DH_MESH].getVariable(VAR_M).getCellDofs(mapM_c.data(), &*cell);
     dof_handler[DH_UNKM].getVariable(VAR_U).getCellDofs(mapU_c.data(), &*cell);
+    dof_handler[DH_UNKM].getVariable(VAR_P).getCellDofs(mapP_c.data(), &*cell);
 
     //if cell is permuted, this corrects the maps; mapZ is alreday corrected by hand in the previous if conditional
     if (curvf){
@@ -3505,6 +3532,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
 
     //get the value for the variables//////////////////////////////////////////////////
     VecGetValues(Vec_up, mapU_c.size(), mapU_c.data(), u_coefs_c.data());
+    VecGetValues(Vec_up, mapP_c.size(), mapP_c.data(), p_coefs_c.data());
     VecGetValues(Vec_x,  mapM_c.size(), mapM_c.data(), x_coefs_c.data());
 
     u_coefs_c_trans = u_coefs_c.transpose();
@@ -3524,7 +3552,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     ////////////////////////////////////////////////// STARTING QUADRATURE //////////////////////////////////////////////////
-    for (int qp = 0; qp < n_qpts_err; ++qp)
+    for (int qp = 0; qp < n_qpts_cell; ++qp)
     {
       F_c = Tensor::Zero(dim,dim);  //Zero(dim,dim);
       Xqp = Vector::Zero(dim);// coordenada espacial (x,y,z) do ponto de quadratura
@@ -3538,24 +3566,24 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
        Xqp = (1.0-Xqpb[0]-Xqpb[1])*Phi;
       }
 
-      F_c   += x_coefs_c_trans * dLqsi_err[qp];
+      F_c   += x_coefs_c_trans * dLqsi_c[qp];
       J      = F_c.determinant();
       invF_c = F_c.inverse();
       invFT_c= invF_c.transpose();
 
-      dxphi_err = dLphi_err[qp] * invF_c;
-      dxpsi_err = dLpsi_err[qp] * invF_c;
+      dxphi_err = dLphi_c[qp] * invF_c;
+      dxpsi_err = dLpsi_c[qp] * invF_c;
       //dxqsi_err = dLqsi_err[qp] * invF_c;
 
       dxU  = u_coefs_c_trans * dxphi_err;       // n+utheta
       dxP  = dxpsi_err.transpose() * p_coefs_c;
 
-      Xqp += x_coefs_c_trans * qsi_err[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
-      Uqp  = u_coefs_c_trans * phi_err[qp];
-      Pqp  = p_coefs_c.dot(psi_err[qp]);
+      Xqp += x_coefs_c_trans * qsi_c[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+      Uqp  = u_coefs_c_trans * phi_c[qp];
+      Pqp  = p_coefs_c.dot(psi_c[qp]);
 
       //quadrature weight//////////////////////////////////////////////////
-      weight = quadr_err->weight(qp);
+      weight = quadr_cell->weight(qp);
       JxW = J*weight;
       if (is_axis){
        JxW = JxW*2.0*pi*Xqp(0);
@@ -3563,24 +3591,122 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
       //////////////////////////////////////////////////
       //cout << DobCont((dxU.transpose()+dxU)/2.0,dxU) << endl;
       double pdiv = Pqp*dxU.trace();
-      dxU = (dxU + dxU.transpose())/2.0;
+      dxUs = (dxU + dxU.transpose())/2.0;
 
       //cout << DobCont(dxU,dxU) << endl;
-      VD += JxW*( 2.0*visc*DobCont(dxU,dxU) - pdiv);
+      ND += JxW*pdiv; //numeric dissipation
+      VD += JxW*( 2.0*visc*DobCont(dxUs,dxU) - pdiv);  //cout << pdiv << endl;
       if (is_axis){
-        VD += JxW*( 2.0*visc*Uqp(0)*Uqp(0)/(Xqp(0)*Xqp(0)) - Pqp*Uqp(0)/Xqp(0) );
+        VD += JxW*( 2.0*visc*Uqp(0)*Uqp(0)/(Xqp(0)*Xqp(0)) - Pqp*Uqp(0)/Xqp(0) ); //cout << Pqp*Uqp(0)/Xqp(0) << endl;
       }
 
      } // fim quadratura //////////////////////////////////////////////////
    } // end elementos //////////////////////////////////////////////////
 
-  double VDr = 16.0*pi*muu(0)*1.0*0.5*0.5/3.0;
-  cout << "\nViscous Dissipation = " << VD << ". Exact VD = " << VDr << endl;
 
+  // Power //////////////////////////////////////////////////////////////////////////////////////////////
+  //int                 tag;
+  VectorXi            mapU_f(n_dofs_u_per_facet);
+  VectorXi            mapP_f(n_dofs_p_per_facet);
+  VectorXi            mapM_f(dim*nodes_per_facet);
+  MatrixXd            u_coefs_f(n_dofs_u_per_facet/dim, dim);
+  VectorXd            p_coefs_f(n_dofs_p_per_facet);
+  MatrixXd            x_coefs_f(nodes_per_facet, dim);
+  MatrixXd            ftau_coefs_f(nodes_per_facet, dim);
+  MatrixXd            sv_coefs_f(nodes_per_facet, dim);
+  MatrixXd            u_coefs_f_trans(dim,n_dofs_u_per_facet/dim);
+  MatrixXd            x_coefs_f_trans(dim, nodes_per_facet);
+  MatrixXd            ftau_coefs_f_trans(dim, nodes_per_facet);
+  MatrixXd            sv_coefs_f_trans(dim, nodes_per_facet);
+  MatrixXd            dxphi_f(n_dofs_u_per_facet/dim, dim);
+  Tensor              F_f(dim,dim-1), invF_f(dim-1,dim), fff(dim-1,dim-1), dxU_f(dim,dim);
+  Vector              normal(dim), Traction_(Vector::Zero(dim))/*, Xqp(dim)*/, ftauqp(dim), svqp(dim);// Uqp(dim);
+  double              /*J, JxW, weight, */areas = 0.0;
+  //Tensor              I(Tensor::Identity(dim,dim));
+  double              PD = 0.0;  //viscous dissipation
+
+  facet_iterator facet = mesh->facetBegin();
+  facet_iterator facet_end = mesh->facetEnd();
+  for (; facet != facet_end; ++facet)
+  {
+    tag = facet->getTag();
+
+    if (!(is_in(tag, flusoli_tags) || is_in(tag, slipvel_tags)))
+      continue;
+
+    dof_handler[DH_UNKM].getVariable(VAR_U).getFacetDofs(mapU_f.data(), &*facet);
+    dof_handler[DH_MESH].getVariable(VAR_M).getFacetDofs(mapM_f.data(), &*facet);
+    dof_handler[DH_UNKM].getVariable(VAR_P).getFacetDofs(mapP_f.data(), &*facet);
+
+    VecGetValues(Vec_up, mapU_f.size(), mapU_f.data(), u_coefs_f.data());
+    VecGetValues(Vec_up, mapP_f.size(), mapP_f.data(), p_coefs_f.data());
+    VecGetValues(Vec_x,  mapM_f.size(), mapM_f.data(), x_coefs_f.data());
+    VecGetValues(Vec_ftau_0,  mapM_f.size(), mapM_f.data(), ftau_coefs_f.data());
+    VecGetValues(Vec_slipv_0,  mapM_f.size(), mapM_f.data(), sv_coefs_f.data());
+
+    u_coefs_f_trans = u_coefs_f.transpose();
+    x_coefs_f_trans = x_coefs_f.transpose();
+    ftau_coefs_f_trans = ftau_coefs_f.transpose();
+    sv_coefs_f_trans = sv_coefs_f.transpose();
+
+    for (int qp = 0; qp < n_qpts_facet; ++qp)
+    {
+      F_f  = x_coefs_f_trans * dLqsi_f[qp];
+      fff  = F_f.transpose()*F_f;
+      J    = sqrt(fff.determinant());
+      invF_f = fff.inverse()*F_f.transpose();
+
+      if (dim==2)
+      {
+        normal(0) = +F_f(1,0);
+        normal(1) = -F_f(0,0);
+        normal.normalize();
+        normal = -normal;  //... now this normal points OUT the body
+      }
+      else
+      {
+        normal = cross(F_f.col(0), F_f.col(1));
+        normal.normalize();
+      }
+
+      Xqp     = x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
+      //Uqp  = u_coefs_f_trans * phi_f[qp];
+      ftauqp  = ftau_coefs_f_trans * phi_f[qp];
+      svqp    = sv_coefs_f_trans * phi_f[qp];
+
+      weight = quadr_facet->weight(qp);
+      JxW = J*weight;
+      if (is_axis){
+        JxW = JxW*2.0*pi*Xqp(0);
+      }
+
+      dxphi_f = dLphi_f[qp] * invF_f;
+      dxU_f   = u_coefs_f_trans * dxphi_f; // n+utheta
+      areas += JxW;
+      Traction_ += JxW * ( -p_coefs_f.dot(psi_f[qp])*normal + muu(tag)*(dxU_f + dxU_f.transpose())*normal );
+      PD += JxW*(ftauqp.dot(svqp));
+      //cout << Traction_.transpose() << "  " << areas << endl;
+    }
+  }
+
+  cout << "Traction Force = " << Traction_.transpose() << ". Area = " << areas
+       << ". Power integral ftau*us = " << PD;
+
+  double B1 = +0.5, B2 = +3.0, R = 1.0;
+  double VDr = 16.0*pi*muu(0)*R*(B1*B1/3.0 + B2*B2/6.0);
+  cout << ". Viscous Dissipation = " << VD << ". Exact VD = " << VDr << endl;
+
+  //save traction and power
   filf.open(forc,iostream::app);
   filf.precision(15);
-  filf << VD << endl;
+  filf << current_time << /*" " << Traction_.transpose() <<*/ " " << PD << " ";
   filf.close();
+  //save viscous dissipation
+  filf.open(forc,iostream::app);
+  filf.precision(15);
+  filf << VD << " " << PD + VD << " " << ND << endl;
+  filf.close();
+
 }
 
 void AppCtx::pressureTimeCorrection(Vec &Vec_up_0, Vec &Vec_up_1, double a, double b) // p(n+1) = a*p(n+.5) + b* p(n)
@@ -4173,8 +4299,8 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
     else{         Omega0    = Z0.tail(3); Omega1    = Z1.tail(3);}
 
     if (is_mr_qextrap && time_step > 0){
-      XG_1[s] = XG_0[s] + stheta*dt*U1;  //equiv. to XG_1[s] = (1.0+stheta)*XG_0[s] - stheta*XG_aux[s];
-      theta_1[s] = theta_0[s] + stheta*dt*omega1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_aux[s];
+      XG_1[s] = XG_0[s] + stheta*dt*U1;  //equiv. to XG_1[s] = (1.0+stheta)*XG_0[s] - stheta*XG_m1[s];
+      theta_1[s] = theta_0[s] + stheta*dt*omega1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
       //Qtmp = Id3 - stheta*dt*SkewMatrix(Z1.tail(3));
       //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
       Qtmp = Q_0[s] + dt*stheta*SkewMatrix(Omega1)*Q_0[s];
@@ -4187,18 +4313,18 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
       //Qtmp = Id3 - stheta*dt*SkewMatrix(Z1.tail(3));
       //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
       Qtmp = Q_0[s] + dt*((1.0+stheta)*SkewMatrix(Omega1)*Q_1[s]
-                              -stheta *SkewMatrix(Omega0)*Q_0[s]);
+                              -stheta *SkewMatrix(Omega0)*Q_m1[s]);//Q_m1 has the time_step=n-2 info
       ProjOrtMatrix(Qtmp, 0/*1e4*/, 1e-8, dim);
       Q_1[s] = Qtmp;
     }
     else if (is_bdf3 && time_step > 1){
       XG_temp   = XG_1[s];
-      XG_1[s]   = (18./11.)*XG_1[s] - (9./11.)*XG_0[s] + (2./11.)*XG_aux[s] + (6./11.)*dt*U0;
-      XG_aux[s] = XG_0[s];
+      XG_1[s]   = (18./11.)*XG_1[s] - (9./11.)*XG_0[s] + (2./11.)*XG_m1[s] + (6./11.)*dt*U0;
+      XG_m1[s] = XG_0[s];
       XG_0[s]   = XG_temp;
       theta_temp   = theta_1[s];
-      theta_1[s]   = (18./11.)*theta_1[s] - (9./11.)*theta_0[s] + (2./11.)*theta_aux[s] + (6./11.)*dt*omega0;
-      theta_aux[s] = theta_0[s];
+      theta_1[s]   = (18./11.)*theta_1[s] - (9./11.)*theta_0[s] + (2./11.)*theta_m1[s] + (6./11.)*dt*omega0;
+      theta_m1[s] = theta_0[s];
       theta_0[s]   = theta_temp;
     }
     else if (is_bdf2 && time_step > 0){
@@ -4555,7 +4681,8 @@ void AppCtx::getFromBSV() //Body Slip Velocity
       Tg(0) = x_coefs_f.transpose()(0,1)-x_coefs_f.transpose()(0,0);
       Tg(1) = x_coefs_f.transpose()(1,1)-x_coefs_f.transpose()(1,0);
 
-      Vs = SlipVel(Xqp, XG_0[is_slipvel+is_fsi-1], Nr, dim, tag, theta_ini[is_slipvel+is_fsi-1], 0.0, 0.0, current_time);
+      Vs = SlipVel(Xqp, XG_0[is_slipvel+is_fsi-1], Nr, dim, tag, theta_ini[is_slipvel+is_fsi-1], 0.0, 0.0, current_time,
+                   Q_0[is_slipvel+is_fsi-1], thetaDOF);
       //cout << Vs.dot(Nr) << "   " << Vs.dot(Xqp) << "   " << endl;
       //cout << Xqp.transpose() << "   " << Nr.transpose() << "   " << Tg.transpose() << "   " << Vs.transpose() << endl << endl;
       //cout << x_coefs_f.transpose() << endl << endl;
@@ -4625,13 +4752,17 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
     {
       Vector Xc(2), Y(2);
       double rb, thetab;
+      double B1 = +0.5, B2 = +3.0, R = 1.0;
       Xc << XG_0[0](0), XG_0[0](1);
       Y = X - Xc;
       x = Y(0); y = Y(1);
       rb  = sqrt(x*x+y*y);
-      nor = -Y/rb; tau(0) = -nor(1); tau(1) = nor(0);
-      thetab = atan2(Y(1),Y(0))+pi/2.0;
-      v = cos(thetab)/(3.0*rb*rb*rb)*nor + sin(thetab)/(6.0*rb*rb*rb)*tau;
+      nor = Y/rb; tau(0) = +nor(1); tau(1) = -nor(0);
+      thetab = -atan2(Y(1),Y(0))+pi/2.0;
+      v = ( (2.0/3.0)*B1*cos(thetab)*R*R*R/(rb*rb*rb)
+          + (1.0/2.0)*B2*(R*R*R*R/(rb*rb*rb*rb) - R*R/(rb*rb))*(3.0*cos(thetab)*cos(thetab)-1.0) )*nor
+         +( (1.0/3.0)*B1*sin(thetab)*R*R*R/(rb*rb*rb)
+          +           B2*(R*R*R*R/(rb*rb*rb*rb)              )*sin(thetab)*cos(thetab)           )*tau;
     }
   }
   if (false && dim == 3){
@@ -4642,7 +4773,7 @@ Vector AppCtx::u_exacta(Vector const& X, double t, int tag)
     x = Y(0); y = Y(1);
     double z = Y(2);
     rb  = sqrt(x*x+y*y+z*z);
-    nor = -Y/rb; tau(0) = -nor(1); tau(1) = nor(0);
+    nor = Y/rb; tau(0) = +nor(1); tau(1) = -nor(0);
     thetab = acos(z/rb);
     //thetab = atan2(Y(1),Y(0))+pi/2.0;
     v = cos(thetab)/(3.0*rb*rb*rb)*nor + sin(thetab)/(6.0*rb*rb*rb)*tau;
@@ -4690,6 +4821,28 @@ Tensor AppCtx::grad_u_exacta(Vector const& X, double t, int tag)
   return dxU;
 }
 
+double AppCtx::p_exacta(Vector const& X, double t, int tag){
+  double x = X(0);
+  double y = X(1);
+  double p = 0.0;
+  //Vector nor(Vector::Zero(X.size()));
+  //Vector tau(Vector::Zero(X.size()));
+  if (dim == 2){
+    Vector Xc(2), Y(2);
+    double rb, thetab;
+    double B1 = +1.0*0.5, B2 = +3.0, mu = muu(0), R = 1.0;
+    Xc << XG_0[0](0), XG_0[0](1);
+    Y = X - Xc;
+    x = Y(0); y = Y(1);
+    rb  = sqrt(x*x+y*y);
+    //nor = Y/rb; tau(0) = +nor(1); tau(1) = -nor(0);
+    thetab = -atan2(Y(1),Y(0))+pi/2.0;
+    p = mu*(-R*R/(rb*rb*rb))*B2*(3.0*cos(thetab)*cos(thetab)-1.0);
+  }
+
+  return p;
+}
+
 Vector AppCtx::ftau_exacta(Vector const& X, Vector const& XG, Vector const& normal,
                            double t, int tag, double theta)
 {
@@ -4697,13 +4850,12 @@ Vector AppCtx::ftau_exacta(Vector const& X, Vector const& XG, Vector const& norm
   tau(0) = +normal(1); tau(1) = -normal(0);  //this tangent goes in the direction of the parametrization
   Vector f(Vector::Zero(X.size()));
 
-  double psi = 0.0, k = 1.0;
-  if (t == -1 && tag == -1){}
-  double B1 = -1.0, B2 = 0.0;
+  double psi = 0.0;
   psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
-  double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
+  double B1 = +0.5, B2 = +3.0, mu = muu(0), R = 1.0;
+  double uthe = (-mu/R) * (2*B1*sin(theta-psi) + 5*B2*sin(theta-psi)*cos(theta-psi));
   //f(0) = k*normal(0); f(1) = k*normal(1);
-  f = k*uthe*tau;
+  f = uthe*tau;
 
   return f;
 }
@@ -5024,7 +5176,7 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
       filv << current_time << " ";
       filt << current_time << " ";
       for (int S = 0; S < n_solids/*(n_solids-1)*/; S++){
-        if (step == 0){Xgg = XG_0[S]; theta = theta_0[S]; Qrt = Q_0[S];} else{Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_0[S];}
+        if (step == 0){Xgg = XG_0[S]; theta = theta_0[S]; Qrt = Q_0[S];} else{Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_1[S];}
         filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta; if (S < (n_solids-1)){filg << " ";}// << VV[S] << " ";
         filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1) << " " << v_coeffs_s(LZ*S+2); if (S < (n_solids-1)){filv << " ";}
         filt << Qrt(0,0) << " " << Qrt(0,1) << " " << Qrt(0,2) << " "
@@ -5043,6 +5195,13 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
       filg.close(); filv.close(); filt.close();
     }
   } // end Printing mech. dofs information //////////////////////////////////////////////////
+
+  //Testing the angular advancing//
+  Matrix3d QrfT = RotM(theta_1[0],Q_1[0],1);
+  cout << "Determinant of Q^{n} = " << Q_1[0].determinant() << endl;
+  cout << "Matrix Difference =\n" << Q_1[0] - QrfT << endl << endl;
+  cout << "Norm of difference = " << (Q_1[0] - QrfT).norm() << endl;
+  //////////////////////////////////////////////////////////
 
  PetscFunctionReturn(0);
 }
@@ -5192,7 +5351,8 @@ PetscErrorCode AppCtx::extractForce(bool print){
       VecSetValues(Vec_slipv_0, dim, dofs_mesh.data(), Sv.data(), INSERT_VALUES);// before Vec_slipv_1
       VecSetValues(Vec_slipv_1, dim, dofs_mesh.data(), Sv.data(), INSERT_VALUES);// before Vec_slipv_1
       if (is_unksv){
-        Ft = FtauForce(Xj, XG, Nr, dim, tag, theta_ini[nod_vs+nod_id-1], Kforp, nforp, current_time, Sv);
+        Ft = FtauForce(Xj, XG, Nr, dim, tag, theta_0[nod_vs+nod_id-1], Kforp, nforp, current_time,
+                       Sv, Q_0[nod_vs+nod_id-1], thetaDOF, Kcte);
         VecSetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ft.data(), INSERT_VALUES);// before Vec_slipv_1
       }
     }
@@ -5298,7 +5458,7 @@ PetscErrorCode AppCtx::SarclTest(){
     Matrix3d Qr(Matrix3d::Zero(3,3));
     Vector3d Xref(Vector3d::Zero(3)), X3(Vector::Zero(3));
     X3(0) = Xj(0); X3(1) = Xj(1);
-    Xref = RotM(theta_0[nod_vs+nod_id-1],Qr,dim).transpose()*(X3 - XG);
+    Xref = RotM(theta_0[nod_vs+nod_id-1],Qr,thetaDOF).transpose()*(X3 - XG);
     double a = 110.0e-0;
     double L = S_arcl(-a,0.0);  //cout << "for " << Xref(0) << "  " << W << "  " << L << endl;
     double W = S_arcl(Xref(0), 0.0), Wr = W;

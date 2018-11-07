@@ -3074,7 +3074,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
     for (int v = 0; v < L; ++v)  //for each vector to interpolate
     {
       if (is_sfip){
-        if ((is_mr_ab || is_basic || is_mr_qextrap) && (v == 5 || /*v == 6 ||*/ v == 7 || v == 10 || v == 11))
+        if ((is_mr_ab || is_basic || is_mr_qextrap) && (/*v == 5 ||*/ /*v == 6 ||*/ v == 7 || v == 10 || v == 11))
           continue;
         else if (is_bdf2 && (v == 5 || v == 7 || v == 11))
           continue;
@@ -4042,4 +4042,26 @@ Real AppCtx::area_s(Cell const* cell, Mesh const* mesh)
     Real At = 0.5 * ( ax*by + ay*cx + bx*cy - by*cx - ay*bx - ax*cy );
 
     return At;
+}
+
+void AppCtx::getTangents(Vector& T, Vector &B, Vector const& N, int dim){
+  Tensor I(dim,dim);
+  I.setIdentity();
+  T.setZero();
+  B.setZero();
+
+  if (dim == 2){
+    T(0) = +N(1); T(1) = -N(0);  //T(0) = -N(1); T(1) = +N(0);
+  }
+  else if (dim == 3){//TODO
+    Vector Ref(3);
+    Ref(0) = 0.0; Ref(1) = 0.0; Ref(2) = -1.0;
+    Vector Tg = (I - N*N.transpose())*Ref;
+    double nTg = Tg.norm();
+    if (nTg < 1e-10){Tg(0) = 1.0; Tg(1) = 0.0; Tg(2) = 0.0;}
+    else {Tg = Tg/nTg;}
+
+    T = Tg;
+    //cross(T2, N, T1);
+  }
 }

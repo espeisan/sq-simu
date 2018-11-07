@@ -137,13 +137,14 @@ TensorS MI_tensor(double M, double R, int dim, Tensor3 TI);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
-               int dim, int tag, double theta, double Kforp, double nforp, double t);
+               int dim, int tag, double theta, double Kforp, double nforp, double t,
+               Matrix3d const& Q, int thetaDOF);
 Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
                  int dim, int tag, double theta, double Kforp, double nforp, double t,
-                 Vector const& Vs);
+                 Vector const& Vs, Matrix3d const& Q, int thetaDOF, double Kcte);
 double DFtauForce(Vector const& X, Vector const& XG, Vector const& normal,
                   int dim, int tag, double theta, double Kforp, double nforp, double t,
-                  Vector const& Vs);
+                  Vector const& Vs, double Kcte);
 VectorXi DOFS_elimination(int LZ);
 
 double Dif_coeff(int tag);
@@ -435,29 +436,6 @@ inline std::vector<Vector3d> midGP(std::vector<Vector3d> XG, std::vector<Vector3
   return XG_mid;
 }
 
-inline void getTangents(Vector& T, Vector &B, Vector const& N, int dim){
-  Tensor I(dim,dim);
-  I.setIdentity();
-  T.setZero();
-  B.setZero();
-
-  if (dim == 2){
-    T(0) = +N(1); T(1) = -N(0);  //T(0) = -N(1); T(1) = +N(0);
-  }
-  else if (dim == 3){//TODO
-    Vector Ref(3);
-    Ref(0) = 0.0; Ref(1) = 0.0; Ref(2) = -1;
-    Vector Tg = (I - N*N.transpose())*Ref;
-    double nTg = Tg.norm();
-    if (nTg < 1e-10){Tg(0) = 1.0; Tg(1) = 0.0; Tg(2) = 0.0;}
-    else {Tg = Tg/nTg;}
-
-    T = Tg;
-    //cross(T2, N, T1);
-  }
-}
-
-
 //////////////////////////////////////////////////
 class Statistics
 {
@@ -644,6 +622,7 @@ public:
   Vector BFields_from_file(int pID, int opt);
   Vector u_exacta(Vector const& X, double t, int tag);
   Tensor grad_u_exacta(Vector const& X, double t, int tag);
+  double p_exacta(Vector const& X, double t, int tag);
   Vector ftau_exacta(Vector const& X, Vector const& XG, Vector const& normal,
                              double t, int tag, double theta);
   PetscErrorCode ProjOrtMatrix(Matrix3d & Qn, int it, double eps, int dim);
@@ -660,6 +639,7 @@ public:
   void copyMesh2Vec(Vec &Vec_xmsh);
   void copyVec2Mesh(Vec const& Vec_xmsh);
   void swapMeshWithVec(Vec & Vec_xmsh);
+  void getTangents(Vector& T, Vector &B, Vector const& N, int dim);
   // @param[in] Vec_up_1 unknowns vector with fluid velocity
   // @param[out] u_mesh
   PetscErrorCode calcMeshVelocity(Vec const& Vec_x_0, Vec const& Vec_up_0, Vec const& Vec_up_1, double vtheta, Vec &Vec_v_mid, double tt); // by elasticity
@@ -742,6 +722,7 @@ public:
   double      vtheta;
   double      stheta;
   double      finaltime;
+  double      Kcte;
   bool        pres_pres_block;
   bool        solve_the_sys;
   bool        is_Stokes;
@@ -875,10 +856,10 @@ public:
   std::vector<int>       NN_Solids, pIDs;
   std::vector<double>    MV, VV, LV;  //mass vector, radius vector, link vector
   std::vector<Vector3d>  RV, SV_file, FD_file, FT_file, NR_file, TG_file;
-  std::vector<Vector3d>  XG_0,    XG_1,    XG_aux,    XG_ini;
-  std::vector<Matrix3d>  Q_0,     Q_1,     Q_aux,     Q_ini;
-  std::vector<double>    theta_0, theta_1, theta_aux, theta_ini;
-  std::vector<double>    llink_0, llink_1, llink_aux, llink_ini;
+  std::vector<Vector3d>  XG_0,    XG_1,    XG_m1,    XG_ini;
+  std::vector<Matrix3d>  Q_0,     Q_1,     Q_m1,     Q_ini;
+  std::vector<double>    theta_0, theta_1, theta_m1, theta_ini;
+  std::vector<double>    llink_0, llink_1, llink_m1, llink_ini;
   double                 hme, hmn, hmx;
   std::vector<Tensor3>   InTen;
   std::vector<double>    RR, UU;

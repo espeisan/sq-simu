@@ -910,7 +910,7 @@ public:
 
   // slip velocity
   Vec                 Vec_slipv_0, Vec_slipv_1, Vec_slipv_m1, Vec_slipv_m2, Vec_normal_aux;
-  Vec                 Vec_Fdis_0, Vec_res_Fdis, Vec_ftau_0;
+  Vec                 Vec_fdis_0, Vec_res_Fdis, Vec_ftau_0, Vec_metav_0;
   Mat                 Mat_Jac_fd;
   SNES                snes_fd;
   KSP                 ksp_fd;

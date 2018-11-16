@@ -1190,11 +1190,11 @@ PetscErrorCode AppCtx::allocPetscObjs()
     //  ----------------------- Dissipative Force ------------------------
     //  ------------------------------------------------------------------
 
-    //Vec Vec_Fdis_0;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_Fdis_0);                            CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_Fdis_0, PETSC_DECIDE, n_dofs_v_mesh);                CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_Fdis_0);                                       CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_Fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);    CHKERRQ(ierr);
+    //Vec Vec_fdis_0;
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_fdis_0);                            CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_fdis_0, PETSC_DECIDE, n_dofs_v_mesh);                CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_fdis_0);                                       CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);    CHKERRQ(ierr);
 
     ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_Fdis);                          CHKERRQ(ierr);
     ierr = VecSetSizes(Vec_res_Fdis, PETSC_DECIDE, n_dofs_v_mesh);              CHKERRQ(ierr);
@@ -1382,6 +1382,13 @@ PetscErrorCode AppCtx::allocPetscObjsVecNoInt()
     ierr = VecCreate(PETSC_COMM_WORLD, &Vec_x_cur);              CHKERRQ(ierr);
     ierr = VecSetSizes(Vec_x_cur, PETSC_DECIDE, n_dofs_v_mesh);  CHKERRQ(ierr);
     ierr = VecSetFromOptions(Vec_x_cur);                         CHKERRQ(ierr);
+  }
+
+  if (is_sfip){
+    //Vec Vec_metav_0; current
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_metav_0);              CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_metav_0, PETSC_DECIDE, n_dofs_v_mesh);  CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_metav_0);                         CHKERRQ(ierr);
   }
 
   if (time_adapt)
@@ -1577,10 +1584,10 @@ PetscErrorCode AppCtx::allocPetscObjsDissForce()
   ierr = VecSetSizes(Vec_res_Fdis, PETSC_DECIDE, n_dofs_v_mesh);              CHKERRQ(ierr);
   ierr = VecSetFromOptions(Vec_res_Fdis);                                     CHKERRQ(ierr);
 
-  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_Fdis_0);                            CHKERRQ(ierr);
-  ierr = VecSetSizes(Vec_Fdis_0, PETSC_DECIDE, n_dofs_v_mesh);                CHKERRQ(ierr);
-  ierr = VecSetFromOptions(Vec_Fdis_0);                                       CHKERRQ(ierr);
-  ierr = VecSetOption(Vec_Fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);    CHKERRQ(ierr);
+  ierr = VecCreate(PETSC_COMM_WORLD, &Vec_fdis_0);                            CHKERRQ(ierr);
+  ierr = VecSetSizes(Vec_fdis_0, PETSC_DECIDE, n_dofs_v_mesh);                CHKERRQ(ierr);
+  ierr = VecSetFromOptions(Vec_fdis_0);                                       CHKERRQ(ierr);
+  ierr = VecSetOption(Vec_fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);    CHKERRQ(ierr);
 
   ierr = VecCreate(PETSC_COMM_WORLD, &Vec_ftau_0);                            CHKERRQ(ierr);
   ierr = VecSetSizes(Vec_ftau_0, PETSC_DECIDE, n_dofs_v_mesh);                CHKERRQ(ierr);
@@ -1626,7 +1633,8 @@ PetscErrorCode AppCtx::allocPetscObjsDissForce()
   //ierr = SNESView(snes_fd, PETSC_VIEWER_STDOUT_WORLD);
   ierr = SNESMonitorSet(snes_fd, SNESMonitorDefault, 0, 0);                            CHKERRQ(ierr);
   //ierr = SNESMonitorSet(snes_m,Monitor,0,0);CHKERRQ(ierr);
-  ierr = SNESSetTolerances(snes_fd,1.e-16,1.e-16,1.e-16,100,PETSC_DEFAULT);             CHKERRQ(ierr);
+  ierr = SNESSetTolerances(snes_fd,1.e-14,1.e-14,1.e-14,100,PETSC_DEFAULT);             CHKERRQ(ierr);
+  ierr = KSPSetTolerances(ksp_fd,1.e-16,1.e-16,1.e-16,100);             CHKERRQ(ierr);
   ierr = KSPMonitorSet(ksp_fd, KSPMonitorDefault, 0, 0); CHKERRQ(ierr);
 
   PetscFunctionReturn(0);
@@ -2114,7 +2122,7 @@ PetscErrorCode AppCtx::setUPInitialGuess()
     else if (is_in(tag, flusoli_tags))
     {
       int nod_vs = is_in_id(tag,flusoli_tags);
-      Vector Nr(dim), Ft(dim), Tg(dim), Bn(dim);
+      Vector Nr(dim), Ft(dim), Tg(dim), Bn(dim), Vm(dim);
       VecGetValues(Vec_normal, dim, x_dofs.data(), Nr.data());
       int pID = mesh->getPointId(&*point);
       if (read_from_sv_fd){
@@ -2127,6 +2135,9 @@ PetscErrorCode AppCtx::setUPInitialGuess()
       VecSetValues(Vec_ftau_0, dim, x_dofs.data(), Ft.data(), INSERT_VALUES);
       getTangents(Tg,Bn,Nr,dim);
       VecSetValues(Vec_tangent, dim, x_dofs.data(), Tg.data(), INSERT_VALUES);
+      Vm = SlipVel(X1, XG_1[nod_vs-1], Nr, dim, tag, theta_1[nod_vs-1], Kforp, nforp, current_time+unsteady*dt,
+                   Q_1[nod_vs-1], thetaDOF);//for paramecium test
+      VecSetValues(Vec_metav_0, dim, x_dofs.data(), Vm.data(), INSERT_VALUES);
     }
 
   } // end for point
@@ -2181,8 +2192,9 @@ PetscErrorCode AppCtx::setInitialConditions()
     VecZeroEntries(Vec_slipv_m1);
     if (is_bdf3){VecZeroEntries(Vec_slipv_m2);}
     VecZeroEntries(Vec_res_Fdis);
-    VecZeroEntries(Vec_Fdis_0);
+    VecZeroEntries(Vec_fdis_0);
     VecZeroEntries(Vec_ftau_0);
+    VecZeroEntries(Vec_metav_0);
   }
   if (is_sfip && (is_bdf2 || is_bdf3)){VecZeroEntries(Vec_x_cur);}
   if (is_sslv){
@@ -2312,6 +2324,9 @@ PetscErrorCode AppCtx::setInitialConditions()
                                Vs, Q_0[nod_vs+nod_id-1], thetaDOF, Kcte);
             }
             VecSetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ftau.data(), INSERT_VALUES);
+            Vs = SlipVel(X, XG_0[nod_vs-1], Nr, dim, tag, theta_0[nod_vs-1], Kforp, nforp, current_time+unsteady*dt,
+                         Q_0[nod_vs-1], thetaDOF);//for paramecium test
+            VecSetValues(Vec_metav_0, dim, dofs_mesh.data(), Vs.data(), INSERT_VALUES);
           }
           getTangents(Tg,Bn,Nr,dim);  //cout << Nr.transpose() << " * " << Tg.transpose() << " = " << Nr.dot(Tg) << " Bin " << Bn.transpose() << endl;
           VecSetValues(Vec_tangent, dim, dofs_mesh.data(), Tg.data(), INSERT_VALUES);
@@ -2491,7 +2506,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
       if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
         cout << "-----Interaction force calculation------" << endl;
-        ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
+        ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
         cout << "-----Interaction force extracted------" << endl;
         extractForce(true);
       }
@@ -2523,7 +2538,7 @@ PetscErrorCode AppCtx::setInitialConditions()
         //calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
         if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
           cout << "-----Interaction force calculation------" << endl;
-          ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
+          ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
           cout << "-----Interaction force extracted------" << endl;
           extractForce(false);
         }
@@ -2559,7 +2574,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     // calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
     if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
       cout << "-----Interaction force calculation------" << endl;
-      ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
+      ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
       extractForce(false);
     }
@@ -2846,7 +2861,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     // calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
     if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PIs)*/){
       cout << "-----Interaction force calculation-----" << endl;
-      ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_Fdis_0);  CHKERRQ(ierr);
+      ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
       extractForce(false);
     }
@@ -3477,7 +3492,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   PerM12.block(0,0,6,6) = PerM6; PerM12.block(6,6,6,6) = PerM6;
   Tensor              F_f_curv(dim,dim-1);
 
-  double    VD = 0.0, visc = 0.0, ND = 0.0;  //viscous dissipation
+  double    VD = 0.0, visc = 0.0, ND = 0.0, VT = 0.0;  //viscous dissipation
 
   VecSetOption(Vec_up, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE); //?
 
@@ -3595,9 +3610,10 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
 
       //cout << DobCont(dxU,dxU) << endl;
       ND += JxW*pdiv; //numeric dissipation
-      VD += JxW*( 2.0*visc*DobCont(dxUs,dxU) - pdiv);  //cout << pdiv << endl;
+      VD += JxW*2.0*visc*DobCont(dxUs,dxUs);
+      VT += JxW*( 2.0*visc*DobCont(dxUs,dxUs) - pdiv);  //cout << pdiv << endl;
       if (is_axis){
-        VD += JxW*( 2.0*visc*Uqp(0)*Uqp(0)/(Xqp(0)*Xqp(0)) - Pqp*Uqp(0)/Xqp(0) ); //cout << Pqp*Uqp(0)/Xqp(0) << endl;
+        VT += JxW*( 2.0*visc*Uqp(0)*Uqp(0)/(Xqp(0)*Xqp(0)) - Pqp*Uqp(0)/Xqp(0) ); //cout << Pqp*Uqp(0)/Xqp(0) << endl;
       }
 
      } // fim quadratura //////////////////////////////////////////////////
@@ -3623,7 +3639,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   Vector              normal(dim), Traction_(Vector::Zero(dim))/*, Xqp(dim)*/, ftauqp(dim), svqp(dim);// Uqp(dim);
   double              /*J, JxW, weight, */areas = 0.0;
   //Tensor              I(Tensor::Identity(dim,dim));
-  double              PD = 0.0;  //viscous dissipation
+  double              PD = 0.0, PDu = 0.0;  //viscous dissipation
 
   facet_iterator facet = mesh->facetBegin();
   facet_iterator facet_end = mesh->facetEnd();
@@ -3670,7 +3686,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
       }
 
       Xqp     = x_coefs_f_trans * qsi_f[qp]; // coordenada espacial (x,y,z) do ponto de quadratura
-      //Uqp  = u_coefs_f_trans * phi_f[qp];
+      Uqp     = u_coefs_f_trans * phi_f[qp];
       ftauqp  = ftau_coefs_f_trans * phi_f[qp];
       svqp    = sv_coefs_f_trans * phi_f[qp];
 
@@ -3685,6 +3701,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
       areas += JxW;
       Traction_ += JxW * ( -p_coefs_f.dot(psi_f[qp])*normal + muu(tag)*(dxU_f + dxU_f.transpose())*normal );
       PD += JxW*(ftauqp.dot(svqp));
+      PDu+= JxW*(ftauqp.dot(Uqp));
       //cout << Traction_.transpose() << "  " << areas << endl;
     }
   }
@@ -3694,7 +3711,10 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
 
   double B1 = +0.5, B2 = +3.0, R = 1.0;
   double VDr = 16.0*pi*muu(0)*R*(B1*B1/3.0 + B2*B2/6.0);
-  cout << ". Viscous Dissipation = " << VD << ". Exact VD = " << VDr << endl;
+  cout << ". Viscous Dissipation = " << VD << ". Numeric Disipation = " << ND;
+  cout << ". Vicouss Dissipation - Power = " << VD + PD << endl;
+  cout << ". Viscous total = " << VT << ". Power integral ftau*u = " << PDu << endl; //". Difference = " << PD+VT << endl;
+  //cout << ". Exact VD = " << VDr;
 
   //save traction and power
   filf.open(forc,iostream::app);
@@ -3704,7 +3724,7 @@ void AppCtx::computeViscousDissipation(Vec const& Vec_x, Vec &Vec_up)
   //save viscous dissipation
   filf.open(forc,iostream::app);
   filf.precision(15);
-  filf << VD << " " << PD + VD << " " << ND << endl;
+  filf << VD << " " << VD + PD << " " << ND << " " << PDu << endl;
   filf.close();
 
 }
@@ -4398,7 +4418,7 @@ PetscErrorCode AppCtx::plotFiles(int step)
 {
   double  *q_array;
   double  *nml_array;
-  double  *v_array, *vs_array, *rho_array, *fd_array, *Ftau_array, *tg_array;
+  double  *v_array, *vs_array, *rho_array, *fd_array, *Ftau_array, *tg_array, *vm_array;
   if (step == 0){
     VecGetArray(Vec_ups_0, &q_array);}  //VecGetArray(Vec_up_0, &q_array);
   else{
@@ -4410,9 +4430,10 @@ PetscErrorCode AppCtx::plotFiles(int step)
       VecGetArray(Vec_slipv_0, &vs_array);}
     else{
       VecGetArray(Vec_slipv_1, &vs_array);}
-    VecGetArray(Vec_Fdis_0, &fd_array);
+    VecGetArray(Vec_fdis_0, &fd_array);
     VecGetArray(Vec_ftau_0, &Ftau_array);
     VecGetArray(Vec_tangent, &tg_array);
+    VecGetArray(Vec_metav_0, &vm_array);
   }
   if (is_sslv) VecGetArray(Vec_slip_rho, &rho_array);
   vtk_printer.writeVtk();
@@ -4426,6 +4447,7 @@ PetscErrorCode AppCtx::plotFiles(int step)
     vtk_printer.addNodeVectorVtk("fd", GetDataMeshVel(fd_array, *this));
     vtk_printer.addNodeVectorVtk("ftau", GetDataMeshVel(Ftau_array, *this));
     vtk_printer.addNodeVectorVtk("tg", GetDataMeshVel(tg_array, *this));
+    vtk_printer.addNodeVectorVtk("vm", GetDataMeshVel(vs_array, *this));
   }
   if (is_sslv) vtk_printer.addNodeScalarVtk("rho", GetDataSlipVel(rho_array, *this));
   vtk_printer.printPointTagVtk();
@@ -4449,9 +4471,10 @@ PetscErrorCode AppCtx::plotFiles(int step)
       VecRestoreArray(Vec_slipv_0, &vs_array);}
     else{
       VecRestoreArray(Vec_slipv_1, &vs_array);}
-    VecRestoreArray(Vec_Fdis_0, &fd_array);
+    VecRestoreArray(Vec_fdis_0, &fd_array);
     VecRestoreArray(Vec_ftau_0, &Ftau_array);
     VecRestoreArray(Vec_tangent, &tg_array);
+    VecRestoreArray(Vec_metav_0, &vm_array);
   }
   if (is_sslv) VecRestoreArray(Vec_slip_rho, &rho_array);
 
@@ -4468,7 +4491,7 @@ PetscErrorCode AppCtx::plotFilesNT()
   VecGetArray(Vec_v_mid, &v_array);
   if (is_sfip){
     VecGetArray(Vec_slipv_1, &vs_array);
-    VecGetArray(Vec_Fdis_0, &fd_array);
+    VecGetArray(Vec_fdis_0, &fd_array);
     VecGetArray(Vec_ftau_0, &Ftau_array);
     VecGetArray(Vec_tangent, &tg_array);
   }
@@ -4501,7 +4524,7 @@ PetscErrorCode AppCtx::plotFilesNT()
   VecRestoreArray(Vec_v_mid, &v_array);
   if (is_sfip){
     VecRestoreArray(Vec_slipv_1, &vs_array);
-    VecRestoreArray(Vec_Fdis_0, &fd_array);
+    VecRestoreArray(Vec_fdis_0, &fd_array);
     VecRestoreArray(Vec_ftau_0, &Ftau_array);
     VecRestoreArray(Vec_tangent, &tg_array);
   }
@@ -5323,7 +5346,7 @@ PetscErrorCode AppCtx::extractForce(bool print){
     pID = mesh->getPointId(&*point);
     point->getCoord(Xj.data(),dim);
     getNodeDofs(&*point, DH_MESH, VAR_M, dofs_mesh.data());
-    VecGetValues(Vec_Fdis_0, dim, dofs_mesh.data(), Fd.data());
+    VecGetValues(Vec_fdis_0, dim, dofs_mesh.data(), Fd.data());
     VecGetValues(Vec_slipv_0, dim, dofs_mesh.data(), Sv.data());
     VecGetValues(Vec_ftau_0, dim, dofs_mesh.data(), Ft.data());
     VecGetValues(Vec_normal, dim, dofs_mesh.data(), Nr.data());
@@ -5686,7 +5709,7 @@ void AppCtx::freePetscObjs()
   // Dissipative Force //////////////////////////////////////////////////
   if (is_sfip){
     Destroy(Vec_res_Fdis);
-    Destroy(Vec_Fdis_0);
+    Destroy(Vec_fdis_0);
     Destroy(Vec_ftau_0);
     Destroy(Mat_Jac_fd);
     SNESDestroy(&snes_fd);

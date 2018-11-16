@@ -2084,7 +2084,7 @@ Vector v_exact(Vector const& X, double t, int tag) //(X,t,tag)
   double const x = X(0);
   double const y = X(1);
   Vector v(Vector::Zero(X.size()));
-  v(1) = 1.0;
+  v(0) = 1.0;
 
   return v;
 }
@@ -2629,7 +2629,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
     V = uthe*tau;
     //cout << V.transpose() << endl;
   }
-  else if (cas == 6 && dim == 2 && (tag == 101 || tag == 102/*144 || tag == 142 || tag == 130*/))
+  else if (cas == 6 && dim == 2 && (tag == 101 /*|| tag == 102*//*144 || tag == 142 || tag == 130*/))
   {//for metachronal waves full body
     Matrix3d Qr = Q;//(Matrix3d::Zero(3,3));
     Vector3d Xref(Vector3d::Zero(3)), X3(Vector::Zero(3));
@@ -2762,6 +2762,18 @@ double DFtauForce(Vector const& X, Vector const& XG, Vector const& normal,
   }
   return duthe;//pow(2,1.5);//
 }
+
+/*
+double Vector FtauForceCoef(Vector const& X, Vector const& XG, Vector const& normal,
+    int dim, int tag, double theta, double Kforp, double nforp, double t,
+    Vector const& Vs, Matrix3d const& Q, int thetaDOF, double Kcte)//
+{
+
+
+
+  f = uthe*tau;  //cout << V.transpose() << endl;
+}
+*/
 
 VectorXi DOFS_elimination(int LZ)
 { //0 for component to eliminate, 1 for component to compute

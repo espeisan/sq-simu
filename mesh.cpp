@@ -3037,7 +3037,7 @@ PetscErrorCode AppCtx::meshAdapt_s()
   // Dissipative Force //////////////////////////////////////////////////
   if (is_sfip){
     Destroy(Vec_res_Fdis);
-    Destroy(Vec_Fdis_0);
+    Destroy(Vec_fdis_0);
     Destroy(Vec_ftau_0);
     Destroy(Mat_Jac_fd);
     SNESReset(snes_fd);
@@ -3414,11 +3414,11 @@ PetscErrorCode AppCtx::meshAdapt_s()
     //  ----------------------- Dissipative Force ------------------------
     //  ------------------------------------------------------------------
 
-    //Vec Vec_Fdis_0;
-    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_Fdis_0);               CHKERRQ(ierr);
-    ierr = VecSetSizes(Vec_Fdis_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
-    ierr = VecSetFromOptions(Vec_Fdis_0);                          CHKERRQ(ierr);
-    ierr = VecSetOption(Vec_Fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
+    //Vec Vec_fdis_0;
+    ierr = VecCreate(PETSC_COMM_WORLD, &Vec_fdis_0);               CHKERRQ(ierr);
+    ierr = VecSetSizes(Vec_fdis_0, PETSC_DECIDE, n_dofs_v_mesh);   CHKERRQ(ierr);
+    ierr = VecSetFromOptions(Vec_fdis_0);                          CHKERRQ(ierr);
+    ierr = VecSetOption(Vec_fdis_0, VEC_IGNORE_NEGATIVE_INDICES,PETSC_TRUE);  CHKERRQ(ierr);
 
     ierr = VecCreate(PETSC_COMM_WORLD, &Vec_res_Fdis);                CHKERRQ(ierr);
     ierr = VecSetSizes(Vec_res_Fdis, PETSC_DECIDE, n_dofs_v_mesh);    CHKERRQ(ierr);

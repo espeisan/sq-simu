@@ -1685,9 +1685,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         Aloc  += betaPrj*(Id_vs - Prj);
         Z1loc = -betaPrj*(Id_vs - Prj)*Hq_vs;
 
-        FZloc  = Hq_vs.transpose()*(Id_vs - Prj)*FUloc_copy;
-        Z2loc  = Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
-        Z4loc  = Hq_vs.transpose()*(Id_vs - Prj)*Gloc_copy;
+        FZloc  = Hq_vs.transpose()*(Id_vs - 0*Prj)*FUloc_copy; //FIXME uncomment the Prj for old code
+        Z2loc  = Hq_vs.transpose()*(Id_vs - 0*Prj)*Aloc_copy;  //FIXME uncomment the Prj for old code
+        Z4loc  = Hq_vs.transpose()*(Id_vs - 0*Prj)*Gloc_copy;  //FIXME uncomment the Prj for old code
 
         //if (is_unksv && (SVI || VSF)){
         //  Asloc = -betaPrj*(Id_vs - Prj);
@@ -2342,6 +2342,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     MatrixXd            ftau_coefs_f_old(n_dofs_v_per_facet/dim, dim);       // n
     MatrixXd            ftau_coefs_f_new(n_dofs_v_per_facet/dim, dim);       // n+1
 
+    MatrixXd            metav_coefs_f_mid_trans(dim, n_dofs_v_per_facet/dim); // n+utheta
+    MatrixXd            metav_coefs_f_old(n_dofs_v_per_facet/dim, dim);       // n
+    MatrixXd            metav_coefs_f_new(n_dofs_v_per_facet/dim, dim);       // n+1
+
     MatrixXd            noi_coefs_f_new(n_dofs_v_per_facet/dim, dim);  // normal interpolada em n+1
     MatrixXd            noi_coefs_f_new_trans(dim, n_dofs_v_per_facet/dim);  // normal interpolada em n+1
 
@@ -2357,8 +2361,9 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     Tensor              fff_f_mid(dim-1,dim-1);   // n+utheta; fff = first fundamental form
 
     MatrixXd            Aloc_f(n_dofs_u_per_facet, n_dofs_u_per_facet);
+    MatrixXd            Aloc_fc(n_dofs_u_per_facet, n_dofs_u_per_facet);
     MatrixXd            AZaux_f(dim,n_dofs_u_per_facet);
-    VectorXd            FUloc_f(n_dofs_u_per_facet), FSloc(LZ), Fval(1);
+    VectorXd            FUloc_f(n_dofs_u_per_facet), FSloc(LZ), Fval(1), FUloc_fc(n_dofs_u_per_facet);
     VectorXd            FZloc_f(nodes_per_facet*LZ);
     VectorXd            FZsloc_f(LZ);// = VectorXd::Zero(LZ);
 
@@ -2375,7 +2380,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     MatrixXd            dxphi_f(n_dofs_u_per_facet/dim, dim);
     Tensor              dxU_f(dim,dim);   // grad u
     Vector              Xqp(dim), Xqpc(3), maxw(3);
-    Vector              Uqp(dim), Eqp(dim), Usqp(dim);
+    Vector              Uqp(dim), Eqp(dim), Usqp(dim), Umqp(dim);
     Vector              noi(dim); // normal interpolada
     double              J_mid = 0, JxW_mid, DFtau = 0.0; //delta_ij,
     double              weight = 0, perE = 0;
@@ -2465,6 +2470,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           VecGetValues(Vec_ftau_0, mapM_f.size(), mapM_f.data(), ftau_coefs_f_old.data());
           ftau_coefs_f_mid_trans = vtheta*ftau_coefs_f_new.transpose() + (1.-vtheta)*ftau_coefs_f_old.transpose();
         }
+        else{
+          VecGetValues(Vec_metav_0, mapM_f.size(), mapM_f.data(), metav_coefs_f_new.data());
+          VecGetValues(Vec_metav_0, mapM_f.size(), mapM_f.data(), metav_coefs_f_old.data());
+          metav_coefs_f_mid_trans = vtheta*metav_coefs_f_new.transpose() + (1.-vtheta)*metav_coefs_f_old.transpose();
+        }
       }
 
       x_coefs_f_old_trans = x_coefs_f_old.transpose();
@@ -2494,10 +2504,12 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       FUloc_f.setZero();  //U momentum
       FZloc_f.setZero();  //S momentum
       FZsloc_f.setZero(); //Lagrangian contribution to S momentum
+      FUloc_fc.setZero(); //U momentum copy
 
       Aloc_f.setZero();
       Z2sloc_f.setZero(); Z3sloc_f.setZero();
       Z1loc_f.setZero(); Z2loc_f.setZero(); Z3loc_f.setZero();
+      Aloc_fc.setZero();
 
       if (is_sslv && false){ //for electrophoresis, TODO
         dof_handler[DH_SLIP].getVariable(VAR_S).getFacetDofs(mapS_f.data(), &*facet);
@@ -2544,6 +2556,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         Uqp     = u_coefs_f_mid_trans * phi_f[qp];
         if (is_fsi && is_unksv){//.col(0) is choosen because the S unknown is the same for any node: they are on the same body
           Usqp  = Uqp - 1.0*SolidVel(Xqp, XG_0[is_fsi-1], z_coefs_f_mid_trans.col(0), dim); //vs_coefs_f_mid_trans * phi_f[qp];
+          Umqp  = metav_coefs_f_mid_trans * phi_f[qp];
         }
         //noi     = noi_coefs_f_new_trans * qsi_f[qp];
         if (is_sslv && false){ //for electrophoresis, TODO
@@ -2588,6 +2601,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             for (int c = 0; c < dim; ++c)
             {
               FUloc_f(i*dim + c) -= JxW_mid * traction_(c) * phi_f[qp][i] ; // força
+              FUloc_fc(i*dim + c) -= JxW_mid * traction_(c) * phi_f[qp][i] ; // força
             }
           }
         }//end is_neumann //////////////////////////////////////////////////
@@ -2600,6 +2614,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             {
               //FUloc_f(i*dim + c) += JxW_mid *gama(Xqp,current_time,tag)*(dxphi_f(i,c) + (unsteady*dt) *dxU_f.row(c).dot(dxphi_f.row(i))); // correto
               FUloc_f(i*dim + c) += JxW_mid *gama(Xqp,current_time,tag)*dxphi_f(i,c); //inicialmente descomentado
+              FUloc_fc(i*dim + c) += JxW_mid *gama(Xqp,current_time,tag)*dxphi_f(i,c); //inicialmente descomentado
               //FUloc_f(i*dim + c) += JxW_mid *gama(Xqp,current_time,tag)*normal(c)* phi_f[qp][i];
               //for (int d = 0; d < dim; ++d)
               //  FUloc_f(i*dim + c) += JxW_mid * gama(Xqp,current_time,tag)* ( (c==d?1:0) - noi(c)*noi(d) )* dxphi_f(i,d) ;
@@ -2611,8 +2626,10 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           {
             for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
               for (int j = 0; j < n_dofs_u_per_facet/dim; ++j)
-                for (int c = 0; c < dim; ++c)
+                for (int c = 0; c < dim; ++c){
                   Aloc_f(i*dim + c, j*dim + c) += utheta*JxW_mid* (unsteady*dt) *gama(Xqp,current_time,tag)*dxphi_f.row(i).dot(dxphi_f.row(j));
+                  Aloc_fc(i*dim + c, j*dim + c) += utheta*JxW_mid* (unsteady*dt) *gama(Xqp,current_time,tag)*dxphi_f.row(i).dot(dxphi_f.row(j));
+                }
           }//end semi-implicit
         }//end is_surface //////////////////////////////////////////////////
 
@@ -2639,14 +2656,18 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         {
           int K = is_fsi;
           Xg = XG_mid[K-1];
-          if (read_from_sv_fd)
-            Ftau = ftau_coefs_f_mid_trans * qsi_f[qp];
-          else
-            Ftau = FtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time,
-                             Usqp, Q_1[K-1], thetaDOF, Kcte); //normal points OUT the fluid, see definition of normal above
 
           if (is_unksv)
+
+          if (read_from_sv_fd)
+            Ftau = ftau_coefs_f_mid_trans * qsi_f[qp];
+          else{
             DFtau = DFtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time, Usqp, Kcte); //cout << Ftau.transpose() << "       " << DFtau << endl;
+            //Ftau = FtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time,
+            //                 Usqp, Q_1[K-1], thetaDOF, Kcte); //normal points OUT the fluid, see definition of normal above
+            Ftau = DFtau*(Usqp - Umqp);
+          }
+
 
           //from velocity test functions (see variational formulation)//////////////////////////////////////////////////
           for (int i = 0; i < n_dofs_u_per_facet/dim; ++i)
@@ -2654,6 +2675,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             for (int c = 0; c < dim; ++c)
             {// force for fluid momentum equation
               FUloc_f(i*dim + c) += JxW_mid * Ftau(c) * phi_f[qp][i]; // force, "+" because Ftau appears "+" in the formulation
+              //FUloc_fc(i*dim + c) += JxW_mid * Ftau(c) * phi_f[qp][i]; // force, "+" because Ftau appears "+" in the formulation
             }
           }
           if (is_unksv){
@@ -2698,8 +2720,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         VectorXd    FUloc_copy(n_dofs_u_per_facet);
         MatrixXd    Aloc_copy(n_dofs_u_per_facet, n_dofs_u_per_facet);
 
-        FUloc_copy = FUloc_f;
-        Aloc_copy  = Aloc_f;
+        FUloc_copy = FUloc_f;  //before FUloc_f FIXME
+        Aloc_copy  = Aloc_f;   //before Aloc_f FIXME
 
         mesh->getFacetNodesId(&*facet, facet_nodes.data());
         getProjectorMatrix(Prj, nodes_per_facet, facet_nodes.data(), Vec_x_1, current_time+dt, *this);
@@ -2736,8 +2758,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         //cout << Id_vs << endl;
         FZloc_f = Hq_vs.transpose()*(Id_vs - Prj)*FUloc_copy; //cout << FZloc_f << endl; //body's dofs equation
 
-        if(is_unksv){
-          Z1loc_f  = -Prj*Aloc_copy*HqS;  //minus from the derivative with respect to body's dofs
+        if(is_unksv && true){// These are the derivatives of the forces in the solid part momentum conserv equations
+          Z1loc_f  =  -Prj*Aloc_copy*HqS;  //minus from the derivative with respect to body's dofs
           Z2loc_f  =  Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
           Z3loc_f  = -Z2loc_f*HqS;//Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy*HqS;
           Z3sloc_f = -Z2sloc_f*HqS;
@@ -2760,6 +2782,11 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           Z2sloc_f = PrjDOFSlz*Z2sloc_f;
           Z3sloc_f = PrjDOFSlz*Z3sloc_f;
         }
+      }
+
+      if (true){//new formulation (in doubt) FIXME comment this if wrong
+        FZsloc_f.setZero(); FZloc_f.setZero();
+        Z2loc_f.setZero(); Z3loc_f.setZero(); Z2sloc_f.setZero(); Z3sloc_f.setZero();
       }
 
       //~ FEP_PRAGMA_OMP(critical)

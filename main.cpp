@@ -303,9 +303,9 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsInt("-print_step", "print_step", "main.cpp", print_step, &print_step, PETSC_NULL);
   PetscOptionsInt("-picard_iter_init_cond", "picard iteration for initial conditions", "main.cpp", PI, &PI, PETSC_NULL);
   PetscOptionsInt("-picard_iter_solver", "picard iteration for solver", "main.cpp", PIs, &PIs, PETSC_NULL);
-  PetscOptionsInt("-temporal_solver", "choose timporal solver", "main.cpp", temporal_solver, &temporal_solver, PETSC_NULL);
+  PetscOptionsInt("-temporal_solver", "choose time solver", "main.cpp", temporal_solver, &temporal_solver, PETSC_NULL);
   PetscOptionsInt("-stabilization_method", "choose stabilization method", "main.cpp", stabilization_method, &stabilization_method, PETSC_NULL);
-  PetscOptionsInt("-n_modes", "number of slactic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
+  PetscOptionsInt("-n_modes", "number of elastic modes", "main.cpp", n_modes, &n_modes, PETSC_NULL);
   PetscOptionsInt("-n_links", "number of links in swimmer", "main.cpp", n_links, &n_links, PETSC_NULL);
   PetscOptionsInt("-n_groups", "number of groups swimmers", "main.cpp", n_groups, &n_groups, PETSC_NULL);
   PetscOptionsInt("-theta_dof_version", "solve the 2D problem with the angle dof", "main.cpp", thetaDOF, &thetaDOF, PETSC_NULL);
@@ -572,7 +572,8 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   if (flg_min){
     filemass.assign(minaux);
     int N = n_solids;
-    double mass = 0.0, rad1 = 0.0, rad2 = 0.0, rad3 = 0.0, vol = 0.0, the = 0.0, xg = 0.0, yg = 0.0, zg = 0.0, llin = 0.0;
+    double mass = 0.0, rad1 = 0.0, rad2 = 0.0, rad3 = 0.0, vol = 0.0, the = 0.0,
+           xg = 0.0, yg = 0.0, zg = 0.0, llin = 0.0, mode = 0.0;
     Vector3d Xg, rad;
     ifstream is;
     is.open(filemass.c_str(),ifstream::in);
@@ -590,7 +591,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
       is >> the;
       is >> xg; is >> yg; if(dim == 3){is >> zg;}
       if(n_modes > 0){
-        for (int nm = 0; nm < n_modes; nm++){}//TODO: modes
+        for (int nm = 0; nm < n_modes; nm++){is >> mode;}//TODO: modes > 1
       }
       if(n_links > 0){is >> llin;}
       rad << rad1, rad2, rad3;
@@ -599,12 +600,14 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
       XG_0.push_back(Xg);      XG_1.push_back(Xg);      XG_m1.push_back(Xg);      XG_ini.push_back(Xg);
       theta_0.push_back(the);  theta_1.push_back(the);  theta_m1.push_back(the);  theta_ini.push_back(the); //(rand()%6);
       llink_0.push_back(llin); llink_1.push_back(llin); llink_m1.push_back(llin); llink_ini.push_back(llin); //(rand()%6);
+      modes_0.push_back(mode); modes_1.push_back(mode); modes_m1.push_back(mode); modes_ini.push_back(mode); //(rand()%6);
     }
     is.close();
     MV.resize(n_solids); RV.resize(n_solids); VV.resize(n_solids);
     XG_0.resize(n_solids);    XG_1.resize(n_solids);    XG_m1.resize(n_solids);    XG_ini.resize(n_solids);
     theta_0.resize(n_solids); theta_1.resize(n_solids); theta_m1.resize(n_solids); theta_ini.resize(n_solids);
     llink_0.resize(n_links);  llink_1.resize(n_links);  llink_m1.resize(n_links);  llink_ini.resize(n_links);
+    modes_0.resize(n_modes);  modes_1.resize(n_modes);  modes_m1.resize(n_modes);  modes_ini.resize(n_modes);
   }
 
   if (flg_sin){
@@ -2294,6 +2297,7 @@ PetscErrorCode AppCtx::setInitialConditions()
           //cout << Zf.transpose() << endl;
         }
         Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
+        Uf = SolidVelGen(X, XG_0[nodsum-1], theta_0[0], modes_0[0], Zf, dim);
         VecSetValues(Vec_ups_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);
       }//////////////////////////////////////////////////
       if (nod_vs+nod_id){ ////////////////////////////////////////////////// //ojo antes solo nod_vs
@@ -4301,8 +4305,8 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
   Vector      Omega0(Vector::Zero(3)), Omega1(Vector::Zero(3));
   Vector      Z0(Vector::Zero(LZ)), Z1(Vector::Zero(LZ));
   Matrix3d    Id3(Matrix3d::Identity(3,3)), Qtmp;
-  double      theta_temp, omega0, omega1;
-
+  double      theta_temp, omega0, omega1, modes0, modes1;
+  cout << "here" << endl;
   for (int s = 0; s < n_solids; s++){
 
     for (int l = 0; l < LZ; l++){
@@ -4313,14 +4317,15 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
     //dof(0) = n_unknowns_u + n_unknowns_p + LZ*s + dim;
     //VecGetValues(Vec_ups_0, 1, dof.data(), omega0.data());
     //VecGetValues(Vec_ups_1, 1, dof.data(), omega1.data());
-    U0.head(dim) = Z0.head(dim); omega0 = Z0(LZ-(1+n_modes));
-    U1.head(dim) = Z1.head(dim); omega1 = Z1(LZ-(1+n_modes));
+    U0.head(dim) = Z0.head(dim); omega0 = Z0(LZ-(1+n_modes)); modes0 = Z0(LZ-1);
+    U1.head(dim) = Z1.head(dim); omega1 = Z1(LZ-(1+n_modes)); modes1 = Z1(LZ-1);
     if (dim == 2){Omega0(2) = omega0;     Omega1(2) = omega1;    }
     else{         Omega0    = Z0.tail(3); Omega1    = Z1.tail(3);}
 
     if (is_mr_qextrap && time_step > 0){
-      XG_1[s] = XG_0[s] + stheta*dt*U1;  //equiv. to XG_1[s] = (1.0+stheta)*XG_0[s] - stheta*XG_m1[s];
+      XG_1[s]    = XG_0[s]    + stheta*dt*U1;  //equiv. to XG_1[s] = (1.0+stheta)*XG_0[s] - stheta*XG_m1[s];
       theta_1[s] = theta_0[s] + stheta*dt*omega1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
+      modes_1[s] = modes_0[s] + stheta*dt*modes1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
       //Qtmp = Id3 - stheta*dt*SkewMatrix(Z1.tail(3));
       //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
       Qtmp = Q_0[s] + dt*stheta*SkewMatrix(Omega1)*Q_0[s];
@@ -4328,8 +4333,9 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
       Q_1[s] = Qtmp;
     }
     else if (is_mr_ab && time_step > 0){
-      XG_1[s] = XG_0[s] + dt*((1.0+stheta)*U1 - stheta*U0);
+      XG_1[s]    = XG_0[s]    + dt*((1.0+stheta)*U1 - stheta*U0);
       theta_1[s] = theta_0[s] + dt*((1.0+stheta)*omega1 - stheta*omega0);
+      modes_1[s] = modes_0[s] + dt*((1.0+stheta)*modes1 - stheta*modes0);
       //Qtmp = Id3 - stheta*dt*SkewMatrix(Z1.tail(3));
       //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
       Qtmp = Q_0[s] + dt*((1.0+stheta)*SkewMatrix(Omega1)*Q_1[s]
@@ -4367,8 +4373,9 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
     }
     else{  //for MR-AB and basic, and for all at time = t0
       if (time_step == 0 || (is_bdf3 && time_step == 1)){
-        XG_1[s] = XG_0[s] + dt*U1;
+        XG_1[s]    = XG_0[s]    + dt*U1;
         theta_1[s] = theta_0[s] + dt*omega1;
+        modes_1[s] = modes_0[s] + dt*modes1;
         if (dim == 3){//TODO
           //Qtmp = Id3 - 0.0*dt*SkewMatrix(Z1.tail(3));
           //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
@@ -4378,12 +4385,12 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
         }
       }
       else{
-        XG_0[s] = XG_1[s];
-        XG_1[s] = dt*(stheta*U1 + (1.-stheta)*U0) + XG_0[s];
-        //XG_0[s] = XG_temp;
+        XG_0[s]    = XG_1[s];
+        XG_1[s]    = dt*(stheta*U1     + (1.-stheta)*U0)     + XG_0[s]; //XG_0[s] = XG_temp;
         theta_0[s] = theta_1[s];
-        theta_1[s] = dt*(stheta*omega1 + (1.-stheta)*omega0) + theta_0[s];
-        //theta_0[s] = theta_temp;
+        theta_1[s] = dt*(stheta*omega1 + (1.-stheta)*omega0) + theta_0[s]; //theta_0[s] = theta_temp;
+        modes_0[s] = modes_1[s];
+        modes_1[s] = dt*(stheta*modes1 + (1.-stheta)*modes0) + modes_0[s];
       }
     }
     //cout << theta_0[s] << "   " << theta_1[s] << "     " << omega0(0) << "   " << omega1(0) << endl;
@@ -5176,7 +5183,7 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
   VectorXi mapvs(LZ*n_solids);
   Vector3d Xgg;
   Matrix3d Qrt;
-  double theta;
+  double theta, modes;
 
   // Printing mech. dofs information //////////////////////////////////////////////////
   if (fprint_hgv && is_sfip){
@@ -5199,9 +5206,12 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
       filv << current_time << " ";
       filt << current_time << " ";
       for (int S = 0; S < n_solids/*(n_solids-1)*/; S++){
-        if (step == 0){Xgg = XG_0[S]; theta = theta_0[S]; Qrt = Q_0[S];} else{Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_1[S];}
-        filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta; if (S < (n_solids-1)){filg << " ";}// << VV[S] << " ";
-        filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1) << " " << v_coeffs_s(LZ*S+2); if (S < (n_solids-1)){filv << " ";}
+        if (step == 0){Xgg = XG_0[S]; theta = theta_0[S]; Qrt = Q_0[S]; modes = modes_0[S];}
+        else          {Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_1[S]; modes = modes_1[S];}
+        filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta; if (is_sfim){filg << " " << modes;}
+        if (S < (n_solids-1)){filg << " ";}// << VV[S] << " ";
+        filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1)  << " " << v_coeffs_s(LZ*S+2); if (is_sfim){filv << " " << v_coeffs_s(LZ*S+3);}
+        if (S < (n_solids-1)){filv << " ";}
         filt << Qrt(0,0) << " " << Qrt(0,1) << " " << Qrt(0,2) << " "
              << Qrt(1,0) << " " << Qrt(1,1) << " " << Qrt(1,2) << " "
              << Qrt(2,0) << " " << Qrt(2,1) << " " << Qrt(2,2); if (S < (n_solids-1)){filt << " ";}

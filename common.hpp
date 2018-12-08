@@ -121,7 +121,7 @@ Vector solid_normal(Vector const& X, double t, int tag);
 Vector v_exact(Vector const& X, double t, int tag);
 Vector solid_veloc(Vector const& X, double t, int tag);
 Tensor feature_proj(Vector const& X, double t, int tag);
-Vector gravity(Vector const& X, int dim);
+Vector gravity(Vector const& X, int dim, int LZ);
 Vector force_pp(Vector const& Xi, Vector const& Xj, double Ri, double Rj,
                  double ep1, double ep2, double zeta);
 Vector force_pw(Vector const& Xi, Vector const& Xj, double Ri,
@@ -133,7 +133,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
                  Vector const& Gr, double const rhoj, double const rhof, double ep, double zeta);
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
-TensorS MI_tensor(double M, double R, int dim, Tensor3 TI);
+TensorS MI_tensor(double M, double R, int dim, Tensor3 TI, int LZ);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
@@ -300,6 +300,29 @@ inline void cross(Vector & c, Vector const& a, Vector const& b)
 
 }
 
+inline Matrix2d RotM2D(double const& theta){
+  Matrix2d M(Matrix2d::Zero(2,2));
+  M(0,0) = cos(theta); M(0,1) = -sin(theta);
+  M(1,0) = sin(theta); M(1,1) =  cos(theta);
+  return M;
+}
+
+inline Matrix2d GammaElastMat(double const& xi, int cmat){
+  Matrix2d Gamma(Matrix2d::Zero(2,2));
+  double lambda = sqrt((1.0-xi)/(1.0+xi));
+  if (cmat == 0){//elastic matrix
+    Gamma(0,0) = lambda; Gamma(1,1) = 1.0/lambda;
+  }
+  else if (cmat == 1){//time derivative matrix part
+    Gamma(0,0) = -pow(1.0+xi,-1.5)*pow(1.0-xi,-0.5); Gamma(1,1) = pow(1.0+xi,-0.5)*pow(1.0-xi,-1.5);
+  }
+  else if (cmat == 2){
+    Gamma(0,0) = 1.0/lambda; Gamma(1,1) = lambda;
+  }
+
+  return Gamma;
+}
+
 inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int dim){
   Vector R(dim);
   if (dim == 2){
@@ -307,6 +330,31 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
     R(1) = Z(1) + Z(2)*(X(0)-Xg(0));
   }
   else if(dim == 3){
+    R = Z.head(3) + cross(Z.tail(3),X-Xg);
+  }
+  return R;
+}
+
+inline Vector SolidVelGen(Vector const& X, Vector const& Xg, double const& theta, double const& xi,
+                          Vector const& Z, int dim){
+  Vector R(dim);
+  Vector2d Xe(Vector2d::Zero());
+  Xe(0) = X(0)-Xg(0); Xe(1) = X(1)-Xg(1);
+  int LZ = Z.size();
+  if (dim == 2){
+    R(0) = Z(0) - Z(2)*Xe(1);
+    R(1) = Z(1) + Z(2)*Xe(0);
+    if (LZ > 3){
+      Matrix2d Em(Matrix2d::Zero(2,2));
+      Em = RotM2D(theta)*GammaElastMat(xi,1)*GammaElastMat(xi,2)*RotM2D(theta).transpose();
+      Vector2d Ev(Vector2d::Zero(2));
+      Ev = Em*Xe;
+      R(0) = R(0) + Z(3)*Ev(0);
+      R(1) = R(1) + Z(3)*Ev(1);
+    }
+  }
+  else if(dim == 3){
+    Xe(2) = X(2);
     R = Z.head(3) + cross(Z.tail(3),X-Xg);
   }
   return R;
@@ -394,6 +442,33 @@ inline TensorS SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ
     H(0,0) = 1.0; H(1,1) = 1.0;
     H(0,2) = -(X(1)-Xg(1));
     H(1,2) =  (X(0)-Xg(0));
+  }
+  else if(dim == 3){
+    H(0,0) = 1.0; H(1,1) = 1.0; H(2,2) = 1.0;
+    TensorS S = SkewMatrix(X-Xg);
+    H.block(0,dim,dim,dim) = -S;
+    //H = Z.head(3) + cross(Z.tail(3),X-Xg);
+  }
+  return H;
+}
+
+inline TensorS SolidVelMatrixGen(Vector const& X, Vector const& Xg, double const& theta, double const& xi,
+                                 int dim, int LZ){
+  TensorS H = TensorS::Zero(dim,LZ);
+  if (dim == 2){
+    Vector2d Xe(Vector2d::Zero(2));
+    Xe(0) = X(0)-Xg(0); Xe(1) = X(1)-Xg(1);
+    H(0,0) = 1.0; H(1,1) = 1.0;
+    H(0,2) = -Xe(1);
+    H(1,2) =  Xe(0);
+    if (LZ > 3){
+      Matrix2d Em(Matrix2d::Zero(2,2));
+      Em = RotM2D(theta)*GammaElastMat(xi,1)*GammaElastMat(xi,2)*RotM2D(theta).transpose();
+      Vector2d Ev(Vector2d::Zero(2));
+      Ev = Em*Xe;
+      H(0,3) = Ev(0);
+      H(1,3) = Ev(1);
+    }
   }
   else if(dim == 3){
     H(0,0) = 1.0; H(1,1) = 1.0; H(2,2) = 1.0;
@@ -860,6 +935,7 @@ public:
   std::vector<Matrix3d>  Q_0,     Q_1,     Q_m1,     Q_ini;
   std::vector<double>    theta_0, theta_1, theta_m1, theta_ini;
   std::vector<double>    llink_0, llink_1, llink_m1, llink_ini;
+  std::vector<double>    modes_0, modes_1, modes_m1, modes_ini;
   double                 hme, hmn, hmx;
   std::vector<Tensor3>   InTen;
   std::vector<double>    RR, UU;

@@ -1519,12 +1519,17 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
 {
   VectorXi  dofs(dim);
   Vector3d  Vm(Vector::Zero(3)), X_1(3), X_0(3), X_m1(3), X_m2(3), Vs(Vector::Zero(3));
+  Matrix3d  Gamma(Matrix3d::Identity(3,3));
 
   getNodeDofs(&*point, DH_MESH, VAR_M, dofs.data());
 
   if (is_mr_qextrap || is_mr_ab){
+    if (is_sfim){
+      Matrix2d G1 = GammaElastMat(modes_1[K-1], 0)*GammaElastMat(modes_0[K-1], 2);
+      Gamma(0,0) = G1(0,0); Gamma(1,1) = G1(1,1);
+    }
     VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X_0.data());
-    X_1 = XG_1[K-1] + RotM(theta_1[K-1],Q_1[K-1],thetaDOF)*RotM(theta_0[K-1],Q_0[K-1],thetaDOF).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
+    X_1 = XG_1[K-1] + RotM(theta_1[K-1],Q_1[K-1],thetaDOF)*Gamma*RotM(theta_0[K-1],Q_0[K-1],thetaDOF).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem
     //X_1 = XG_1[K-1] + Q_1[K-1]*Q_0[K-1].transpose()*(X_0 - XG_0[K-1]); //here it should be solve the fixed point problem
     Vm = (-X_0 + X_1)/dt;
   }

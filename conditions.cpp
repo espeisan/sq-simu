@@ -27,7 +27,7 @@ double p_initial(Vector const& X, int tag);
 Vector s_initial(int dim, int tag, int LZ);
 Vector solid_normal(Vector const& X, double t, int tag);
 Tensor feature_proj(Vector const& X, double t, int tag);
-Vector gravity(Vector const& X, int dim);
+Vector gravity(Vector const& X, int dim, int LZ);
 Vector force_pp(Vector const& Xi, Vector const& Xj, double Ri, double Rj,
                  double ep1, double ep2, double zeta);
 Vector force_pw(Vector const& Xi, Vector const& Xj, double Ri,
@@ -39,7 +39,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
                  Vector const& Gr, double const rhoj, double const rhof, double ep, double zeta);
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
-TensorS MI_tensor(double M, double R, int dim, Tensor3 TI);
+TensorS MI_tensor(double M, double R, int dim, Tensor3 TI, int LZ);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
@@ -1925,7 +1925,7 @@ double pho(Vector const& X, int tag)
     return pow(10,p1+4) + (kst-alp4)*(pow(10,p1+5) - pow(10,p1+4))/(alp5-alp4);
   else
     return -1000000;*/
-  return 0.0;
+  return 1.0e-12; /* gr/um^3 */; //0.0;
 //  }
 //  else
 //  {
@@ -1957,7 +1957,7 @@ double muu(int tag)
 {
 //  if (tag == 15)
 //  {
-    return 1.0e-3;//1.0/3.0;//1.0*0.1;
+    return 1.0e-6 /* gr/(um sec) */; //1.0e-3;//1.0/3.0;//1.0*0.1;
 //  }
 //  else
 //  {
@@ -1982,11 +1982,11 @@ Vector force(Vector const& X, double t, int tag)//gravity*pho
   return f;
 }
 
-Vector gravity(Vector const& X, int dim){
+Vector gravity(Vector const& X, int dim, int LZ){
   double x = X(0);
   double y = X(1);
 
-  Vector f(Vector::Zero(3*(dim-1)));
+  Vector f(Vector::Zero(LZ));
   if (dim == 2){
     f(1) = 0; //-1;//-980.0;//-8e-4;  //*1e3;
   }
@@ -2489,9 +2489,9 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 
 // General functions/////////////////////////////////////////////////////////////
 #if (true)
-TensorS MI_tensor(double M, double R, int dim, Tensor3 TI)
+TensorS MI_tensor(double M, double R, int dim, Tensor3 TI, int LZ)
 {
-  TensorS MI(TensorS::Zero(3*(dim-1),3*(dim-1)));
+  TensorS MI(TensorS::Zero(LZ,LZ));
   if (dim == 2){
     MI(0,0) = M; MI(1,1) = M; MI(2,2) = TI(2,2); //MI(2,2) = 0.5*M*R*R;
   }
@@ -2530,7 +2530,7 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
                int dim, int tag, double theta, double Kforp, double nforp, double t,
                Matrix3d const& Q, int thetaDOF)
 {
-  int cas = 6;
+  int cas = 100;
   Vector V(Vector::Zero(dim));
   Vector X3(Vector::Zero(3));
   Vector Xp(Vector::Zero(dim));

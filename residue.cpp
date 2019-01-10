@@ -955,16 +955,18 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           if (nodsum == 0)
             continue;
 
-          XIp    = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
-          XIg    = XG_mid[nodsum-1];                //mass center, mid, _0, "new"
-          RotfI  = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);  //cout << RotfI << endl;
+          XIp   = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
+          XIg   = XG_mid[nodsum-1];                //mass center, mid, _0, "new"
+          //RotfI = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);  //cout << RotfI << endl;
+          RotfI = SolidVelGen(XIp, XIg, theta_1[nodsum-1], modes_1[nodsum-1], z_coefs_c_new_trans.col(i), dim, is_axis);
           //if (nod_sv){
           //  VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); //cout << vs_coefs_c_new << endl << endl;
           //}
           for (int c = 0; c < dim; ++c){
             FUloc(i*dim + c) = u_coefs_c_new(i,c) - 1*RotfI(c);// - vs_coefs_c_new(i,c);
             for (int D = 0; D < LZ; D++){
-              RotfJ  = SolidVel(XIp, XIg, IdZ.col(D), dim);
+              //RotfJ = SolidVel(XIp, XIg, IdZ.col(D), dim);
+              RotfJ = SolidVelGen(XIp, XIg, theta_1[nodsum-1], modes_1[nodsum-1], IdZ.col(D), dim, is_axis);
               Z1loc(i*dim+c,i*LZ+D) = -RotfJ(c);
             }
           }
@@ -1667,7 +1669,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             XIp   = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
             XIg   = XG_mid[K-1];          //mass center, mid, _0, "new"
             //RotfI = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);
-            RotfI = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[K-1], z_coefs_c_new_trans.col(i), dim);
+            RotfI = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[K-1], z_coefs_c_new_trans.col(i), dim, is_axis);
 
             for (int c = 0; c < dim; ++c){
               FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c);// - is_unksv*vs_coefs_c_mid_trans(c,i);
@@ -1675,8 +1677,8 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
                 FUloc_vs(i*dim + c) += - vs_coefs_c_mid_trans(c,i);  //cout << vs_coefs_c_mid_trans(c,i) << " ";
               }
               for (int D = 0; D < LZ; D++){
-                RotfJ = SolidVel(XIp, XIg, IdZ.col(D), dim);
-                RotfI = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[K-1], IdZ.col(D), dim);
+                //RotfJ = SolidVel(XIp, XIg, IdZ.col(D), dim);
+                RotfJ = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[K-1], IdZ.col(D), dim, is_axis);
                 Hq_vs(i*dim+c,i*LZ+D) = RotfJ(c);  //builds the elemental matrix H of solid generator movement
               }
             }
@@ -1699,7 +1701,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
         VectorXi s_DOFS(LZ);
-        if (dim == 2){if (is_sfim){s_DOFS << 0,0,0,0;} else {s_DOFS << 0,0,0;}} // this aliminates all DOFS //<< 0, 1, 0;
+        if (dim == 2){if (is_sfim){s_DOFS << 0,0,0,0;} else {s_DOFS << 0,0,0;}} // this eliminates all DOFS //<< 0, 1, 0;
         if (s_dofs_elim /*is_axis && is_sfip*/){// eliminating specific solid DOFS
           if (is_sflp){
             MatrixXd PrjDOFSlz(LZ,LZ);
@@ -1756,7 +1758,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
 #ifdef FEP_HAS_OPENMP
       FEP_PRAGMA_OMP(critical)
 #endif
-      {
+      { //cout << FUloc.transpose() << endl;
         VecSetValues(Vec_fun_fs, mapU_c.size(), mapU_c.data(), FUloc.data(), ADD_VALUES);
         VecSetValues(Vec_fun_fs, mapP_c.size(), mapP_c.data(), FPloc.data(), ADD_VALUES);
         if (is_sfip){
@@ -1795,14 +1797,14 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     VectorXd   z_coefs_old(LZ), z_coefs_new(LZ), z_coefs_om1(LZ), z_coefs_om2(LZ);
     VectorXd   z_coefs_mid(LZ), z_coefs_olJ(LZ), z_coefs_neJ(LZ), z_coefs_miJ(LZ), z_coefs_miK(LZ);
     Vector     dZdt(LZ);
-    Vector     Grav(LZ), Fpp(LZ), Fpw(LZ), Fv(LZ), Fdrg(Vector::Zero(LZ)), Uelast(Vector::Zero(LZ));
+    Vector     Grav(LZ), Fpp(LZ), Fpw(LZ), Fv(LZ), Fdrg(Vector::Zero(LZ)), DUelast(Vector::Zero(LZ));
     TensorS    Z3sloc = TensorS::Zero(LZ,LZ), dFpp(LZ,LZ), dFpw(LZ,LZ);
-    TensorS    MI = TensorS::Zero(LZ,LZ);
+    TensorS    MI = TensorS::Zero(LZ,LZ); //MU = TensorS::Zero(LZ,LZ);
     double     ddt_factor, dJK;
     bool       deltaDi, deltaLK, deltaLJ;
     Vector3d   eJK;
     double     zet = 1.0e-0, ep = 5.0e-1, epw = 1e-5; //ep/10.0;
-    double     gap, R, visc, Kelast = 0.0;
+    double     gap, R, visc;//, Kelast = 0.01;
 
     if (is_bdf2 && time_step > 0)
       ddt_factor = 1.5;
@@ -2185,10 +2187,29 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         dZdt = 11./6.*dZdt - 7./6.*z_coefs_old/dt + 3./2.*z_coefs_om1/dt - 1./3.*z_coefs_om2/dt;
       }
       MI = MI_tensor(MV[K],RV[K](0),dim,InTen[K], LZ);
-      if (is_sfim){Uelast(2) = Kelast*z_coefs_mid(3);}
-      FZsloc = (MI*dZdt - MV[K]*Grav)*unsteady - Fpp - Fpw - Fv - Fdrg - Uelast;
-      Z3sloc = ddt_factor*MI/dt * unsteady;
-      //if (is_sfim){Z3sloc(3,3) = Kelast*dt*stheta;}
+      //MU = MU_tensor(Kelast,dim,LZ);
+      double thetamet = 1.0;
+      if (is_sfim){
+        double smid = thetamet*z_coefs_new(3) + (1.0-thetamet)*z_coefs_old(3);
+        if (false){
+          //DUelast(3) = Kelast*modes_1[K];//+Kelast*z_coefs_mid(3)*dt*stheta); /*cout << DUelast.transpose() << endl;*/
+          DUelast(3) = Kelast*(modes_0[K] + smid*dt);//Kelast*z_coefs_mid(3)*dt;
+        }
+        else{
+          DUelast(3) = +DElastPotEner(Kelast, modes_0[K] + smid*dt /*modes_1[K]*/, RV[K](0));
+        }
+      }
+      FZsloc = unsteady*MI*dZdt - MV[K]*Grav - Fpp - Fpw - Fv - Fdrg + DUelast; //plus Ulast because id [D2Lag dt - D1Lag] = Fgen
+      Z3sloc = ddt_factor*MI/dt * unsteady /*+ dt/2.0 * MU * z_coefs_old*/;
+      if (is_sfim){
+        double smid = thetamet*z_coefs_new(3) + (1.0-thetamet)*z_coefs_old(3);
+        if (false){
+          Z3sloc(3,3) = Z3sloc(3,3) + Kelast*dt*thetamet;
+        }
+        else{
+          Z3sloc(3,3) = Z3sloc(3,3) + DDElastPotEner(Kelast, modes_0[K] + smid*dt /*modes_1[K]*/, RV[K](0))*dt*thetamet;
+        }
+      }
 //#ifdef FEP_HAS_OPENMP
 //      FEP_PRAGMA_OMP(critical)
 //#endif
@@ -2385,7 +2406,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     MatrixXd            dxphi_f(n_dofs_u_per_facet/dim, dim);
     Tensor              dxU_f(dim,dim);   // grad u
     Vector              Xqp(dim), Xqpc(3), maxw(3);
-    Vector              Uqp(dim), Eqp(dim), Usqp(dim), Umqp(dim);
+    Vector              Uqp(dim), Eqp(dim), Usqp(Vector::Zero(dim)), Umqp(Vector::Zero(dim));
     Vector              noi(dim); // normal interpolada
     double              J_mid = 0, JxW_mid, DFtau = 0.0; //delta_ij,
     double              weight = 0, perE = 0;
@@ -2561,7 +2582,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         Uqp     = u_coefs_f_mid_trans * phi_f[qp];
         if (is_fsi && is_unksv){//.col(0) is choosen because the S unknown is the same for any node: they are on the same body
           Usqp  = Uqp - 1.0*SolidVel(Xqp, XG_0[is_fsi-1], z_coefs_f_mid_trans.col(0), dim); //vs_coefs_f_mid_trans * phi_f[qp];
-          Umqp  = metav_coefs_f_mid_trans * phi_f[qp];
+          Umqp  = metav_coefs_f_mid_trans * phi_f[qp];  //cout << Umqp << endl;
         }
         //noi     = noi_coefs_f_new_trans * qsi_f[qp];
         if (is_sslv && false){ //for electrophoresis, TODO
@@ -2662,7 +2683,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           int K = is_fsi;
           Xg = XG_mid[K-1];
 
-          if (is_unksv)
+          //if (is_unksv) //useless, checked!
 
           if (read_from_sv_fd)
             Ftau = ftau_coefs_f_mid_trans * qsi_f[qp];
@@ -2670,7 +2691,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             DFtau = DFtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time, Usqp, Kcte); //cout << Ftau.transpose() << "       " << DFtau << endl;
             //Ftau = FtauForce(Xqp, Xg, normal, dim, tag, theta_1[K-1], Kforp, nforp, current_time,
             //                 Usqp, Q_1[K-1], thetaDOF, Kcte); //normal points OUT the fluid, see definition of normal above
-            Ftau = DFtau*(Usqp - Umqp);
+            Ftau = DFtau*(Usqp - Umqp);  //cout << Ftau.transpose() << endl;
           }
 
 
@@ -2764,7 +2785,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         FZloc_f = Hq_vs.transpose()*(Id_vs - Prj)*FUloc_copy; //cout << FZloc_f << endl; //body's dofs equation
 
         if(is_unksv && true){// These are the derivatives of the forces in the solid part momentum conserv equations
-          Z1loc_f  =  -Prj*Aloc_copy*HqS;  //minus from the derivative with respect to body's dofs
+          Z1loc_f  = -Prj*Aloc_copy*HqS;  //minus from the derivative with respect to body's dofs
           Z2loc_f  =  Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy;
           Z3loc_f  = -Z2loc_f*HqS;//Hq_vs.transpose()*(Id_vs - Prj)*Aloc_copy*HqS;
           Z3sloc_f = -Z2sloc_f*HqS;
@@ -2795,7 +2816,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       }
 
       //~ FEP_PRAGMA_OMP(critical)
-      {
+      { //cout << FUloc_f.transpose() << endl;
         VecSetValues(Vec_fun_fs, mapU_f.size(), mapU_f.data(), FUloc_f.data(), ADD_VALUES);
         MatSetValues(*JJ, mapU_f.size(), mapU_f.data(), mapU_f.size(), mapU_f.data(), Aloc_f.data(),  ADD_VALUES);
         if (is_fsi && true){

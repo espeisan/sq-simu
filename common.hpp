@@ -134,6 +134,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
 TensorS MI_tensor(double M, double R, int dim, Tensor3 TI, int LZ);
+TensorS MU_tensor(double Kelast, int dim, int LZ);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
@@ -173,6 +174,10 @@ Vector Fdrag(int LZ);
 
 double Ellip_arcl_integrand(double zi);
 double S_arcl(double z, double zc);
+
+double ElastPotEner(double Kelast, double xi, double R);
+double DElastPotEner(double Kelast, double xi, double R);
+double DDElastPotEner(double Kelast, double xi, double R);
 
 inline double sqr(double v) {return v*v;}
 
@@ -307,17 +312,31 @@ inline Matrix2d RotM2D(double const& theta){
   return M;
 }
 
-inline Matrix2d GammaElastMat(double const& xi, int cmat){
+inline Matrix2d GammaElastMat(double const& xi, int cmat, bool is_axis){
   Matrix2d Gamma(Matrix2d::Zero(2,2));
-  double lambda = sqrt((1.0-xi)/(1.0+xi));
+  double lambda; //is_axis = false;
+  if (is_axis)
+    lambda = pow((1.0-xi)/(1.0+xi),1.0/3.0);
+  else
+    lambda = sqrt((1.0-xi)/(1.0+xi));
+
   if (cmat == 0){//elastic matrix
-    Gamma(0,0) = lambda; Gamma(1,1) = 1.0/lambda;
+    if (is_axis)
+      {Gamma(0,0) = lambda; Gamma(1,1) = 1.0/(lambda*lambda);}
+    else
+      {Gamma(0,0) = lambda; Gamma(1,1) = 1.0/lambda;}
   }
   else if (cmat == 1){//time derivative matrix part
-    Gamma(0,0) = -pow(1.0+xi,-1.5)*pow(1.0-xi,-0.5); Gamma(1,1) = pow(1.0+xi,-0.5)*pow(1.0-xi,-1.5);
+    if (is_axis)
+      {Gamma(0,0) = -(2.0/3.0)*pow(1.0+xi,-4.0/3.0)*pow(1.0-xi,-2.0/3.0); Gamma(1,1) = (4.0/3.0)*pow(1.0+xi,-1.0/3.0)*pow(1.0-xi,-5.0/3.0);}
+    else
+      {Gamma(0,0) = -pow(1.0+xi,-1.5)*pow(1.0-xi,-0.5); Gamma(1,1) = pow(1.0+xi,-0.5)*pow(1.0-xi,-1.5);}
   }
-  else if (cmat == 2){
-    Gamma(0,0) = 1.0/lambda; Gamma(1,1) = lambda;
+  else if (cmat == 2){//inverse of the elastic matrix
+    if (is_axis)
+      {Gamma(0,0) = 1.0/lambda; Gamma(1,1) = lambda*lambda;}
+    else
+      {Gamma(0,0) = 1.0/lambda; Gamma(1,1) = lambda;}
   }
 
   return Gamma;
@@ -336,7 +355,7 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
 }
 
 inline Vector SolidVelGen(Vector const& X, Vector const& Xg, double const& theta, double const& xi,
-                          Vector const& Z, int dim){
+                          Vector const& Z, int dim, bool is_axis){
   Vector R(dim);
   Vector2d Xe(Vector2d::Zero());
   Xe(0) = X(0)-Xg(0); Xe(1) = X(1)-Xg(1);
@@ -346,7 +365,7 @@ inline Vector SolidVelGen(Vector const& X, Vector const& Xg, double const& theta
     R(1) = Z(1) + Z(2)*Xe(0);
     if (LZ > 3){
       Matrix2d Em(Matrix2d::Zero(2,2));
-      Em = RotM2D(theta)*GammaElastMat(xi,1)*GammaElastMat(xi,2)*RotM2D(theta).transpose();
+      Em = RotM2D(theta)*GammaElastMat(xi,1,is_axis)*GammaElastMat(xi,2,is_axis)*RotM2D(theta).transpose();
       Vector2d Ev(Vector2d::Zero(2));
       Ev = Em*Xe;
       R(0) = R(0) + Z(3)*Ev(0);
@@ -453,7 +472,7 @@ inline TensorS SolidVelMatrix(Vector const& X, Vector const& Xg, int dim, int LZ
 }
 
 inline TensorS SolidVelMatrixGen(Vector const& X, Vector const& Xg, double const& theta, double const& xi,
-                                 int dim, int LZ){
+                                 int dim, int LZ, bool is_axis){
   TensorS H = TensorS::Zero(dim,LZ);
   if (dim == 2){
     Vector2d Xe(Vector2d::Zero(2));
@@ -463,7 +482,7 @@ inline TensorS SolidVelMatrixGen(Vector const& X, Vector const& Xg, double const
     H(1,2) =  Xe(0);
     if (LZ > 3){
       Matrix2d Em(Matrix2d::Zero(2,2));
-      Em = RotM2D(theta)*GammaElastMat(xi,1)*GammaElastMat(xi,2)*RotM2D(theta).transpose();
+      Em = RotM2D(theta)*GammaElastMat(xi,1,is_axis)*GammaElastMat(xi,2,is_axis)*RotM2D(theta).transpose();
       Vector2d Ev(Vector2d::Zero(2));
       Ev = Em*Xe;
       H(0,3) = Ev(0);
@@ -798,6 +817,7 @@ public:
   double      stheta;
   double      finaltime;
   double      Kcte;
+  double      Kelast;
   bool        pres_pres_block;
   bool        solve_the_sys;
   bool        is_Stokes;
@@ -1024,6 +1044,7 @@ public:
   int collapseEdge2d_s(int cell_A_id, int face_Am_id, Real t, Mesh *mesh);
   Real area_s(Cell const* cell, Mesh const* mesh);
   PetscErrorCode meshAdapt_s();
+  PetscErrorCode meshAdapt_d();
   PetscErrorCode meshFlipping_s();
   void smoothsMesh_s(Vec &Vec_normal_, Vec &Vec_x_);
   PetscErrorCode calcSlipVelocity(Vec const& Vec_x_1, Vec& Vec_slipv);

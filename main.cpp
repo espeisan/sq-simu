@@ -211,6 +211,7 @@ void AppCtx::setUpDefaultOptions()
   nforp                  = 0;
   Kforp                  = 0.0;
   Kcte                   = 0.0;
+  Kelast                 = 0.0;
   family_files           = PETSC_TRUE;
   has_convec             = PETSC_TRUE;
   renumber_dofs          = PETSC_FALSE;
@@ -255,8 +256,9 @@ void AppCtx::setUpDefaultOptions()
   solve_the_sys          = true;   // for debug
   filename               = (dim==2 ? "malha/cavity2d-1o.msh" : "malha/cavity3d-1o.msh");
 
-  //Luzia's part for meshAdapt_l()
-  h_star = 0.02;
+  //Luzia's part for meshAdapt_l(), meshAdapt_s() based on the fields of distances
+  //For swimmers of size 220um, eg, opalina of semiaxis 110um
+/*  h_star = 0.02;
   Q_star = 0.9;//0.6;
   beta_l = 4.00;
   L_min  = 3.7113111772657698672617243573768;//1.0;//0.3; //0.02;//h_star*sqrt(3)/3.0;
@@ -264,8 +266,17 @@ void AppCtx::setUpDefaultOptions()
   L_range = 200.0;//0.3;
   L_low = 0.1; //0.1;//L_min/L_max;// + 0.01; //0.577350269;//1.0*L_min/L_max;
   L_sup = 10.0;//1.732050808; //L_max/L_min - 0.01; //1.732050808; //1.0/L_low;
+*/
+  h_star = 0.02;
+  Q_star = 0.8;
+  beta_l = 4.00;
+  L_min  = 0.3; //0.02;//h_star*sqrt(3)/3.0;
+  L_max = 1;
+  L_range = 0.3;
+  L_low = 0.577350269;//1.0*L_min/L_max;
+  L_sup = 1.732050808; //1.0/L_low;
 
-  TOLad = 0.1;  //for meshAdapt_s()
+  TOLad = 0.7;  //for meshAdapt_d() based on the mean of the neighboor edges length
 
   n_unknowns_z      = 0; n_unknowns_f        = 0; n_unknowns_s        = 0;
   n_nodes_fsi       = 0; n_nodes_fo          = 0; n_nodes_so          = 0;
@@ -321,6 +332,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsScalar("-Kforp", "wave constant paramecium test", "main.cpp", Kforp, &Kforp, PETSC_NULL);
   PetscOptionsScalar("-nforp", "wave number paramecium test", "main.cpp", nforp, &nforp, PETSC_NULL);
   PetscOptionsScalar("-Kcte", "transition constant for linear tangent force", "main.cpp", Kcte, &Kcte, PETSC_NULL);
+  PetscOptionsScalar("-Kelast", "transition constant for linear tangent force", "main.cpp", Kelast, &Kelast, PETSC_NULL);
   PetscOptionsBool("-print_to_matlab", "print jacobian to matlab", "main.cpp", print_to_matlab, &print_to_matlab, PETSC_NULL);
   PetscOptionsBool("-force_dirichlet", "force dirichlet bound cond", "main.cpp", force_dirichlet, &force_dirichlet, PETSC_NULL);
   PetscOptionsBool("-force_pressure", "force pressure", "main.cpp", force_pressure, &force_pressure, PETSC_NULL);
@@ -2296,8 +2308,8 @@ PetscErrorCode AppCtx::setInitialConditions()
           Zf = LinksVel(XG_0[nodsum-1], XG_0[0], theta_0[0], Q_0[0], Zf, dllink, nodsum, ebref/*[0]*/, dim, LZ);
           //cout << Zf.transpose() << endl;
         }
-        Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
-        Uf = SolidVelGen(X, XG_0[nodsum-1], theta_0[0], modes_0[0], Zf, dim);
+        //Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
+        Uf = SolidVelGen(X, XG_0[nodsum-1], theta_0[0], modes_0[0], Zf, dim, is_axis);
         VecSetValues(Vec_ups_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);
       }//////////////////////////////////////////////////
       if (nod_vs+nod_id){ ////////////////////////////////////////////////// //ojo antes solo nod_vs
@@ -2449,7 +2461,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
 
       //Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal//////////////////////////////////////////////////
-      if (mesh_adapt){meshAdapt_s();}
+      if (mesh_adapt){if (is_sfim){meshAdapt_d();} else {meshAdapt_s();}}
       copyVec2Mesh(Vec_x_1);
       if (mesh_adapt){meshFlipping_s();}
       if (true) {CheckInvertedElements();}  //true just for mesh tests FIXME
@@ -2467,7 +2479,7 @@ PetscErrorCode AppCtx::setInitialConditions()
     if (solve_the_sys)
     { //VecView(Vec_ups_1,PETSC_VIEWER_STDOUT_WORLD); //VecView(Vec_ups_0,PETSC_VIEWER_STDOUT_WORLD);
       cout << "-----System solver-----" << endl;
-      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); //Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");
+      ierr = SNESSolve(snes_fs,PETSC_NULL,Vec_ups_1);  CHKERRQ(ierr); Assembly(Vec_ups_1);  View(Vec_ups_1,"matrizes/vuzp1.m","vuzp1m");
       cout << "--------------------------------------------------" << endl;
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -2515,6 +2527,7 @@ PetscErrorCode AppCtx::setInitialConditions()
         extractForce(true);
       }
       // save data for current time ///////////////////////////////////////////////////////////////////
+      getSolidVolume();
       saveDOFSinfo(0);
       if (family_files){plotFiles(1);}
       //computeForces(Vec_x_1,Vec_ups_1);
@@ -2540,13 +2553,14 @@ PetscErrorCode AppCtx::setInitialConditions()
       if (time_step == 0){//this implies that the zero time solution is calculated instantly
                           //with the sufficient info known at this time, no need to make picard iterations
         //calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
-        if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
+        if (false && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
           cout << "-----Interaction force calculation------" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
           cout << "-----Interaction force extracted------" << endl;
           extractForce(false);
         }
         //save data for current time///////////////////////////////////////////////////////////////////
+        getSolidVolume();
         saveDOFSinfo(0);
         if (family_files){plotFiles(1);}
         //computeForces(Vec_x_1,Vec_ups_1);
@@ -2576,13 +2590,14 @@ PetscErrorCode AppCtx::setInitialConditions()
   }
   else{//////////////////////////////////////////////////
     // calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
-    if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
+    if (false && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
       cout << "-----Interaction force calculation------" << endl;
       ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
       extractForce(false);
     }
     // save data for current time ///////////////////////////////////////////////////////////////////
+    getSolidVolume();
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
   }//////////////////////////////////////////////////
@@ -2755,8 +2770,8 @@ PetscErrorCode AppCtx::solveTimeProblem()
     //Preparing data at time n//////////////////////////////////////////////////
     VecCopy(Vec_x_0, Vec_x_aux);
     VecCopy(Vec_x_1, Vec_x_0);
-    XG_m1 = XG_0; theta_m1 = theta_0; Q_m1 = Q_0;
-    XG_0   = XG_1; theta_0   = theta_1; Q_0   = Q_1;
+    XG_m1 = XG_0; theta_m1 = theta_0; Q_m1  = Q_0; modes_m1 = modes_0;
+    XG_0  = XG_1; theta_0  = theta_1; Q_0   = Q_1; modes_0  = modes_1;
     VecCopy(Vec_slipv_1, Vec_slipv_0);
     VecCopy(Vec_ups_1,Vec_ups_m1);
     //copyVec2Mesh(Vec_x_1);
@@ -2780,7 +2795,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
 
       //Extrapolation/advance of solid's DOFs//////////////////////////////////////////////////
       if (is_sfip){
-        moveSolidDOFs(stheta);  //qtheta = 1/2, order 2
+        moveSolidDOFs(stheta);  //stheta = 1/2, order 2
       }
       else{//fliud-fluid case
         VecWAXPY(Vec_x_1, dt/2.0, Vec_v_mid, Vec_x_0); // Vec_x_1 = dt*Vec_v_mid + Vec_x_0 // for zero Dir. cond. solution lin. elast. is Vec_v_mid = 0
@@ -2804,7 +2819,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       //copyVec2Mesh(Vec_x_1);  //not sure if necessary
 
       //Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal//////////////////////////////////////////////////
-      if (mesh_adapt){meshAdapt_s();} //meshAdapt()_l;
+      if (mesh_adapt){if (is_sfim){meshAdapt_d();} else {meshAdapt_s();}}
       copyVec2Mesh(Vec_x_1);
       if (mesh_adapt){meshFlipping_s();}
       if (true) {CheckInvertedElements();}  //true just for mesh tests FIXME
@@ -2863,13 +2878,14 @@ PetscErrorCode AppCtx::solveTimeProblem()
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
-    if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PIs)*/){
+    if (false && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PIs)*/){
       cout << "-----Interaction force calculation-----" << endl;
       ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
       extractForce(false);
     }
     // save data for current time ///////////////////////////////////////////////////////////////////
+    getSolidVolume();
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
     //computeForces(Vec_x_1,Vec_ups_1);
@@ -4254,7 +4270,7 @@ void AppCtx::forceDirichlet(){
   Assembly(Vec_ups_1);
 }
 
-PetscErrorCode AppCtx::updateSolidVel()
+PetscErrorCode AppCtx::updateSolidVel()//FIXME: deprecated function
 {
   VectorXi  dofs(dim), mapM_r(dim);
   VectorXi  dofs_fs(LZ);
@@ -4306,7 +4322,7 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
   Vector      Z0(Vector::Zero(LZ)), Z1(Vector::Zero(LZ));
   Matrix3d    Id3(Matrix3d::Identity(3,3)), Qtmp;
   double      theta_temp, omega0, omega1, modes0, modes1;
-  cout << "here" << endl;
+  //cout << "here" << endl;
   for (int s = 0; s < n_solids; s++){
 
     for (int l = 0; l < LZ; l++){
@@ -5214,7 +5230,7 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
         if (S < (n_solids-1)){filv << " ";}
         filt << Qrt(0,0) << " " << Qrt(0,1) << " " << Qrt(0,2) << " "
              << Qrt(1,0) << " " << Qrt(1,1) << " " << Qrt(1,2) << " "
-             << Qrt(2,0) << " " << Qrt(2,1) << " " << Qrt(2,2); if (S < (n_solids-1)){filt << " ";}
+             << Qrt(2,0) << " " << Qrt(2,1) << " " << Qrt(2,2) << " " << VV[n_solids-1] ; if (S < (n_solids-1)){filt << " ";}
       }
       //if (step == 0){Xgg = XG_0[n_solids-1]; theta = theta_0[n_solids-1];} else{Xgg = XG_1[n_solids-1]; theta = theta_1[n_solids-1];}
       //filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta;//" " << VV[n_solids-1] << endl;
@@ -5377,7 +5393,8 @@ PetscErrorCode AppCtx::extractForce(bool print){
         dofs_fs(l) = n_unknowns_u + n_unknowns_p + LZ*(nod_id-1) + l;
       }
       VecGetValues(Vec_ups_1, LZ, dofs_fs.data(), Zf.data());
-      Uf = SolidVel(Xj, XG, Zf, dim);
+      //Uf = SolidVel(Xj, XG, Zf, dim);
+      Uf = SolidVelGen(Xj, XG, theta_0[nod_vs+nod_id-1], modes_0[nod_vs+nod_id-1], Zf, dim, is_axis);
       getNodeDofs(&*point,DH_UNKM,VAR_U,dofs_U.data());
       VecGetValues(Vec_ups_1, dim, dofs_U.data(), U.data());
       Sv = U - Uf;  //cout << VS.transpose() << endl;

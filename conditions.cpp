@@ -40,6 +40,7 @@ Vector force_rgb(Vector const& Xi, Vector const& Xj, double const Ri, double con
 Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double const Rj,
                  double ep, double zeta);
 TensorS MI_tensor(double M, double R, int dim, Tensor3 TI, int LZ);
+TensorS MU_tensor(double Kelast, int dim, int LZ);
 Matrix3d RotM(double theta, Matrix3d Qr, int dim);
 Matrix3d RotM(double theta, int dim);
 Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
@@ -80,6 +81,10 @@ Vector Fdrag(int LZ);
 
 double Ellip_arcl_integrand(double zi);
 double S_arcl(double z, double zc);
+
+double ElastPotEner(double Kelast, double xi, double R);
+double DElastPotEner(double Kelast, double xi, double R);
+double DDElastPotEner(double Kelast, double xi, double R);
 
 // gota estática 2d/////////////////////////////////////////////////////////////
 #if (false)
@@ -1925,7 +1930,7 @@ double pho(Vector const& X, int tag)
     return pow(10,p1+4) + (kst-alp4)*(pow(10,p1+5) - pow(10,p1+4))/(alp5-alp4);
   else
     return -1000000;*/
-  return 1.0e-12; /* gr/um^3 */; //0.0;
+  return 0*1.0e-12; /* gr/um^3 */; //0.0;
 //  }
 //  else
 //  {
@@ -1957,7 +1962,7 @@ double muu(int tag)
 {
 //  if (tag == 15)
 //  {
-    return 1.0e-6 /* gr/(um sec) */; //1.0e-3;//1.0/3.0;//1.0*0.1;
+    return 1;//1.0e-6;// 1.0e-6 /* gr/(um sec) */; //1.0e-3;//1.0/3.0;//1.0*0.1;
 //  }
 //  else
 //  {
@@ -1988,7 +1993,7 @@ Vector gravity(Vector const& X, int dim, int LZ){
 
   Vector f(Vector::Zero(LZ));
   if (dim == 2){
-    f(1) = 0; //-1;//-980.0;//-8e-4;  //*1e3;
+    f(1) = 1*(-1.0);//-1.0e-3; //-1;//-980.0;//-8e-4;  //*1e3;
   }
   else if (dim == 3){
     f(2) = -980.0;  //-8e-4*1e4;
@@ -2084,7 +2089,7 @@ Vector v_exact(Vector const& X, double t, int tag) //(X,t,tag)
   double const x = X(0);
   double const y = X(1);
   Vector v(Vector::Zero(X.size()));
-  v(0) = 1.0;
+  //v(0) = 1.0;
 
   return v;
 }
@@ -2211,7 +2216,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 
 #endif
 
-// junction /////////////////////////////////////////////////////////////
+// junction 2018/////////////////////////////////////////////////////////////
 #if (false)
 
 double pho(Vector const& X, int tag)
@@ -2241,7 +2246,7 @@ double gama(Vector const& X, double t, int tag)
 
 double muu(int tag)
 {
-    return 0.001;
+    return 1e-3;
 }
 
 Vector force(Vector const& X, double t, int tag)//gravity*pho
@@ -2254,13 +2259,13 @@ Vector force(Vector const& X, double t, int tag)//gravity*pho
   return f;
 }
 
-Vector gravity(Vector const& X, int dim){
+Vector gravity(Vector const& X, int dim, int LZ){
   double x = X(0);
   double y = X(1);
 
-  Vector f(Vector::Zero(3*(dim-1)));
+  Vector f(Vector::Zero(LZ));
   if (dim == 2){
-    f(1) = 0; //-1;//-980.0;//-8e-4;  //*1e3;
+    f(1) = 0.0;//-1.0e-3; //-1;//-980.0;//-8e-4;  //*1e3;
   }
   else if (dim == 3){
     f(2) = -980.0;  //-8e-4*1e4;
@@ -2273,7 +2278,7 @@ Vector u_exact(Vector const& X, double t, int tag)
   double x = X(0);
   double y = X(1);
   Vector v(Vector::Zero(X.size()));
-  double Um = 1e-6, H = 10e-6;
+  double Um = 1e-6, H = 100e-6;
   if ( true && (tag == 2) ){
     //Um = Um*(1-exp(-t*t*t*t*1e10));//Um*(1-exp(t*t*t*t/1e-14));//Um*(-1-exp(t*t*t*t/1e-14)*0);
     //v(0) = Um*4*(H-y)*y/(H*H); v(1) = 0.0;
@@ -2503,6 +2508,20 @@ TensorS MI_tensor(double M, double R, int dim, Tensor3 TI, int LZ)
   return MI;
 }
 
+TensorS MU_tensor(double Kelast, int dim, int LZ)
+{
+  TensorS MU(TensorS::Zero(LZ,LZ));
+  if (dim == 2){
+    MU(2,2) = Kelast; //MI(2,2) = 0.5*M*R*R;
+  }
+  else if (dim == 3){
+    //MI(0,0) = M; MI(1,1) = M; MI(2,2) = M;
+    //MI.block(3,3,5,5) = TI;
+    //MI(3,3) = 0.4*M*R*R; MI(4,4) = 0.4*M*R*R; MI(5,5) = 0.4*M*R*R;
+  }
+  return MU;
+}
+
 Matrix3d RotM(double theta, Matrix3d Qr, int thetaDOF)
 {
   Matrix3d M(Matrix3d::Identity(3,3)); //Matrix3d M(Matrix3d::Zero(3,3));
@@ -2678,7 +2697,7 @@ Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
   Vector tau(dim);
   tau(0) = +normal(1); tau(1) = -normal(0);  //this tangent goes in the direction of the parametrization
   //tau = -tau;;//this tangent goes against the parametrization
-  int cas = 3;
+  int cas = 100;
   Vector f(Vector::Zero(X.size()));
 
   if (cas == 0 && dim == 2)//////////////////////////////////////////////////
@@ -2740,6 +2759,15 @@ Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
     double uthe = k*(Vs.dot(tau)-Vmet.dot(tau));
     f = uthe*tau;
   }
+  else if (cas == 4)//////////////////////////////////////////////////
+  {
+    double a = 110.0e-0;
+    double L = S_arcl(-a,0.0);
+    double k = 0.0; //Kcte*muu(0)/L;
+    Vector Vmet = SlipVel(X, XG, normal, dim, tag, theta, Kforp, nforp, t, Q, thetaDOF);
+    double uthe = k*(Vmet.dot(tau));
+    f = uthe*tau;
+  }
 
   return f;
 }
@@ -2750,7 +2778,7 @@ double DFtauForce(Vector const& X, Vector const& XG, Vector const& normal,
 {
   double a = 110.0e-0;
   double L = S_arcl(-a,0.0);
-  double k = Kcte*muu(0)/L;
+  double k = 0.0; //Kcte*muu(0)/L;
   Vector tau(dim);
   tau(0) = +normal(1); tau(1) = -normal(0);  //tau(0) = -normal(1); tau(1) = +normal(0);
   double duthe = 0.0;
@@ -2778,7 +2806,10 @@ double Vector FtauForceCoef(Vector const& X, Vector const& XG, Vector const& nor
 VectorXi DOFS_elimination(int LZ)
 { //0 for component to eliminate, 1 for component to compute
   VectorXi s_DOFS(LZ);
-  s_DOFS << 0, 1, 0;
+  if (LZ > 3)
+    s_DOFS << 0, 1, 0, 1;
+  else
+    s_DOFS << 0, 1, 0;
   return s_DOFS;
 }
 
@@ -3013,11 +3044,14 @@ double Flink(double t, int Nl){
   double pha = 0*90.0*pi/180.0;
   double alp = .6;
   double lmax = 1;
-  double d = +lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl)*pha) + 1.0));
+  double d = 0.0;
+  int cas = 3;
 
-  if (Nl == 1){d = 0;}
-
-  if (false){
+  if (cas == 1){
+    d = +lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl)*pha) + 1.0));
+    if (Nl == 1){d = 0;}
+  }
+  else if (cas == 2){
     double P = 8;
     double tP = t - floor(t/P)*P;
     if (Nl == 0){
@@ -3033,8 +3067,7 @@ double Flink(double t, int Nl){
       else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmax*(alp + ((1-alp)/2.0) * (cos(ome*(tP-4.0)) + 1.0));}
     }
   }
-
-  if (false){
+  else if (cas == 3){
     double P = 8;
     double tP = t - floor(t/P)*P;
     if (Nl == 0){
@@ -3050,8 +3083,7 @@ double Flink(double t, int Nl){
       else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = lmax;}
     }
   }
-
-  if (false){
+  else if (cas == 4){
     double P = 4;
     double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
     if (Nl == 0){
@@ -3076,11 +3108,14 @@ double DFlink(double t, int Nl){
   double pha = 0*90.0*pi/180.0;
   double alp = .6;
   double lmax = 1;
-  double d = -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl)*pha);
+  double d = 0.0;
+  int cas = 3;
 
-  if (Nl == 1){d = 0;}
-
-  if (false){
+  if (cas == 1){
+    d = -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl)*pha);
+    if (Nl == 1){d = 0;}
+  }
+  else if (cas == 2){
     double P = 8;
     double tP = t - floor(t/P)*P;
     if (Nl == 0){
@@ -3096,8 +3131,7 @@ double DFlink(double t, int Nl){
       else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-4.0));}
     }
   }
-
-  if (false){
+  else if (cas == 3){
     double P = 8;
     double tP = t - floor(t/P)*P;
     if (Nl == 0){
@@ -3113,8 +3147,7 @@ double DFlink(double t, int Nl){
       else if((3.0*P/4.0 <= tP)&&(tP < P        )){d = 0.0;}
     }
   }
-
-  if (false){
+  else if (cas == 4){
     double P = 4;
     double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
     if (Nl == 0){
@@ -3195,6 +3228,91 @@ double S_arcl(double z, double zc){
   }
 
   return S;
+}
+
+double ElastPotEner(double Kelast, double xi, double R){
+  double Ep = 0.0;
+  int cas = 1;
+  if (cas == 0){//Elastic
+    Ep = -0.5*Kelast*xi*xi;
+  }
+  else if(cas == 1){
+    double h = R*pow((1+xi)/(1-xi),2.0/3.0), w = R*pow((1-xi)/(1+xi),1.0/3.0);
+    if (xi < 0){//Oblate
+      double e = sqrt(1-h*h/(w*w));
+      Ep = 2*pi*w*w*(1 + (h*h/(e*w*w))* atanh(e));
+    }
+    else if (xi > 0){//Prolate
+      double e = sqrt(1-w*w/(h*h));
+      Ep = 2*pi*w*w*(1 + (h/(e*w))* asin(e));
+    }
+    else{
+      Ep = 4*pi*R*R;
+    }
+    Ep = Kelast*Ep;
+  }
+
+  return Ep;
+}
+
+double DElastPotEner(double Kelast, double xi, double R){
+  double DEp = 0.0;
+  int cas = 1;
+  if (cas == 0){//Elastic
+    DEp = -Kelast*xi;
+  }
+  else if(cas == 1){//Surface tension
+    //double h = R*pow((1.0+xi)/(1.0-xi),2.0/3.0), w = R*pow((1.0-xi)/(1.0+xi),1.0/3.0);
+    if (xi < 0){//Oblate
+      double sig = atanh(2.0*sqrt(-xi)/(xi-1.0));
+      DEp = -2.0*pi*R*R*pow(1.0+xi,-2.0/3.0)*pow(1.0-xi,2.0/3.0)*( (1.0+xi)/(2.0*xi*(xi-1))
+              + sig*pow(1.0+xi,3.0)/(4.0*pow(-xi,3.0/2.0)*pow(xi-1.0,2.0)) + 2.0*sig*(1.0+xi)/(sqrt(-xi)*pow(xi-1.0,2.0)) )
+            -(8.0/3.0)*pi*R*R*pow(1.0-xi,-1.0/3.0)*pow(1.0+xi,-5.0/3.0)*( 1.0 + sig*pow(1.0+xi,2.0)/(2.0*sqrt(-xi)*(xi-1.0)) );
+    }
+    else if (xi > 0){//Prolate
+      double sig = asin(2.0*sqrt(xi)/(1.0+xi));
+      DEp = -2.0*pi*R*R*pow(1.0+xi,-2.0/3.0)*pow(1.0-xi,2.0/3.0)*( (1.0+xi)/(2.0*xi*(xi-1.0))
+              + sig*(1.0+xi)/(4.0*pow(xi,3.0/2.0)) - sig*(1.0+xi)/(sqrt(xi)*pow(xi-1.0,2.0)) )
+            -(8.0/3.0)*pi*R*R*pow(1.0-xi,-1.0/3.0)*pow(1.0+xi,-5.0/3.0)*( 1.0 - sig*pow(1.0+xi,2.0)/(2.0*sqrt(xi)*(xi-1.0)) );
+    }
+    else{//Sphere
+      DEp = 0.0;
+    }
+    DEp = Kelast*DEp;
+  }
+
+  return DEp;
+}
+
+double DDElastPotEner(double Kelast, double xi, double R){
+  double DDEp = 0.0;
+  int cas = 1;
+  if (cas == 0){//Elastic
+    DDEp = -Kelast;
+  }
+  else if(cas == 1){
+    //double h = R*pow((1+xi)/(1-xi),2.0/3.0), w = R*pow((1-xi)/(1+xi),1.0/3.0);
+    if (xi < 0){//Oblate
+      double sig1 = atanh(2*sqrt(-xi)/(xi-1.0)), sig2 = pow(-xi,11.0/2.0);
+      DDEp = -pi*R*R/(36.0*sig2*pow(1.0-xi,13.0/3.0)*pow(1.0+xi,11.0/3.0)) * ( 54.0*pow(-xi,7.0/2.0)+84.0*pow(-xi,9.0/2.0)
+              -308.0*pow(-xi,7.0/2.0)*pow(-xi,11.0/2.0)-700.0*pow(-xi,13.0/2.0)-168.0*pow(-xi,15.0/2.0)+508.0*pow(-xi,17.0/2.0)
+              +404.0*pow(-xi,19.0/2.0)+108.0*pow(-xi,21.0/2.0)+18.0*pow(-xi,23.0/2.0)
+              -27.0*pow(xi,3.0)*sig1+33.0*pow(xi,4.0)*sig1+68.0*pow(xi,5.0)*sig1-172.0*pow(xi,6.0)*sig1-106.0*pow(xi,7.0)*sig1
+              +254.0*pow(xi,8.0)*sig1+116.0*pow(xi,9.0)*sig1-124.0*pow(xi,10.0)*sig1-51.0*pow(xi,11.0)*sig1+9.0*pow(xi,12.0)*sig1 );
+    }
+    else if (xi > 0){//Prolate
+      double sig = asin(2.0*sqrt(xi)/(1.0+xi));
+      DDEp = +pi*R*R/(36.0*pow(xi,5.0/2.0)*pow(1.0-xi,7.0/3.0)*pow(1.0+xi,8.0/3.0)) * ( 27*sig-47.0*pow(xi,2.0)*sig+92.0*pow(xi,3.0)*sig
+              +157.0*pow(xi,4.0)*sig+42.0*pow(xi,5.0)*sig-9.0*pow(xi,6.0)*sig-6.0*xi*sig
+              -54.0*pow(xi,1.0/2.0)+30.0*pow(xi,3.0/2.0)+284.0*pow(xi,5.0/2.0)-332.0*pow(xi,7.0/2.0)+90.0*pow(xi,9.0/2.0)-18.0*pow(xi,11.0/2.0) );
+    }
+    else{//Sphere
+      DDEp = 256.0*pi*R*R/45.0;
+    }
+    DDEp = Kelast*DDEp;
+  }
+
+  return DDEp;
 }
 
 #endif

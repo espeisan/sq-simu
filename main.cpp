@@ -219,6 +219,7 @@ void AppCtx::setUpDefaultOptions()
   nonlinear_elasticity   = PETSC_FALSE;
   mesh_adapt             = PETSC_TRUE;
   static_mesh            = PETSC_FALSE;
+  semi_static_mesh       = PETSC_FALSE;
   time_adapt             = PETSC_TRUE;
   fprint_hgv             = PETSC_FALSE;
   is_sslv                = PETSC_FALSE;
@@ -350,6 +351,7 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
   PetscOptionsBool("-nonlinear_elasticity", "put a non-linear term in the elasticity problem", "main.cpp", nonlinear_elasticity, &nonlinear_elasticity, PETSC_NULL);
   PetscOptionsBool("-mesh_adapt", "adapt the mesh during simulation", "main.cpp", mesh_adapt, &mesh_adapt, PETSC_NULL);
   PetscOptionsBool("-static_mesh", "have a static mesh during simulation", "main.cpp", static_mesh, &static_mesh, PETSC_NULL);
+  PetscOptionsBool("-semi_static_mesh", "have a semi static mesh during simulation", "main.cpp", semi_static_mesh, &semi_static_mesh, PETSC_NULL);
   PetscOptionsBool("-time_adapt", "adapt the time during simulation", "main.cpp", time_adapt, &time_adapt, PETSC_NULL);
   PetscOptionsBool("-curved_trian", "enable curved elements", "main.cpp", is_curvt, &is_curvt, PETSC_NULL);
   PetscOptionsBool("-solve_coupled_slip_velocity", "solve the slip velocity coupled with the UPS problem", "main.cpp", is_unksv, &is_unksv, PETSC_NULL);
@@ -602,20 +604,25 @@ bool AppCtx::getCommandLineOptions(int argc, char **/*argv*/)
       is >> rad1; is >> rad2; if(dim == 3){is >> rad3;}
       is >> the;
       is >> xg; is >> yg; if(dim == 3){is >> zg;}
-      if(n_modes > 0){
-        for (int nm = 0; nm < n_modes; nm++){is >> mode;}//TODO: modes > 1
-      }
-      if(n_links > 0){is >> llin;}
+
       rad << rad1, rad2, rad3;
-      Xg << xg, yg, zg;
-      MV.push_back(mass); RV.push_back(rad); VV.push_back(vol);
+      Xg  << xg, yg, zg;
+      MV.push_back(mass);      RV.push_back(rad);       VV.push_back(vol);
       XG_0.push_back(Xg);      XG_1.push_back(Xg);      XG_m1.push_back(Xg);      XG_ini.push_back(Xg);
       theta_0.push_back(the);  theta_1.push_back(the);  theta_m1.push_back(the);  theta_ini.push_back(the); //(rand()%6);
-      llink_0.push_back(llin); llink_1.push_back(llin); llink_m1.push_back(llin); llink_ini.push_back(llin); //(rand()%6);
-      modes_0.push_back(mode); modes_1.push_back(mode); modes_m1.push_back(mode); modes_ini.push_back(mode); //(rand()%6);
+      if(n_modes > 0){
+        for (int nm = 0; nm < n_modes; nm++){
+          is >> mode;
+          modes_0.push_back(mode); modes_1.push_back(mode); modes_m1.push_back(mode); modes_ini.push_back(mode); //(rand()%6);
+        }//TODO: modes > 1
+      }
+      if(n_links > 0){
+        is >> llin;
+        llink_0.push_back(llin); llink_1.push_back(llin); llink_m1.push_back(llin); llink_ini.push_back(llin); //(rand()%6);
+      }
     }
     is.close();
-    MV.resize(n_solids); RV.resize(n_solids); VV.resize(n_solids);
+    MV.resize(n_solids);      RV.resize(n_solids);      VV.resize(n_solids);
     XG_0.resize(n_solids);    XG_1.resize(n_solids);    XG_m1.resize(n_solids);    XG_ini.resize(n_solids);
     theta_0.resize(n_solids); theta_1.resize(n_solids); theta_m1.resize(n_solids); theta_ini.resize(n_solids);
     llink_0.resize(n_links);  llink_1.resize(n_links);  llink_m1.resize(n_links);  llink_ini.resize(n_links);
@@ -2160,7 +2167,7 @@ PetscErrorCode AppCtx::setUPInitialGuess()
   if (is_sflp){
     for (int nl = 0; nl < n_links; nl++){
       int dofs_sl = n_unknowns_u + n_unknowns_p + n_unknowns_z + nl;
-      double link_vel = DFlink(current_time,nl);
+      double link_vel = DFlink(current_time,nl);  //cout << link_vel << endl;
       VecSetValue(Vec_ups_1, dofs_sl, link_vel, INSERT_VALUES);
     }
   }
@@ -2260,7 +2267,8 @@ PetscErrorCode AppCtx::setInitialConditions()
     //eref(0) = XG_ini[1](0) - XG_ini[0](0);
     //eref(1) = XG_ini[1](1) - XG_ini[0](1);
     for (int nl = 0; nl < n_links; nl++){
-      eref = XG_0[nl+1] - XG_0[nl];
+      //eref = XG_0[nl+1] - XG_0[nl];  //TODO: this for inline links
+      eref = XG_0[nl+1] - XG_0[0];  //TODO: this for incross links
       eref.normalize();
       ebref.push_back(eref); //cout << ebref[nl].transpose() << endl;
 
@@ -2309,7 +2317,7 @@ PetscErrorCode AppCtx::setInitialConditions()
           //cout << Zf.transpose() << endl;
         }
         //Uf = SolidVel(X, XG_0[nodsum-1], Zf, dim);//, is_sflp, theta_0[nodsum-1], dllink, nodsum, ebref[0]);
-        Uf = SolidVelGen(X, XG_0[nodsum-1], theta_0[0], modes_0[0], Zf, dim, is_axis);
+        Uf = SolidVelGen(X, XG_0[nodsum-1], theta_0[0], modes_0[0], Zf, dim, is_axis, n_modes, modes_0);
         VecSetValues(Vec_ups_0, dim, dofs.data(), Uf.data(), INSERT_VALUES);
       }//////////////////////////////////////////////////
       if (nod_vs+nod_id){ ////////////////////////////////////////////////// //ojo antes solo nod_vs
@@ -2461,7 +2469,7 @@ PetscErrorCode AppCtx::setInitialConditions()
       //if (is_sfip){updateSolidMesh();} //extrap of mech. system dofs, and compatibilization of mesh through the mesh vel.
 
       //Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal//////////////////////////////////////////////////
-      if (mesh_adapt){if (is_sfim){meshAdapt_d();} else {meshAdapt_s();}}
+      if (mesh_adapt && pic == 0){if (is_sfim || is_sflp){meshAdapt_d();} else {meshAdapt_s();}}
       copyVec2Mesh(Vec_x_1);
       if (mesh_adapt){meshFlipping_s();}
       if (true) {CheckInvertedElements();}  //true just for mesh tests FIXME
@@ -2520,13 +2528,13 @@ PetscErrorCode AppCtx::setInitialConditions()
       //View(Vec_v_mid,"matrizes/vmid0.m","vm");
       ////////////////////////////////////////////////////////////////////////////////////////////////////
       //calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
-      if (true && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
+      if (false && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PI)*/){
         cout << "-----Interaction force calculation------" << endl;
         ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
         cout << "-----Interaction force extracted------" << endl;
-        extractForce(true);
       }
       // save data for current time ///////////////////////////////////////////////////////////////////
+      extractForce(true);
       getSolidVolume();
       saveDOFSinfo(0);
       if (family_files){plotFiles(1);}
@@ -2550,6 +2558,29 @@ PetscErrorCode AppCtx::setInitialConditions()
     }////////////////////////////////////////////////////////////////////////////////////////////////////
     //For regular Stokes moving mesh//////////////////////////////////////////////////
     else {
+      // this is only for the case of semi static mesh, for a static deformable swimmer ///////////////
+      if(semi_static_mesh){
+        VecZeroEntries(Vec_v_mid);
+        //save "velocity at infinity" constant vector field in vec_v_mid
+        VectorXd v_coeffs_s(LZ);
+        for (int l = 0; l < LZ; l++){
+          dofs_fs(l) = n_unknowns_u + n_unknowns_p + l;
+        }
+        VectorXi    node_dofs_mesh(dim);
+        Vector      tmp(dim), Y0(Vector::Zero(dim));
+        point_iterator point = mesh->pointBegin();
+        point_iterator point_end = mesh->pointEnd();
+        for (; point != point_end; ++point)  //to calculate Vec_v_mid at each point (initial guess)
+        {
+          getNodeDofs(&*point, DH_MESH, VAR_M, node_dofs_mesh.data());
+          tmp = v_exact(Y0, 0.0, tag);
+          VecSetValues(Vec_v_mid, dim, node_dofs_mesh.data(), tmp.data(), INSERT_VALUES);
+        }
+        VecGetValues(Vec_ups_1,dofs_fs.size(),dofs_fs.data(),v_coeffs_s.data());
+        //if (pic == 0){v_coeffs_s(1) = -0.315364702750772;}
+        VecScale(Vec_v_mid, max(v_coeffs_s(1),v_coeffs_s(0)));
+      }//////////////////////////////////////////////////////////////////////////////////////////
+
       if (time_step == 0){//this implies that the zero time solution is calculated instantly
                           //with the sufficient info known at this time, no need to make picard iterations
         //calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
@@ -2557,9 +2588,9 @@ PetscErrorCode AppCtx::setInitialConditions()
           cout << "-----Interaction force calculation------" << endl;
           ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
           cout << "-----Interaction force extracted------" << endl;
-          extractForce(false);
         }
         //save data for current time///////////////////////////////////////////////////////////////////
+        extractForce(false);
         getSolidVolume();
         saveDOFSinfo(0);
         if (family_files){plotFiles(1);}
@@ -2594,9 +2625,9 @@ PetscErrorCode AppCtx::setInitialConditions()
       cout << "-----Interaction force calculation------" << endl;
       ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
-      extractForce(false);
     }
     // save data for current time ///////////////////////////////////////////////////////////////////
+    extractForce(false);
     getSolidVolume();
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
@@ -2819,7 +2850,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
       //copyVec2Mesh(Vec_x_1);  //not sure if necessary
 
       //Mesh adaptation (it has topological changes) (2d only) it destroys Vec_normal//////////////////////////////////////////////////
-      if (mesh_adapt){if (is_sfim){meshAdapt_d();} else {meshAdapt_s();}}
+      if (mesh_adapt && pic == 0){if (is_sfim || is_sflp){meshAdapt_d();} else {meshAdapt_s();}}
       copyVec2Mesh(Vec_x_1);
       if (mesh_adapt){meshFlipping_s();}
       if (true) {CheckInvertedElements();}  //true just for mesh tests FIXME
@@ -2877,14 +2908,37 @@ PetscErrorCode AppCtx::solveTimeProblem()
       }
     }////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    // this is only for the case of semi static mesh, for a static deformable swimmer ///////////////
+    if(semi_static_mesh){
+      VecZeroEntries(Vec_v_mid);
+      //save "velocity at infinity" constant vector field in vec_v_mid
+      VectorXd v_coeffs_s(LZ); VectorXi  dofs_fs(LZ); int tag = 0;
+      for (int l = 0; l < LZ; l++){
+        dofs_fs(l) = n_unknowns_u + n_unknowns_p + l;
+      }
+      VectorXi    node_dofs_mesh(dim);
+      Vector      tmp(dim), Y0(Vector::Zero(dim));
+      point_iterator point = mesh->pointBegin();
+      point_iterator point_end = mesh->pointEnd();
+      for (; point != point_end; ++point)  //to calculate Vec_v_mid at each point (initial guess)
+      {
+        getNodeDofs(&*point, DH_MESH, VAR_M, node_dofs_mesh.data());
+        tmp = v_exact(Y0, 0.0, tag);
+        VecSetValues(Vec_v_mid, dim, node_dofs_mesh.data(), tmp.data(), INSERT_VALUES);
+      }
+      VecGetValues(Vec_ups_1,dofs_fs.size(),dofs_fs.data(),v_coeffs_s.data());
+      //if (pic == 0){v_coeffs_s(1) = -0.315364702750772;}
+      VecScale(Vec_v_mid, max(v_coeffs_s(1),v_coeffs_s(0)));
+    }////////////////////////////////////////////////////////////////////////////////////////////////////
+
     // calculate interaction force and prepare the slipvel, ftauforce and Fdforce to be printed///////////////
     if (false && is_sfip && ((flusoli_tags.size() != 0)||(slipvel_tags.size() != 0)) /*&& (pic+1 == PIs)*/){
       cout << "-----Interaction force calculation-----" << endl;
       ierr = SNESSolve(snes_fd,PETSC_NULL,Vec_fdis_0);  CHKERRQ(ierr);
       cout << "-----Interaction force extracted------" << endl;
-      extractForce(false);
     }
     // save data for current time ///////////////////////////////////////////////////////////////////
+    extractForce(false);
     getSolidVolume();
     saveDOFSinfo(1);
     if (family_files){plotFiles(1);}
@@ -4321,7 +4375,7 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
   Vector      Omega0(Vector::Zero(3)), Omega1(Vector::Zero(3));
   Vector      Z0(Vector::Zero(LZ)), Z1(Vector::Zero(LZ));
   Matrix3d    Id3(Matrix3d::Identity(3,3)), Qtmp;
-  double      theta_temp, omega0, omega1, modes0, modes1;
+  double      theta_temp, omega0, omega1, modes0, modes1, modes0b, modes1b;
   //cout << "here" << endl;
   for (int s = 0; s < n_solids; s++){
 
@@ -4335,13 +4389,22 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
     //VecGetValues(Vec_ups_1, 1, dof.data(), omega1.data());
     U0.head(dim) = Z0.head(dim); omega0 = Z0(LZ-(1+n_modes)); modes0 = Z0(LZ-1);
     U1.head(dim) = Z1.head(dim); omega1 = Z1(LZ-(1+n_modes)); modes1 = Z1(LZ-1);
+    if (n_modes == 2){
+      modes0 = Z0(LZ-2); modes1 = Z1(LZ-2);
+      modes0b = Z0(LZ-1); modes1b = Z1(LZ-1);
+    }
     if (dim == 2){Omega0(2) = omega0;     Omega1(2) = omega1;    }
     else{         Omega0    = Z0.tail(3); Omega1    = Z1.tail(3);}
+    if (semi_static_mesh){U0.setZero(); U1.setZero();} //TODO this is true only for semistatic case
 
     if (is_mr_qextrap && time_step > 0){
       XG_1[s]    = XG_0[s]    + stheta*dt*U1;  //equiv. to XG_1[s] = (1.0+stheta)*XG_0[s] - stheta*XG_m1[s];
       theta_1[s] = theta_0[s] + stheta*dt*omega1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
-      modes_1[s] = modes_0[s] + stheta*dt*modes1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
+      //modes_1[s] = modes_0[s] + stheta*dt*modes1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
+      modes_1[0] = modes_0[0] + stheta*dt*modes1;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
+      if (n_modes == 2){
+        modes_1[1] = modes_0[1] + stheta*dt*modes1b;  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
+      }
       //Qtmp = Id3 - stheta*dt*SkewMatrix(Z1.tail(3));
       //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
       Qtmp = Q_0[s] + dt*stheta*SkewMatrix(Omega1)*Q_0[s];
@@ -5199,7 +5262,7 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
   VectorXi mapvs(LZ*n_solids);
   Vector3d Xgg;
   Matrix3d Qrt;
-  double theta, modes;
+  double theta, modes, modesb;
 
   // Printing mech. dofs information //////////////////////////////////////////////////
   if (fprint_hgv && is_sfip){
@@ -5222,11 +5285,11 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
       filv << current_time << " ";
       filt << current_time << " ";
       for (int S = 0; S < n_solids/*(n_solids-1)*/; S++){
-        if (step == 0){Xgg = XG_0[S]; theta = theta_0[S]; Qrt = Q_0[S]; modes = modes_0[S];}
-        else          {Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_1[S]; modes = modes_1[S];}
-        filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta; if (is_sfim){filg << " " << modes;}
+        if (step == 0){Xgg = XG_0[S]; theta = theta_0[S]; Qrt = Q_0[S]; /*modes = modes_0[S];*/ modes = modes_0[0]; if (n_modes == 2){modesb = modes_0[1];}}
+        else          {Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_1[S]; /*modes = modes_1[S];*/ modes = modes_0[0]; if (n_modes == 2){modesb = modes_0[S];}}
+        filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta; if (is_sfim){filg << " " << modes; if (n_modes == 2){filg << " " << modesb;}}
         if (S < (n_solids-1)){filg << " ";}// << VV[S] << " ";
-        filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1)  << " " << v_coeffs_s(LZ*S+2); if (is_sfim){filv << " " << v_coeffs_s(LZ*S+3);}
+        filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1)  << " " << v_coeffs_s(LZ*S+2); if (is_sfim){filv << " " << v_coeffs_s(LZ*S+3); if (n_modes == 2){filv << " " << v_coeffs_s(LZ*S+4);}}
         if (S < (n_solids-1)){filv << " ";}
         filt << Qrt(0,0) << " " << Qrt(0,1) << " " << Qrt(0,2) << " "
              << Qrt(1,0) << " " << Qrt(1,1) << " " << Qrt(1,2) << " "
@@ -5394,7 +5457,7 @@ PetscErrorCode AppCtx::extractForce(bool print){
       }
       VecGetValues(Vec_ups_1, LZ, dofs_fs.data(), Zf.data());
       //Uf = SolidVel(Xj, XG, Zf, dim);
-      Uf = SolidVelGen(Xj, XG, theta_0[nod_vs+nod_id-1], modes_0[nod_vs+nod_id-1], Zf, dim, is_axis);
+      Uf = SolidVelGen(Xj, XG, theta_0[nod_vs+nod_id-1], modes_0[0/*nod_vs+nod_id-1*/], Zf, dim, is_axis, n_modes, modes_0);
       getNodeDofs(&*point,DH_UNKM,VAR_U,dofs_U.data());
       VecGetValues(Vec_ups_1, dim, dofs_U.data(), U.data());
       Sv = U - Uf;  //cout << VS.transpose() << endl;
@@ -5600,6 +5663,8 @@ PetscErrorCode AppCtx::CheckInvertedElements(){
         cout << "cell nodes:\n" << cell_nodes.transpose() << endl;
         cout << "mapM :\n" << mapM_c.transpose() << endl;
         inverted_elem = PETSC_TRUE;
+        saveDOFSinfo(1);
+        if (family_files){plotFiles(1);}
         freePetscObjs();
         PetscFinalize();
         cout << "Petsc Objects Destroyed. Saving Inverted Mesh." << endl;

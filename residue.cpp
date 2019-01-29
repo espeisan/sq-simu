@@ -958,7 +958,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           XIp   = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
           XIg   = XG_mid[nodsum-1];                //mass center, mid, _0, "new"
           //RotfI = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);  //cout << RotfI << endl;
-          RotfI = SolidVelGen(XIp, XIg, theta_1[nodsum-1], modes_1[nodsum-1], z_coefs_c_new_trans.col(i), dim, is_axis);
+          RotfI = SolidVelGen(XIp, XIg, theta_1[nodsum-1], modes_1[0/*nodsum-1*/], z_coefs_c_new_trans.col(i), dim, is_axis, n_modes, modes_1);
           //if (nod_sv){
           //  VecGetValues(Vec_slipv_1,  mapU_t.size(), mapU_t.data(), vs_coefs_c_new.data()); //cout << vs_coefs_c_new << endl << endl;
           //}
@@ -966,7 +966,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             FUloc(i*dim + c) = u_coefs_c_new(i,c) - 1*RotfI(c);// - vs_coefs_c_new(i,c);
             for (int D = 0; D < LZ; D++){
               //RotfJ = SolidVel(XIp, XIg, IdZ.col(D), dim);
-              RotfJ = SolidVelGen(XIp, XIg, theta_1[nodsum-1], modes_1[nodsum-1], IdZ.col(D), dim, is_axis);
+              RotfJ = SolidVelGen(XIp, XIg, theta_1[nodsum-1], modes_1[0/*nodsum-1*/], IdZ.col(D), dim, is_axis, n_modes, modes_1);
               Z1loc(i*dim+c,i*LZ+D) = -RotfJ(c);
             }
           }
@@ -1669,7 +1669,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             XIp   = x_coefs_c_new_trans.col(i); //ref point Xp, old, mid, or new
             XIg   = XG_mid[K-1];          //mass center, mid, _0, "new"
             //RotfI = SolidVel(XIp, XIg, z_coefs_c_new_trans.col(i), dim);
-            RotfI = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[K-1], z_coefs_c_new_trans.col(i), dim, is_axis);
+            RotfI = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[0/*K-1*/], z_coefs_c_new_trans.col(i), dim, is_axis, n_modes, modes_1);
 
             for (int c = 0; c < dim; ++c){
               FUloc_vs(i*dim + c) = u_coefs_c_mid_trans(c,i) - RotfI(c);// - is_unksv*vs_coefs_c_mid_trans(c,i);
@@ -1678,7 +1678,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
               }
               for (int D = 0; D < LZ; D++){
                 //RotfJ = SolidVel(XIp, XIg, IdZ.col(D), dim);
-                RotfJ = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[K-1], IdZ.col(D), dim, is_axis);
+                RotfJ = SolidVelGen(XIp, XIg, theta_1[K-1], modes_1[0/*K-1*/], IdZ.col(D), dim, is_axis, n_modes, modes_1);
                 Hq_vs(i*dim+c,i*LZ+D) = RotfJ(c);  //builds the elemental matrix H of solid generator movement
               }
             }
@@ -1700,7 +1700,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         // DOFS elimination //////////////////////////////////////////////////
         MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
-        VectorXi s_DOFS(LZ);
+        VectorXi s_DOFS(LZ); bool K0s = false;
         if (dim == 2){if (is_sfim){s_DOFS << 0,0,0,0;} else {s_DOFS << 0,0,0;}} // this eliminates all DOFS //<< 0, 1, 0;
         if (s_dofs_elim /*is_axis && is_sfip*/){// eliminating specific solid DOFS
           if (is_sflp){
@@ -1708,18 +1708,19 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
             PrjDOFS.setIdentity();
             for (int i = 0; i < n_dofs_u_per_cell/dim; ++i){
               int K = SV_c[i] + VS_c[i];
-              if (K == 1)
+              if (K == 1){//(K == 1)
+                //cout << "i'm at solid " << K << endl; K0s = true;
                 continue;  //eliminates all contribution in the jacobian for all bodies except for body K=1
-
+              }
               getProjectorDOFS(PrjDOFSlz, 1, s_DOFS.data(), *this);
               PrjDOFS.block(i*LZ,i*LZ,LZ,LZ) = PrjDOFSlz;
             }
             FZloc = PrjDOFS*FZloc;
             Z2loc = PrjDOFS*Z2loc;
             Z4loc = PrjDOFS*Z4loc;
-            Z3loc = Id_LZ - PrjDOFS;
+            Z3loc = Id_LZ - PrjDOFS;  //if (K0s){cout << Z3loc.transpose() << endl;}
           }
-          if (true /*is_axis*/){
+          if (false /*is_axis*/){//eliminates specific DOFS, used for example for axisymmetric, put false for links
             s_DOFS = DOFS_elimination(LZ);  //eliminates horizontal and rotational velocities
             getProjectorDOFS(PrjDOFS, n_dofs_u_per_cell/dim, s_DOFS.data(), *this);
             FZloc = PrjDOFS*FZloc;
@@ -2199,7 +2200,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
           DUelast(3) = +DElastPotEner(Kelast, modes_0[K] + smid*dt /*modes_1[K]*/, RV[K](0));
         }
       }
-      FZsloc = unsteady*MI*dZdt - MV[K]*Grav - Fpp - Fpw - Fv - Fdrg + DUelast; //plus Ulast because id [D2Lag dt - D1Lag] = Fgen
+      FZsloc = unsteady*MI*dZdt - MV[K]*Grav - Fpp - Fpw - Fv - Fdrg + DUelast; //plus Ulast because is [D2Lag dt - D1Lag] = Fgen
       Z3sloc = ddt_factor*MI/dt * unsteady /*+ dt/2.0 * MU * z_coefs_old*/;
       if (is_sfim){
         double smid = thetamet*z_coefs_new(3) + (1.0-thetamet)*z_coefs_old(3);
@@ -2248,12 +2249,15 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
     MatSetValues(*JJ, mapL_l.size(), mapL_l.data(), mapL_l.size(), mapL_l.data(), Zlsloc.data(), INSERT_VALUES);
 
     for (int K = 0; K < n_solids; K++){
+      //int Kref = K-1;  //TODO: this for inline links case
+      int Kref = 0;    //TODO: this for incross links case
+
       if (K == 0)
         continue;
 
       for (int C = 0; C < LZ; C++){
         mapZ_s(C) = n_unknowns_u + n_unknowns_p + LZ*K + C;
-        mapZ_t(C) = n_unknowns_u + n_unknowns_p + LZ*(K-1) + C;
+        mapZ_t(C) = n_unknowns_u + n_unknowns_p + LZ*(Kref) + C;
       }
 
       VecGetValues(Vec_ups_0, mapZ_s.size(), mapZ_s.data(), z_coefs_old.data());  //cout << z_coefs_old.transpose() << endl;
@@ -2264,17 +2268,17 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       z_coefs_mid_ref = utheta*z_coefs_new_ref + (1-utheta)*z_coefs_old_ref;
 
       // residual
-      FZsloc = -z_coefs_mid + LinksVelSim(XG_1[K], XG_1[K-1], theta_1[K-1], Q_1[K-1], z_coefs_mid_ref,
+      FZsloc = -z_coefs_mid + LinksVelSim(XG_1[K], XG_1[Kref], theta_1[Kref], Q_1[Kref], z_coefs_mid_ref,
                                           l_coefs_mid, K, ebref, dim, LZ);
       VecSetValues(Vec_fun_fs, mapZ_s.size(), mapZ_s.data(), FZsloc.data(), INSERT_VALUES);
 
       // jacobian
-      Z3sloc = SolidVelGrad(XG_1[K], XG_1[K-1], dim, LZ);
+      Z3sloc = SolidVelGrad(XG_1[K], XG_1[Kref], dim, LZ);
       MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_t.size(), mapZ_t.data(), Z3sloc.data(), INSERT_VALUES);
       Z3sloc = -TensorS::Identity(LZ,LZ);
       MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), mapZ_s.size(), mapZ_s.data(), Z3sloc.data(), INSERT_VALUES);
 
-      Lsloc = LinksVelSim(XG_1[K], XG_1[K], theta_1[K-1], Q_1[K-1], z_coefs_tmp, l_coefs_tmp, K, ebref, dim, LZ);
+      Lsloc = LinksVelSim(XG_1[K], XG_1[K], theta_1[Kref], Q_1[Kref], z_coefs_tmp, l_coefs_tmp, K, ebref, dim, LZ);
       MatSetValues(*JJ, mapZ_s.size(), mapZ_s.data(), 1, &mapL_l(K-1), Lsloc.data(), INSERT_VALUES);
 
     }
@@ -2582,7 +2586,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         Uqp     = u_coefs_f_mid_trans * phi_f[qp];
         if (is_fsi && is_unksv){//.col(0) is choosen because the S unknown is the same for any node: they are on the same body
           Usqp  = Uqp - 1.0*SolidVel(Xqp, XG_0[is_fsi-1], z_coefs_f_mid_trans.col(0), dim); //vs_coefs_f_mid_trans * phi_f[qp];
-          Umqp  = metav_coefs_f_mid_trans * phi_f[qp];  //cout << Umqp << endl;
+          Umqp  = metav_coefs_f_mid_trans * phi_f[qp];  //cout << Usqp.transpose() << "  " << Umqp.transpose() << endl; //cout << Umqp << endl;
         }
         //noi     = noi_coefs_f_new_trans * qsi_f[qp];
         if (is_sslv && false){ //for electrophoresis, TODO
@@ -2793,7 +2797,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       }
 
       // DOFS elimination //////////////////////////////////////////////////
-      if (s_dofs_elim /*is_axis && is_sfip*/){// eliminating specific solid DOFS
+      if (false && s_dofs_elim /*is_axis && is_sfip*/){// eliminating specific solid DOFS, put false for links
         MatrixXd PrjDOFS(n_dofs_z_per_facet,n_dofs_z_per_facet);
         MatrixXd PrjDOFSlz(LZ,LZ);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_facet,n_dofs_z_per_facet));

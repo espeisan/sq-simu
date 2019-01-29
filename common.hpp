@@ -355,7 +355,7 @@ inline Vector SolidVel(Vector const& X, Vector const& Xg, Vector const& Z, int d
 }
 
 inline Vector SolidVelGen(Vector const& X, Vector const& Xg, double const& theta, double const& xi,
-                          Vector const& Z, int dim, bool is_axis){
+                          Vector const& Z, int dim, bool is_axis, int n_modes, vector<double> modes){
   Vector R(dim);
   Vector2d Xe(Vector2d::Zero());
   Xe(0) = X(0)-Xg(0); Xe(1) = X(1)-Xg(1);
@@ -366,6 +366,9 @@ inline Vector SolidVelGen(Vector const& X, Vector const& Xg, double const& theta
     if (LZ > 3){
       Matrix2d Em(Matrix2d::Zero(2,2));
       Em = RotM2D(theta)*GammaElastMat(xi,1,is_axis)*GammaElastMat(xi,2,is_axis)*RotM2D(theta).transpose();
+      if (n_modes == 2){
+        Em = Em + RotM2D(theta)*GammaElastMat(xi,1,is_axis);
+      }
       Vector2d Ev(Vector2d::Zero(2));
       Ev = Em*Xe;
       R(0) = R(0) + Z(3)*Ev(0);
@@ -785,6 +788,7 @@ public:
   PetscBool   nonlinear_elasticity;
   PetscBool   mesh_adapt;
   PetscBool   static_mesh;
+  PetscBool   semi_static_mesh;
   PetscBool   time_adapt;
   PetscBool   is_mr_ab;
   PetscBool   is_bdf3;

@@ -1962,7 +1962,7 @@ double muu(int tag)
 {
 //  if (tag == 15)
 //  {
-    return 1;//1.0e-6;// 1.0e-6 /* gr/(um sec) */; //1.0e-3;//1.0/3.0;//1.0*0.1;
+    return 100;//1.0e-6;// 1.0e-6 /* gr/(um sec) */; //1.0e-3;//1.0/3.0;//1.0*0.1;
 //  }
 //  else
 //  {
@@ -1993,7 +1993,7 @@ Vector gravity(Vector const& X, int dim, int LZ){
 
   Vector f(Vector::Zero(LZ));
   if (dim == 2){
-    f(1) = 1*(-1.0);//-1.0e-3; //-1;//-980.0;//-8e-4;  //*1e3;
+    f(1) = 0*(+1.0);//-1.0e-3; //-1;//-980.0;//-8e-4;  //*1e3;
   }
   else if (dim == 3){
     f(2) = -980.0;  //-8e-4*1e4;
@@ -2089,7 +2089,7 @@ Vector v_exact(Vector const& X, double t, int tag) //(X,t,tag)
   double const x = X(0);
   double const y = X(1);
   Vector v(Vector::Zero(X.size()));
-  //v(0) = 1.0;
+  v(1) = 1.0;
 
   return v;
 }
@@ -2596,9 +2596,9 @@ Vector SlipVel(Vector const& X, Vector const& XG, Vector const& normal,
   }
   else if (cas == 3 && dim == 2)
   {//don't forget to put viscosity 1 for the unitary circular, spherical toy case
-    double psi = 0.0;
+    double psi = 0.0;  theta = pi/2.0; //use this last theta when the theta_0 of the init cond has to be set as zero
     psi = atan2PI(X(1)-XG(1),X(0)-XG(0));
-    double B1 = +0.5, B2 = +3.0;
+    double B1 = +1.0, B2 = +0.5;//B1 = +0.5, B2 = +3.0;
     double uthe = B1*sin(theta-psi) + B2*sin(theta-psi)*cos(theta-psi);
     //V(0) = +normal(1); V(1) = -normal(0);   //V(0) = -normal(1); V(1) = +normal(0);
     V = uthe*tau; V = uthe*tau;
@@ -2751,19 +2751,19 @@ Vector FtauForce(Vector const& X, Vector const& XG, Vector const& normal,
     f = uthe*tau;  //cout << V.transpose() << endl;
   }
   else if (cas == 3)//////////////////////////////////////////////////
-  {
+  {//for tangent force proportional to slip_vel - vmetachronal (is vmet=0, then remains only slip_vel)
     double a = 110.0e-0;
     double L = S_arcl(-a,0.0);
     double k = Kcte*muu(0)/L;
     Vector Vmet = SlipVel(X, XG, normal, dim, tag, theta, Kforp, nforp, t, Q, thetaDOF);
     double uthe = k*(Vs.dot(tau)-Vmet.dot(tau));
-    f = uthe*tau;
+    f = uthe*tau;  //cout << f.transpose() << endl;
   }
   else if (cas == 4)//////////////////////////////////////////////////
   {
     double a = 110.0e-0;
     double L = S_arcl(-a,0.0);
-    double k = 0.0; //Kcte*muu(0)/L;
+    double k = Kcte; //Kcte*muu(0)/L;
     Vector Vmet = SlipVel(X, XG, normal, dim, tag, theta, Kforp, nforp, t, Q, thetaDOF);
     double uthe = k*(Vmet.dot(tau));
     f = uthe*tau;
@@ -2778,7 +2778,7 @@ double DFtauForce(Vector const& X, Vector const& XG, Vector const& normal,
 {
   double a = 110.0e-0;
   double L = S_arcl(-a,0.0);
-  double k = 0.0; //Kcte*muu(0)/L;
+  double k = 0*Kcte; //Kcte*muu(0)/L;
   Vector tau(dim);
   tau(0) = +normal(1); tau(1) = -normal(0);  //tau(0) = -normal(1); tau(1) = +normal(0);
   double duthe = 0.0;
@@ -3042,14 +3042,14 @@ Vector Dexact_ellipse(double yb, Vector const& X0, Vector const& X2,
 double Flink(double t, int Nl){
   double ome = pi/2.0;
   double pha = 0*90.0*pi/180.0;
-  double alp = .6;
+  double alp = .3;
   double lmax = 1;
   double d = 0.0;
-  int cas = 3;
+  int cas = 1;
 
   if (cas == 1){
     d = +lmax*(alp + ((1-alp)/2.0) * (cos(ome*t + (Nl)*pha) + 1.0));
-    if (Nl == 1){d = 0;}
+    //if (Nl != 0 || Nl != 1){d = alp*lmax;}
   }
   else if (cas == 2){
     double P = 8;
@@ -3106,14 +3106,15 @@ double Flink(double t, int Nl){
 double DFlink(double t, int Nl){
   double ome = pi/2.0;
   double pha = 0*90.0*pi/180.0;
-  double alp = .6;
+  double alp = .4;
   double lmax = 1;
   double d = 0.0;
-  int cas = 3;
+  int cas = 7;
 
   if (cas == 1){
     d = -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl)*pha);
-    if (Nl == 1){d = 0;}
+    //if (Nl != 0 || Nl != 1){d = 0;}
+    //if (Nl == 0 || Nl == 1){d = 0;}
   }
   else if (cas == 2){
     double P = 8;
@@ -3148,7 +3149,7 @@ double DFlink(double t, int Nl){
     }
   }
   else if (cas == 4){
-    double P = 4;
+    double P = 8;
     double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
     if (Nl == 0){
       if     ((      0.0 <  tP)&&(tP <  P/4.0    )){d = - eps/(P/4.0);}
@@ -3163,6 +3164,152 @@ double DFlink(double t, int Nl){
       else if((3.0*P/4.0 <  tP)&&(tP <  P        )){d = + eps/(P/4.0);}
     }
   }
+  else if (cas == 5){
+    double P = 8.0;
+    double tP = t - floor(t/P)*P, eps = (1-alp)*lmax, lmin = alp*lmax;
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = - eps/(P/8.0);}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = + eps/(P/8.0);}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 1){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = - eps/(P/8.0);}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = + eps/(P/8.0);}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 2){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = - eps/(P/8.0);}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = + eps/(P/8.0);}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 3){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = - eps/(P/8.0);}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = + eps/(P/8.0);}
+    }
+  }
+  else if (cas == 6){
+    double P = 8.0;
+    double tP = t - floor(t/P)*P;
+    ome = 8.0*pi/P;
+
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-0.0*P/8.0));}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-3.0*P/8.0));}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 1){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-1.0*P/8.0));}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-4.0*P/8.0));}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 2){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0*P/8.0));}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-5.0*P/8.0));}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 3){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-3.0*P/8.0));}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-6.0*P/8.0));}
+    }
+  }
+  else if (cas == 7){
+    double P = 8.0;
+    double tP = t - floor(t/P)*P;
+    ome = 8.0*pi/P;
+
+    if (Nl == 0){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-0.0*P/8.0));}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-6.0*P/8.0));}
+    }
+    else if (Nl == 1){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-1.0*P/8.0));}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-5.0*P/8.0));}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 2){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-2.0*P/8.0));}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = 0.0;}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = 0.0;}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-4.0*P/8.0));}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+    else if (Nl == 3){
+      if     ((      0.0 <= tP)&&(tP < 1.0*P/8.0)){d = 0.0;}
+      else if((1.0*P/8.0 <= tP)&&(tP < 2.0*P/8.0)){d = 0.0;}
+      else if((2.0*P/8.0 <= tP)&&(tP < 3.0*P/8.0)){d = 0.0;}
+      else if((3.0*P/8.0 <= tP)&&(tP < 4.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-3.0*P/8.0));}
+      else if((4.0*P/8.0 <= tP)&&(tP < 5.0*P/8.0)){d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP-3.0*P/8.0));}
+      else if((5.0*P/8.0 <= tP)&&(tP < 6.0*P/8.0)){d = 0.0;}
+      else if((6.0*P/8.0 <= tP)&&(tP < 7.0*P/8.0)){d = 0.0;}
+      else if((7.0*P/8.0 <= tP)&&(tP < P        )){d = 0.0;}
+    }
+  }
+  else if (cas == 8){
+    double P = 8.0;
+    double tP = t - floor(t/P)*P;
+    ome = 8.0*pi/P;
+
+    if (Nl == 0){
+      d = -lmax*((1-alp)/2.0) * ome * sin(ome*(tP));
+    }
+  }
+
 
   return d;
 }
@@ -3234,7 +3381,7 @@ double ElastPotEner(double Kelast, double xi, double R){
   double Ep = 0.0;
   int cas = 1;
   if (cas == 0){//Elastic
-    Ep = -0.5*Kelast*xi*xi;
+    Ep = 0.5*Kelast*xi*xi;
   }
   else if(cas == 1){
     double h = R*pow((1+xi)/(1-xi),2.0/3.0), w = R*pow((1-xi)/(1+xi),1.0/3.0);
@@ -3259,7 +3406,7 @@ double DElastPotEner(double Kelast, double xi, double R){
   double DEp = 0.0;
   int cas = 1;
   if (cas == 0){//Elastic
-    DEp = -Kelast*xi;
+    DEp = Kelast*xi;
   }
   else if(cas == 1){//Surface tension
     //double h = R*pow((1.0+xi)/(1.0-xi),2.0/3.0), w = R*pow((1.0-xi)/(1.0+xi),1.0/3.0);
@@ -3288,7 +3435,7 @@ double DDElastPotEner(double Kelast, double xi, double R){
   double DDEp = 0.0;
   int cas = 1;
   if (cas == 0){//Elastic
-    DDEp = -Kelast;
+    DDEp = Kelast;
   }
   else if(cas == 1){
     //double h = R*pow((1+xi)/(1-xi),2.0/3.0), w = R*pow((1-xi)/(1+xi),1.0/3.0);

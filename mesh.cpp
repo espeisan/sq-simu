@@ -1527,7 +1527,10 @@ Vector AppCtx::vectorSolidMesh(int const K, Point const* point, int const vs)
   if (is_mr_qextrap || is_mr_ab){
     if (is_sfim){
       Matrix2d G1 = GammaElastMat(modes_1[K-1], 0, is_axis)*GammaElastMat(modes_0[K-1], 2, is_axis);
-      Gamma(0,0) = G1(0,0); Gamma(1,1) = G1(1,1);
+      if (n_modes == 2){
+        G1 = GammaElastMat(modes_1[0], 0, is_axis)*RotM2D(modes_1[1]).transpose()*RotM2D(modes_0[1])*GammaElastMat(modes_0[0], 2, is_axis);
+      }
+      Gamma(0,0) = G1(0,0); Gamma(1,1) = G1(1,1); Gamma(0,1) = G1(0,1); Gamma(1,0) = G1(1,0);
     }
     VecGetValues(Vec_x_0, dofs.size(), dofs.data(), X_0.data());
     X_1 = XG_1[K-1] + RotM(theta_1[K-1],Q_1[K-1],thetaDOF)*Gamma*RotM(theta_0[K-1],Q_0[K-1],thetaDOF).transpose()*(X_0 - XG_0[K-1]);//here it should be solve the fixed point problem

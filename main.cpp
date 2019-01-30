@@ -2798,7 +2798,7 @@ PetscErrorCode AppCtx::solveTimeProblem()
     cout << "--------------------------------------------------";
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    //Preparing data at time n//////////////////////////////////////////////////
+    //IMPORTANT!!! Preparing data at time n//////////////////////////////////////////////////
     VecCopy(Vec_x_0, Vec_x_aux);
     VecCopy(Vec_x_1, Vec_x_0);
     XG_m1 = XG_0; theta_m1 = theta_0; Q_m1  = Q_0; modes_m1 = modes_0;
@@ -4414,7 +4414,11 @@ PetscErrorCode AppCtx::moveSolidDOFs(double const stheta)
     else if (is_mr_ab && time_step > 0){
       XG_1[s]    = XG_0[s]    + dt*((1.0+stheta)*U1 - stheta*U0);
       theta_1[s] = theta_0[s] + dt*((1.0+stheta)*omega1 - stheta*omega0);
-      modes_1[s] = modes_0[s] + dt*((1.0+stheta)*modes1 - stheta*modes0);
+      //modes_1[s] = modes_0[s] + dt*((1.0+stheta)*modes1 - stheta*modes0);
+      modes_1[0] = modes_0[0] + dt*((1.0+stheta)*modes1 - stheta*modes0);  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
+      if (n_modes == 2){
+        modes_1[1] = modes_0[1] + dt*((1.0+stheta)*modes1b - stheta*modes0b);  //equiv. to theta_1[s] = (1.0+stheta)*theta_0[s] - stheta*theta_m1[s];
+      }
       //Qtmp = Id3 - stheta*dt*SkewMatrix(Z1.tail(3));
       //invert(Qtmp,dim); Q_1[s] = Qtmp*Q_0[s];
       Qtmp = Q_0[s] + dt*((1.0+stheta)*SkewMatrix(Omega1)*Q_1[s]
@@ -5286,7 +5290,7 @@ PetscErrorCode AppCtx::saveDOFSinfo(int step){
       filt << current_time << " ";
       for (int S = 0; S < n_solids/*(n_solids-1)*/; S++){
         if (step == 0){Xgg = XG_0[S]; theta = theta_0[S]; Qrt = Q_0[S]; /*modes = modes_0[S];*/ modes = modes_0[0]; if (n_modes == 2){modesb = modes_0[1];}}
-        else          {Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_1[S]; /*modes = modes_1[S];*/ modes = modes_0[0]; if (n_modes == 2){modesb = modes_0[S];}}
+        else          {Xgg = XG_1[S]; theta = theta_1[S]; Qrt = Q_1[S]; /*modes = modes_1[S];*/ modes = modes_0[0]; if (n_modes == 2){modesb = modes_0[1];}}
         filg << Xgg(0) << " " << Xgg(1); if (dim == 3){filg << " " << Xgg(2);} filg << " " << theta; if (is_sfim){filg << " " << modes; if (n_modes == 2){filg << " " << modesb;}}
         if (S < (n_solids-1)){filg << " ";}// << VV[S] << " ";
         filv << v_coeffs_s(LZ*S) << " " << v_coeffs_s(LZ*S+1)  << " " << v_coeffs_s(LZ*S+2); if (is_sfim){filv << " " << v_coeffs_s(LZ*S+3); if (n_modes == 2){filv << " " << v_coeffs_s(LZ*S+4);}}

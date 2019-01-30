@@ -1904,7 +1904,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 #endif
 
 // rot solid 2d axis: Reynolds calculations/////////////////////////////////////////////////////////////
-#if (true)
+#if (false)
 
 double pho(Vector const& X, int tag)
 {
@@ -2217,7 +2217,7 @@ Vector force_rgc(Vector const& Xi, Vector const& Xj, double const Ri, double con
 #endif
 
 // junction 2018/////////////////////////////////////////////////////////////
-#if (false)
+#if (true)
 
 double pho(Vector const& X, int tag)
 {

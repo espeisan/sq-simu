@@ -1701,7 +1701,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
         MatrixXd PrjDOFS(n_dofs_z_per_cell,n_dofs_z_per_cell);
         MatrixXd Id_LZ(MatrixXd::Identity(n_dofs_z_per_cell,n_dofs_z_per_cell));
         VectorXi s_DOFS(LZ); bool K0s = false;
-        if (dim == 2){if (is_sfim){s_DOFS << 0,0,0,0;} else {s_DOFS << 0,0,0;}} // this eliminates all DOFS //<< 0, 1, 0;
+        if (dim == 2){if (is_sfim){s_DOFS.Zero(LZ);/*s_DOFS << 0,0,0,0;*/} else {s_DOFS << 0,0,0;}} // this eliminates all DOFS //<< 0, 1, 0;
         if (s_dofs_elim /*is_axis && is_sfip*/){// eliminating specific solid DOFS
           if (is_sflp){
             MatrixXd PrjDOFSlz(LZ,LZ);
@@ -2192,7 +2192,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       double thetamet = 1.0;
       if (is_sfim){
         double smid = thetamet*z_coefs_new(3) + (1.0-thetamet)*z_coefs_old(3);
-        if (false){
+        if (true){
           //DUelast(3) = Kelast*modes_1[K];//+Kelast*z_coefs_mid(3)*dt*stheta); /*cout << DUelast.transpose() << endl;*/
           DUelast(3) = Kelast*(modes_0[K] + smid*dt);//Kelast*z_coefs_mid(3)*dt;
         }
@@ -2204,7 +2204,7 @@ PetscErrorCode AppCtx::formFunction_fs(SNES /*snes*/, Vec Vec_ups_k, Vec Vec_fun
       Z3sloc = ddt_factor*MI/dt * unsteady /*+ dt/2.0 * MU * z_coefs_old*/;
       if (is_sfim){
         double smid = thetamet*z_coefs_new(3) + (1.0-thetamet)*z_coefs_old(3);
-        if (false){
+        if (true){
           Z3sloc(3,3) = Z3sloc(3,3) + Kelast*dt*thetamet;
         }
         else{

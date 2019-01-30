@@ -366,13 +366,19 @@ inline Vector SolidVelGen(Vector const& X, Vector const& Xg, double const& theta
     if (LZ > 3){
       Matrix2d Em(Matrix2d::Zero(2,2));
       Em = RotM2D(theta)*GammaElastMat(xi,1,is_axis)*GammaElastMat(xi,2,is_axis)*RotM2D(theta).transpose();
-      if (n_modes == 2){
-        Em = Em + RotM2D(theta)*GammaElastMat(xi,1,is_axis);
-      }
       Vector2d Ev(Vector2d::Zero(2));
       Ev = Em*Xe;
       R(0) = R(0) + Z(3)*Ev(0);
       R(1) = R(1) + Z(3)*Ev(1);
+      if (n_modes == 2){
+        Matrix2d Lamb(Matrix2d::Zero(2,2)); Lamb(1,0) = 1.0; Lamb(0,1) = -1.0;
+        Em = RotM2D(theta)*GammaElastMat(xi,0,is_axis);
+        //Em = Em*Lamb*GammaElastMat(xi,2,is_axis)*RotM2D(theta).transpose();
+        Em = Em*RotM2D(modes[1]).transpose()*Lamb.transpose()*RotM2D(modes[1])*GammaElastMat(xi,2,is_axis)*RotM2D(theta).transpose();
+        Ev = Em*Xe;
+        R(0) = R(0) + Z(4)*Ev(0);
+        R(1) = R(1) + Z(4)*Ev(1);
+      }
     }
   }
   else if(dim == 3){

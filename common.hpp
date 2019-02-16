@@ -1061,6 +1061,7 @@ public:
   PetscErrorCode getMeshSizes();
   PetscErrorCode orthogTest(Vec const& Vec_0, Vec const& Vec_1);
   PetscErrorCode timeAdapt();
+  void writeFileMsh();//(const char* filename, Mesh * mesh);
 
   Vector3d Vsol, Wsol;
 

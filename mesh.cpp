@@ -4739,3 +4739,65 @@ PetscErrorCode AppCtx::meshAdapt_d()
 
   PetscFunctionReturn(0);
 }
+
+void AppCtx::writeFileMsh()//(const char* filename, Mesh * mesh)
+{
+  //FILE * file_ptr = fopen(filename, "w");
+  ofstream film;
+  char     mesm[PETSC_MAX_PATH_LEN], buffer[1000];
+  sprintf(mesm,"%s/mesh.msh",filehist_out.c_str());
+  film.open(mesm);
+  film.precision(16);
+
+  film << "$MeshFormat" << endl;
+  film << "2.2 0 8" << endl;
+  film << "$EndMeshFormat" << endl;
+  film << "$Nodes" << endl;
+
+  Point const* point(NULL);
+  const int n_nodes_total = mesh->numNodesTotal();
+  int pID;
+  Vector  Xj(dim);
+
+  sprintf(buffer,"%d",n_nodes_total);  film << buffer << endl;
+
+  for (int j = 0; j < n_nodes_total; j++){
+    point = mesh->getNodePtr(j);
+    pID = mesh->getPointId(&*point);
+    point->getCoord(Xj.data(),dim);
+    if (dim == 2) {film << pID+1 << " " << Xj(0) << " " << Xj(1) << " " << 0     << endl;}
+    else          {film << pID+1 << " " << Xj(0) << " " << Xj(1) << " " << Xj(2) << endl;}
+  }
+  film << "$EndNodes" << endl;
+  film << "$Elements" << endl;
+
+  Facet const* facet(NULL);
+  const int n_facets_total = mesh->numFacetsTotal();
+  Cell const* cell(NULL);
+  const int n_cells_total = mesh->numCellsTotal();
+
+  sprintf(buffer,"%d",0*n_facets_total+n_cells_total);  film << buffer << endl;
+
+  int ce = 1, tag, pts_id[15];
+/*  for (int j = 0; j < n_facets_total; j++){
+    facet = mesh->getFacetPtr(j);
+    tag = facet->getTag();
+    mesh->getFacetNodesId(&*facet, pts_id);
+    film << ce << " " << 1 << " " << 2 << " " << tag << " " << 1
+               << " " << pts_id[0]+1 << " " << pts_id[1]+1 << endl;
+    ce++;
+  }*/
+  for (int j = 0; j < n_cells_total; j++){
+    cell = mesh->getCellPtr(j);
+    tag = cell->getTag();
+    mesh->getCellNodesId(&*cell, pts_id);
+    film << ce << " " << 2 << " " << 2 << " " << tag << " " << 1
+               << " " << pts_id[0]+1 << " " << pts_id[1]+1 << " " << pts_id[2]+1 << endl;
+    ce++;
+  }
+
+  film << "$EndElements";
+  film.close();
+
+
+}

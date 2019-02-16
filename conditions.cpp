@@ -3109,7 +3109,7 @@ double DFlink(double t, int Nl){
   double alp = .4;
   double lmax = 1;
   double d = 0.0;
-  int cas = 7;
+  int cas = 6;
 
   if (cas == 1){
     d = -lmax*((1-alp)/2.0)*ome*sin(ome*t + (Nl)*pha);
